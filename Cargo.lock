@@ -143,6 +143,16 @@ version = "0.0.1"
 [[package]]
 name = "dimetric-host"
 version = "0.0.1"
+dependencies = [
+ "dimetric-core",
+ "dimetric-scene",
+ "dimetric-sim",
+ "indexmap",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "toml_edit",
+]
 
 [[package]]
 name = "dimetric-platform"
