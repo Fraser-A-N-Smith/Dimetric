@@ -105,9 +105,10 @@ fn arithmetic_is_identical_in_debug_and_release() {
     // rather than a reason to relax it.
     let mut acc = Fx::parse_exact("1.5").unwrap();
     for i in 1..500i32 {
-        acc = acc * Fx::HALF;
-        acc = acc + Fx::from_int(i % 7);
-        acc = acc - Fx::from_int(i % 5);
+        // The assign forms delegate to the same operators, so this covers both.
+        acc *= Fx::HALF;
+        acc += Fx::from_int(i % 7);
+        acc -= Fx::from_int(i % 5);
         acc = acc / 2;
         if i % 13 == 0 {
             acc = -acc;
