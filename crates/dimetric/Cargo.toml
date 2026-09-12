@@ -1,7 +1,22 @@
 [package]
 name = "dimetric"
+description = "A deterministic 2D game engine for top-down and isometric games."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "../../README.md"
+keywords = ["gamedev", "engine", "2d", "isometric", "deterministic"]
+categories = ["game-engines"]
 
 [dependencies]
+dimetric-core.workspace = true
+dimetric-scene.workspace = true
+dimetric-sim.workspace = true
+dimetric-render.workspace = true
+dimetric-audio.workspace = true
+dimetric-assets.workspace = true
+dimetric-host.workspace = true
+dimetric-platform.workspace = true

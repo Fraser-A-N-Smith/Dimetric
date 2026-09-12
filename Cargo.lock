@@ -206,6 +206,16 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 [[package]]
 name = "dimetric"
 version = "0.0.1"
+dependencies = [
+ "dimetric-assets",
+ "dimetric-audio",
+ "dimetric-core",
+ "dimetric-host",
+ "dimetric-platform",
+ "dimetric-render",
+ "dimetric-scene",
+ "dimetric-sim",
+]
 
 [[package]]
 name = "dimetric-agent"
@@ -224,10 +234,21 @@ dependencies = [
 [[package]]
 name = "dimetric-assets"
 version = "0.0.1"
+dependencies = [
+ "blake3",
+ "dimetric-core",
+ "serde",
+ "thiserror",
+ "toml_edit",
+]
 
 [[package]]
 name = "dimetric-audio"
 version = "0.0.1"
+dependencies = [
+ "dimetric-core",
+ "serde",
+]
 
 [[package]]
 name = "dimetric-core"
@@ -245,6 +266,12 @@ dependencies = [
 [[package]]
 name = "dimetric-editor"
 version = "0.0.1"
+dependencies = [
+ "dimetric-core",
+ "dimetric-host",
+ "serde",
+ "toml_edit",
+]
 
 [[package]]
 name = "dimetric-host"
@@ -263,10 +290,19 @@ dependencies = [
 [[package]]
 name = "dimetric-platform"
 version = "0.0.1"
+dependencies = [
+ "dimetric-core",
+ "dimetric-sim",
+]
 
 [[package]]
 name = "dimetric-render"
 version = "0.0.1"
+dependencies = [
+ "dimetric-core",
+ "dimetric-scene",
+ "serde",
+]
 
 [[package]]
 name = "dimetric-scene"

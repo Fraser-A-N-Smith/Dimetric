@@ -1,0 +1,166 @@
+//! Projection and draw ordering.
+
+use dimetric_core::{Fx, NodeUid, Vec2Fx};
+use dimetric_render::{build, Blend, Camera, DrawItem, Projection, SortKey};
+
+fn uid(s: &str) -> NodeUid {
+    NodeUid::parse(s).unwrap()
+}
+
+#[test]
+fn top_down_is_the_identity() {
+    let p = Projection::TopDown;
+    assert_eq!(p.to_screen(Vec2Fx::from_ints(12, -7)), (12.0, -7.0));
+    assert_eq!(p.matrix(), [1.0, 0.0, 0.0, 1.0]);
+}
+
+#[test]
+fn isometric_is_a_two_to_one_shear() {
+    let p = Projection::Isometric;
+    // One tile east is half a tile down and a tile right.
+    assert_eq!(p.to_screen(Vec2Fx::from_ints(1, 0)), (1.0, 0.5));
+    assert_eq!(p.to_screen(Vec2Fx::from_ints(0, 1)), (-1.0, 0.5));
+    assert_eq!(p.to_screen(Vec2Fx::ZERO), (0.0, 0.0));
+}
+
+#[test]
+fn projections_invert_themselves() {
+    for p in [Projection::TopDown, Projection::Isometric] {
+        for world in [(0.0f32, 0.0f32), (12.0, -7.0), (-3.5, 40.25)] {
+            let screen = p.to_screen(Vec2Fx::new(
+                Fx::from_f64_lossy(world.0 as f64),
+                Fx::from_f64_lossy(world.1 as f64),
+            ));
+            let back = p.to_world(screen);
+            assert!(
+                (back.0 - world.0).abs() < 1e-4 && (back.1 - world.1).abs() < 1e-4,
+                "{p:?} {world:?} -> {screen:?} -> {back:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_camera_round_trips_a_click_back_to_the_world() {
+    for projection in [Projection::TopDown, Projection::Isometric] {
+        let mut camera = Camera::new((320, 180));
+        camera.projection = projection;
+        camera.center = Vec2Fx::from_ints(100, 50);
+        camera.zoom = 2.0;
+        let world = Vec2Fx::from_ints(112, 64);
+        let screen = camera.world_to_screen(world);
+        let back = camera.screen_to_world(screen);
+        assert!(
+            (back.0 - 112.0).abs() < 0.01 && (back.1 - 64.0).abs() < 0.01,
+            "{projection:?}: {screen:?} -> {back:?}"
+        );
+    }
+}
+
+#[test]
+fn interpolation_stays_between_the_two_states() {
+    let a = Vec2Fx::from_ints(0, 0);
+    let b = Vec2Fx::from_ints(10, 20);
+    assert_eq!(Camera::interpolate(a, b, 0.0), (0.0, 0.0));
+    assert_eq!(Camera::interpolate(a, b, 1.0), (10.0, 20.0));
+    assert_eq!(Camera::interpolate(a, b, 0.5), (5.0, 10.0));
+    // Out-of-range alpha is clamped rather than extrapolated: a frame arriving
+    // late should not draw the player past where they will be.
+    assert_eq!(Camera::interpolate(a, b, 4.0), (10.0, 20.0));
+}
+
+#[test]
+fn layer_beats_depth_and_depth_beats_texture() {
+    let low_layer = SortKey::new(0, Fx::from_int(1000), 0, uid("n_aaaaaaaa"));
+    let high_layer = SortKey::new(1, Fx::from_int(-1000), 9, uid("n_aaaaaaaa"));
+    assert!(low_layer < high_layer, "layer must dominate");
+
+    let near = SortKey::new(0, Fx::from_int(10), 9, uid("n_aaaaaaaa"));
+    let far = SortKey::new(0, Fx::from_int(200), 0, uid("n_aaaaaaaa"));
+    assert!(near < far, "depth must beat texture");
+}
+
+#[test]
+fn negative_depth_sorts_before_positive_depth() {
+    let above = SortKey::new(0, Fx::from_int(-500), 0, uid("n_aaaaaaaa"));
+    let below = SortKey::new(0, Fx::from_int(500), 0, uid("n_aaaaaaaa"));
+    assert!(above < below, "negative depth must not wrap past positive");
+}
+
+#[test]
+fn identical_sprites_still_have_a_defined_order() {
+    // Two sprites at the same place on the same layer must not swap between
+    // runs; a golden-image test would catch it and nobody could explain it.
+    let a = SortKey::new(0, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    let b = SortKey::new(0, Fx::ZERO, 0, uid("n_bbbbbbbb"));
+    assert_ne!(a, b);
+}
+
+#[test]
+fn sub_unit_movement_does_not_change_sort_position() {
+    // Depth is quantised to whole units, so two nearly-coincident sprites do
+    // not flicker past each other as one drifts by a fraction of a pixel.
+    let a = SortKey::new(0, Fx::from_int(10), 0, uid("n_aaaaaaaa"));
+    let b = SortKey::new(0, Fx::parse_exact("10.25").unwrap(), 0, uid("n_aaaaaaaa"));
+    assert_eq!(a, b);
+}
+
+fn item(layer: i32, depth: i32, atlas: u16, blend: Blend, id: &str) -> DrawItem {
+    DrawItem {
+        key: SortKey::new(layer, Fx::from_int(depth), atlas, uid(id)),
+        atlas,
+        blend,
+        shader: 0,
+        pos: Vec2Fx::ZERO,
+        size: Vec2Fx::ONE,
+        modulate: [255; 4],
+        node: uid(id),
+    }
+}
+
+#[test]
+fn sprites_sharing_an_atlas_and_blend_mode_become_one_draw() {
+    let mut items = vec![
+        item(0, 10, 1, Blend::Alpha, "n_aaaaaaaa"),
+        item(0, 20, 1, Blend::Alpha, "n_bbbbbbbb"),
+        item(0, 30, 1, Blend::Alpha, "n_cccccccc"),
+    ];
+    let batches = build(&mut items);
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].count, 3);
+}
+
+#[test]
+fn batching_never_reorders_what_the_sort_decided() {
+    // An additive sprite between two alpha ones has to split the batch. Merging
+    // it away would draw something on top of what it should be behind.
+    let mut items = vec![
+        item(0, 30, 1, Blend::Alpha, "n_cccccccc"),
+        item(0, 10, 1, Blend::Alpha, "n_aaaaaaaa"),
+        item(0, 20, 1, Blend::Additive, "n_bbbbbbbb"),
+    ];
+    let batches = build(&mut items);
+    assert_eq!(batches.len(), 3, "the additive sprite splits the run");
+    let order: Vec<u64> = items.iter().map(|i| i.key.0).collect();
+    let mut sorted = order.clone();
+    sorted.sort_unstable();
+    assert_eq!(order, sorted, "items must end up in sort order");
+}
+
+#[test]
+fn batching_is_reproducible() {
+    let make = || {
+        vec![
+            item(1, 5, 2, Blend::Alpha, "n_ddddddd1"),
+            item(0, 30, 1, Blend::Alpha, "n_cccccccc"),
+            item(0, 10, 1, Blend::Additive, "n_aaaaaaaa"),
+            item(0, 10, 1, Blend::Alpha, "n_bbbbbbbb"),
+        ]
+    };
+    let (mut a, mut b) = (make(), make());
+    assert_eq!(build(&mut a), build(&mut b));
+    assert_eq!(
+        a.iter().map(|i| i.node).collect::<Vec<_>>(),
+        b.iter().map(|i| i.node).collect::<Vec<_>>()
+    );
+}

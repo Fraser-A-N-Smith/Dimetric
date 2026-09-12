@@ -1,7 +1,15 @@
 [package]
 name = "dimetric-editor"
+description = "The editor's view state. The egui client is not in this build."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
+dimetric-core.workspace = true
+dimetric-host.workspace = true
+serde.workspace = true
+toml_edit.workspace = true

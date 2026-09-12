@@ -238,7 +238,7 @@ pub fn apply(
             let mut node = Node::new(*id, kind.clone(), name.clone());
             node.props = props.clone();
             doc.scene.insert(node, parent_id)?;
-            write_node_table(doc, *id, kind, name, *parent, props);
+            write_node_table(doc, registry, *id, kind, name, *parent, props);
             Ok(vec![Command::DeleteNode { id: *id }])
         }
 
@@ -739,8 +739,10 @@ fn write_property(doc: &mut SceneDoc, uid: NodeUid, key: &str, value: Option<&Va
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_node_table(
     doc: &mut SceneDoc,
+    registry: &KindRegistry,
     id: NodeUid,
     kind: &str,
     name: &str,
@@ -754,10 +756,20 @@ fn write_node_table(
     if let Some(p) = parent {
         table["parent"] = toml_edit::value(p.to_text());
     }
+    let schema = registry.get(kind);
     let mut keys: Vec<&String> = props.keys().collect();
     keys.sort();
     for key in keys {
-        table[key.as_str()] = value_item(&props[key]);
+        // A property equal to its default is left out, exactly as canonical
+        // form leaves it out. The loader fills defaults back in, so writing
+        // them would only add noise to every diff.
+        let is_default = schema
+            .and_then(|s| s.property(key))
+            .and_then(|p| p.default.as_ref())
+            .is_some_and(|d| d == &props[key]);
+        if !is_default {
+            table[key.as_str()] = value_item(&props[key]);
+        }
     }
     sort_canonically(&mut table);
     push_node_table(doc, table);
