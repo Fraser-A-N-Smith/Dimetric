@@ -1,0 +1,20 @@
+[package]
+name = "m0-quad"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "M0 de-risking spike: one textured quad through wgpu, windowed and headless."
+
+[dependencies]
+# Depends on the engine for exactly two things: the fixed-timestep accumulator
+# and the projection matrix. Running the real ones against a real GPU is the
+# point of a spike; everything else here is disposable.
+dimetric-host = { path = "../../crates/dimetric-host" }
+dimetric-render = { path = "../../crates/dimetric-render" }
+dimetric-core = { path = "../../crates/dimetric-core" }
+
+wgpu = "30"
+winit = "0.30"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+png = "0.17"

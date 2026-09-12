@@ -164,3 +164,25 @@ fn batching_is_reproducible() {
         b.iter().map(|i| i.node).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn the_matrix_agrees_with_the_mapping_it_claims_to_encode() {
+    // `matrix()` is what a GPU applies; `to_screen()` is what sorting and
+    // picking use. Nothing checked they were the same transform, and the M0
+    // spike found them disagreeing by a transpose — which stayed plausible on
+    // screen, because the transpose of a 2:1 shear is another shear with the
+    // same determinant, so the quad had the right area and the wrong shape.
+    for projection in [Projection::TopDown, Projection::Isometric] {
+        let [a, b, c, d] = projection.matrix();
+        for (x, y) in [(1, 0), (0, 1), (3, -7), (-12, 5)] {
+            let expected = projection.to_screen(Vec2Fx::from_ints(x, y));
+            let (x, y) = (x as f32, y as f32);
+            // Row-major: the first row produces the screen x, the second y.
+            let applied = (a * x + b * y, c * x + d * y);
+            assert_eq!(
+                applied, expected,
+                "{projection:?} matrix disagrees with to_screen at ({x}, {y})"
+            );
+        }
+    }
+}

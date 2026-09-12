@@ -74,3 +74,54 @@ jobs:
       # in the job list rather than buried in test output.
       - name: Replay fixtures
         run: cargo test -p dimetric-agent --test fixtures
+
+  # M0 — the de-risking spike. Its own job because it is its own workspace and
+  # pulls in wgpu and winit, which nothing in the engine should build.
+  #
+  # The bar the design document sets for M0 is exactly this: a textured quad
+  # renders on Windows, macOS and Linux in CI. The spike asserts its own output
+  # — coverage and bounding box — so a zero exit is the assertion, not just
+  # evidence that the process did not crash.
+  m0-spike:
+    name: M0 spike on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: spikes/m0-quad
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/m0-quad
+
+      # Build runners have no GPU. lavapipe is Mesa's software Vulkan driver and
+      # is what makes a headless render possible at all on Linux; macOS has
+      # Metal and Windows has WARP without any extra installation.
+      - name: Install a software Vulkan driver
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+        working-directory: .
+
+      - name: Build
+        run: cargo build
+
+      - name: Render a quad, top-down
+        run: cargo run -- --headless --projection top-down --out frame-top-down.png
+
+      - name: Render a quad, isometric
+        run: cargo run -- --headless --projection isometric --out frame-isometric.png
+
+      # Uploaded so the three platforms' output can be compared by eye. This is
+      # what answers whether the golden-image job planned for M3 can compare
+      # exactly or needs a tolerance — a question no amount of local testing on
+      # one machine can settle.
+      - name: Keep the frames
+        uses: actions/upload-artifact@v4
+        with:
+          name: m0-frames-${{ matrix.os }}
+          path: spikes/m0-quad/*.png
