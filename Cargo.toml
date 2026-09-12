@@ -1,0 +1,49 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dimetric",
+    "crates/dimetric-core",
+    "crates/dimetric-platform",
+    "crates/dimetric-scene",
+    "crates/dimetric-sim",
+    "crates/dimetric-render",
+    "crates/dimetric-audio",
+    "crates/dimetric-assets",
+    "crates/dimetric-host",
+    "crates/dimetric-editor",
+    "crates/dimetric-agent",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dimetric/dimetric"
+authors = ["The Dimetric authors"]
+
+[workspace.dependencies]
+dimetric-core = { path = "crates/dimetric-core", version = "0.0.1" }
+dimetric-platform = { path = "crates/dimetric-platform", version = "0.0.1" }
+dimetric-scene = { path = "crates/dimetric-scene", version = "0.0.1" }
+dimetric-sim = { path = "crates/dimetric-sim", version = "0.0.1" }
+dimetric-render = { path = "crates/dimetric-render", version = "0.0.1" }
+dimetric-audio = { path = "crates/dimetric-audio", version = "0.0.1" }
+dimetric-assets = { path = "crates/dimetric-assets", version = "0.0.1" }
+dimetric-host = { path = "crates/dimetric-host", version = "0.0.1" }
+dimetric-editor = { path = "crates/dimetric-editor", version = "0.0.1" }
+
+fixed = { version = "1.29", features = ["serde"] }
+slotmap = { version = "1.0", features = ["serde"] }
+indexmap = { version = "2", features = ["serde"] }
+toml_edit = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+blake3 = "1"
+clap = { version = "4", features = ["derive"] }
+proptest = "1"
+
+[profile.release]
+overflow-checks = true
