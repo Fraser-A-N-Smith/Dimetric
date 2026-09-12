@@ -165,7 +165,7 @@ Dependencies run strictly downward and CI enforces it.
 | M1 | Core and scenes | done — exact fixed point, `.dim` round trip, prefab overrides |
 | M2 | Determinism harness | done — snapshots, state hashing, replay with first-divergence reporting |
 | M3 | Renderer | projection, sort keys and batching done; **no wgpu backend** |
-| M4 | Scripting | done — mlua, handles, sandbox, structured errors |
+| M4 | Scripting | done — mlua, handles, sandbox, structured errors, cost measured at 2000 entities |
 | M5 | Physics | done — spatial hash, swept movement with sliding, triggers |
 | M6 | Assets, tiles, audio | tile editing and voice management done; **no image decoding, no LDtk import, no audio device** |
 | M7 | Editor | sidecar format only; **no egui client** |
@@ -186,6 +186,11 @@ invariant lint, the dependency-direction check and scene canonical form.
 
 If you touch `dimetric-core`, `dimetric-scene` or `dimetric-sim`, add a replay
 fixture under `tests/replay/` covering what you changed.
+
+`cargo bench -p dimetric-sim` measures what a Lua node handle costs, at entity
+counts the slice game will reach. Its findings are in the benchmark's own
+documentation. The short version: handle validation is cheap and flat, and
+`scene.find` is not — resolve paths once in `on_ready` and keep the id.
 
 ## Documentation
 
