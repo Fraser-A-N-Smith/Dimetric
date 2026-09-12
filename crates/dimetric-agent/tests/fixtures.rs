@@ -132,3 +132,55 @@ fn replaying_a_fixture_twice_gives_the_same_hashes() {
         );
     }
 }
+
+/// The example project, replayed with the exact files the README tells people
+/// to use.
+///
+/// Without this the README rots quietly: the commands keep parsing, the example
+/// keeps loading, and the recorded run stops matching without anyone noticing
+/// until they copy a command out of the documentation and it fails.
+#[test]
+fn the_example_project_replays_as_the_readme_says_it_does() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/sorcerer")
+        .canonicalize()
+        .expect("examples/sorcerer exists");
+
+    let mut project = Project::open(&dir, 0);
+    project
+        .load_scene("arena01")
+        .unwrap_or_else(|d| panic!("{d}"));
+
+    let log = InputLog::parse(&read(&dir, "tests/walk-and-cast.input")).expect("input log");
+    let recorded = HashLog::parse(&read(&dir, "tests/arena01.hashes")).expect("hash log");
+    let probes = parse_probes(&read(&dir, "tests/arena01.probes")).expect("probes");
+
+    let (scene, mut diags) = project.runtime_scene().unwrap_or_else(|d| panic!("{d}"));
+    diags.extend(project.load_scripts());
+    let mut host = LuaHost::new(60).expect("lua host");
+    for (path, source) in &project.scripts {
+        host.load(path, source)
+            .unwrap_or_else(|d| panic!("{path}: {d}"));
+    }
+    assert!(!diags.has_errors(), "{diags}");
+
+    let report = Replay {
+        log: &log,
+        ticks: Some(recorded.hashes.len() as u64),
+        expected: Some(&recorded.hashes),
+        probes: &probes,
+    }
+    .run(scene, Box::new(host), SimConfig::default());
+
+    if let Some(divergence) = &report.divergence {
+        panic!("{}", dimetric_host::replay::describe(divergence));
+    }
+    let failed: Vec<String> = report
+        .probes
+        .iter()
+        .filter(|p| !p.passed)
+        .map(|p| p.to_string())
+        .collect();
+    assert!(failed.is_empty(), "{}", failed.join("\n  "));
+    assert!(!report.diagnostics.has_errors(), "{}", report.diagnostics);
+}
