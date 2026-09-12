@@ -106,6 +106,7 @@ macro_rules! codes {
 
 codes! {
     // 01xx — scene structure
+    PARSE_FAILED      = "DIM0100", Error,   "File is not well-formed TOML";
     UNKNOWN_KIND      = "DIM0101", Error,   "Unknown node kind";
     DUPLICATE_ID      = "DIM0102", Error,   "Duplicate node id";
     DANGLING_PARENT   = "DIM0103", Error,   "Dangling parent reference";
@@ -116,6 +117,7 @@ codes! {
     MISSING_ROOT      = "DIM0108", Error,   "Scene declares a root that does not exist";
     BAD_ID_FORM       = "DIM0109", Error,   "Malformed node id";
     BAD_HEADER        = "DIM0110", Error,   "Missing or unsupported format header";
+    MISSING_KEY       = "DIM0111", Error,   "A block is missing a key it must have";
 
     // 02xx — values
     TYPE_MISMATCH     = "DIM0201", Error,   "Property type mismatch";
