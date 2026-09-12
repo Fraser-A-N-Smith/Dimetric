@@ -33,7 +33,10 @@ pub mod write;
 pub use chunk::{Chunk, ChunkData, CHUNK_CELLS, CHUNK_SIZE};
 pub use instance::{resolve, SceneSource};
 pub use node::{Connection, Node, Override, ParentRef, Transform};
-pub use parse::{parse, ParseOutput, SceneDoc, FORMAT_TAG, FORMAT_VERSION};
+pub use parse::{
+    parse, parse_property_literal, parse_value_literal, property_type_of, ParseOutput,
+    SceneDoc, FORMAT_TAG, FORMAT_VERSION,
+};
 pub use schema::{KindRegistry, NodeKindSchema, PropertySchema, PropertyType, RESERVED_KEYS};
 pub use tree::Scene;
 pub use value::{Color, Reference, Value};

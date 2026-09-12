@@ -1,0 +1,13 @@
+# Assertions checked during replay. An agent writes these to verify its own
+# work without having to read a state dump by eye.
+
+# Both skeletons exist and are closing on the player.
+tick 119 /Arena01/Skeleton_01 exists == true
+tick 119 /Arena01/Skeleton_01 pos.x < 100.0
+tick 119 /Arena01/Skeleton_02 pos.x < 160.0
+
+# Nothing has taken damage yet, so health is untouched.
+tick 119 /Arena01/Skeleton_01 var:health == 40
+
+# The arena counted its enemies.
+tick 119 /Arena01 var:enemy_count == 2

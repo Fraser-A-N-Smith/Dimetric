@@ -180,6 +180,90 @@ pub fn parse(source: &str, path: &str, registry: &KindRegistry) -> ParseOutput {
     }
 }
 
+/// Parse a single value literal against a declared type.
+///
+/// This is how the CLI and the MCP server turn `radius=72.0` on a command line
+/// into a typed value. It goes through the same reader the scene loader uses,
+/// so a value an agent writes is validated exactly as a value in a file is —
+/// `DIM0203` included.
+pub fn parse_value_literal(text: &str, ty: &PropertyType) -> Result<Value, Diagnostic> {
+    let wrapped = format!("x = {text}");
+    let doc: DocumentMut = wrapped.parse().map_err(|e: toml_edit::TomlError| {
+        Diagnostic::new(
+            Code::TYPE_MISMATCH,
+            format!("{text:?} is not a TOML value: {e}"),
+        )
+        .with_field("literal", text.to_string())
+    })?;
+    let value = doc
+        .get("x")
+        .and_then(Item::as_value)
+        .ok_or_else(|| Diagnostic::new(Code::TYPE_MISMATCH, format!("{text:?} is not a value")))?;
+    let mut diags = Diagnostics::new();
+    let registry = KindRegistry::empty();
+    let mut cx = Cx {
+        path: "<argument>",
+        registry: &registry,
+        diags: &mut diags,
+    };
+    let lines = KeyLines::new();
+    read_typed(value, ty, "value", &lines, &mut cx)
+}
+
+/// Parse a value literal for a named property of a node kind.
+pub fn parse_property_literal(
+    registry: &KindRegistry,
+    kind: &str,
+    key: &str,
+    text: &str,
+) -> Result<Value, Diagnostic> {
+    let ty = property_type_of(registry, kind, key)?;
+    parse_value_literal(text, &ty)
+}
+
+/// The declared type of a property, including the reserved keys.
+pub fn property_type_of(
+    registry: &KindRegistry,
+    kind: &str,
+    key: &str,
+) -> Result<PropertyType, Diagnostic> {
+    Ok(match key {
+        "pos" | "scale" => PropertyType::Vec2,
+        "rot" => PropertyType::Angle,
+        "visible" => PropertyType::Bool,
+        "z" | "layer" => PropertyType::Int,
+        "name" => PropertyType::Str,
+        "script" => PropertyType::ScriptRef,
+        "scene" => PropertyType::SceneRef,
+        _ => {
+            let schema = registry.get(kind).ok_or_else(|| {
+                Diagnostic::new(
+                    Code::UNKNOWN_KIND,
+                    format!("no node kind named {kind:?} is registered"),
+                )
+                .with_field("kind", kind.to_string())
+            })?;
+            let prop = schema.property(key).ok_or_else(|| {
+                let suggestion = nearest(key, schema.properties.iter().map(|p| p.name.as_str()));
+                let mut d = Diagnostic::new(
+                    Code::UNKNOWN_PROPERTY,
+                    match &suggestion {
+                        Some(s) => format!("{kind} has no property {key:?}; did you mean {s:?}?"),
+                        None => format!("{kind} has no property {key:?}"),
+                    },
+                )
+                .with_field("kind", kind.to_string())
+                .with_field("property", key.to_string());
+                if let Some(s) = suggestion {
+                    d = d.with_field("suggestion", s);
+                }
+                d
+            })?;
+            prop.ty.clone()
+        }
+    })
+}
+
 struct Cx<'a> {
     path: &'a str,
     registry: &'a KindRegistry,
@@ -364,6 +448,21 @@ fn parse_node(
                 node.props.insert(key.to_string(), v);
             }
             Err(d) => cx.diags.push(d.with_field("id", uid.to_text())),
+        }
+    }
+
+    // Fill in defaults for anything the file left out.
+    //
+    // Without this, a node's property set depends on which keys the author
+    // happened to write, and two scenes that behave identically hash
+    // differently — which means `scene fmt`, whose whole job is to omit
+    // defaults, would change a replay. Defaults belong in the model; the file
+    // is free to leave them out.
+    for prop in &schema.properties {
+        if let Some(default) = &prop.default {
+            if !node.props.contains_key(&prop.name) {
+                node.props.insert(prop.name.clone(), default.clone());
+            }
         }
     }
 

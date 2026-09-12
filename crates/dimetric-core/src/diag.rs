@@ -152,6 +152,10 @@ codes! {
     REPLAY_DIVERGED   = "DIM0701", Error,   "Replay state hash diverged from the recorded log";
     PROBE_FAILED      = "DIM0702", Error,   "Replay probe assertion failed";
     LOG_MISMATCH      = "DIM0703", Error,   "Input log was recorded against a different scene or engine version";
+
+    // 08xx — tooling
+    NOT_IMPLEMENTED   = "DIM0801", Error,   "The command exists but this build does not implement it yet";
+    BAD_ARGUMENT      = "DIM0802", Error,   "A command-line argument could not be parsed";
 }
 
 /// Look up a registered code.

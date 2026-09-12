@@ -1,0 +1,51 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Arena01"
+script = "script:scripts/arena.lua"
+
+[[node]]
+id = "n_floor000"
+kind = "TileLayer"
+name = "Floor"
+parent = "n_root0000"          # /Arena01
+tileset = "asset:tilesets/dungeon"
+
+[[node]]
+id = "n_player00"
+kind = "Collider"
+name = "Player"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/player.lua"
+pos = [64.0, 96.0]
+tags = ["player"]
+collision_mask = 3
+radius = 6.0
+shape = "Circle"
+
+[[node]]
+id = "n_skel0001"
+kind = "Instance"
+name = "Skeleton_01"
+parent = "n_root0000"          # /Arena01
+scene = "scene:prefabs/skeleton"
+pos = [160.0, 96.0]
+
+[[node]]
+id = "n_skel0002"
+kind = "Instance"
+name = "Skeleton_02"
+parent = "n_root0000"          # /Arena01
+scene = "scene:prefabs/skeleton"
+pos = [200.0, 140.0]
+
+[[override]]
+instance = "n_skel0002"        # /Arena01/Skeleton_02
+target = "n_sk_root0"
+radius = 9.0

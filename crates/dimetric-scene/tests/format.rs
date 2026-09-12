@@ -576,3 +576,43 @@ fn hand_written_ids_survive_a_round_trip_unchanged() {
     assert!(!diags.has_errors(), "{diags}");
     assert_eq!(doc.unwrap().to_text(), SKELETON);
 }
+
+#[test]
+fn formatting_a_scene_does_not_change_its_state_hash() {
+    // Canonical form omits properties equal to their default. If the loader
+    // did not fill those defaults back in, `dim scene fmt` would silently
+    // change every recorded replay — a formatter that alters behaviour is
+    // worse than no formatter.
+    let (doc, _) = load(ARENA);
+    let scene = doc.unwrap().scene;
+    let mut before = dimetric_core::StateHasher::new();
+    scene.hash_state(&mut before);
+
+    let canonical = dimetric_scene::write::to_canonical_text(&scene, &registry(), None);
+    assert!(
+        !canonical.contains("collision = false"),
+        "the formatter should be omitting defaults, or this test proves nothing"
+    );
+    let (reloaded, diags) = load(&canonical);
+    assert!(!diags.has_errors(), "{diags}");
+    let mut after = dimetric_core::StateHasher::new();
+    reloaded.unwrap().scene.hash_state(&mut after);
+
+    assert_eq!(before.finish(), after.finish());
+}
+
+#[test]
+fn a_node_carries_its_defaults_whether_or_not_the_file_spells_them_out() {
+    let (doc, _) = load(ARENA);
+    let scene = doc.unwrap().scene;
+    let floor = scene.resolve_path("/Arena01/Floor").unwrap();
+    // `collision` is absent from the file; the model still has it.
+    assert_eq!(
+        scene.get(floor).unwrap().get("collision"),
+        Some(&Value::Bool(false))
+    );
+    assert_eq!(
+        scene.get(floor).unwrap().get("modulate"),
+        Some(&Value::Color(dimetric_scene::Color::WHITE))
+    );
+}
