@@ -66,9 +66,10 @@ impl CommandBus {
         doc: &mut SceneDoc,
         registry: &KindRegistry,
     ) -> Result<Command, Diagnostic> {
-        let entry = self.undo.pop().ok_or_else(|| {
-            Diagnostic::new(Code::NOTHING_TO_UNDO, "there is nothing to undo")
-        })?;
+        let entry = self
+            .undo
+            .pop()
+            .ok_or_else(|| Diagnostic::new(Code::NOTHING_TO_UNDO, "there is nothing to undo"))?;
         for step in &entry.inverse {
             apply(doc, registry, step)?;
         }
@@ -83,9 +84,10 @@ impl CommandBus {
         doc: &mut SceneDoc,
         registry: &KindRegistry,
     ) -> Result<Command, Diagnostic> {
-        let entry = self.redo.pop().ok_or_else(|| {
-            Diagnostic::new(Code::NOTHING_TO_UNDO, "there is nothing to redo")
-        })?;
+        let entry = self
+            .redo
+            .pop()
+            .ok_or_else(|| Diagnostic::new(Code::NOTHING_TO_UNDO, "there is nothing to redo"))?;
         // Re-apply the original and recompute its inverse rather than trusting
         // the stored one: the scene may have been rebuilt since, and a stale
         // inverse is worse than no inverse.

@@ -4,32 +4,29 @@ version = 1
 [scene]
 root = "n_sk_root0"
 
-# The collider IS the body. Physics moves this node, and anything that should
-# move with the skeleton parents under it.
-
 [[node]]
 id = "n_sk_root0"
 kind = "Collider"
 name = "Skeleton"
 script = "script:scripts/skeleton.lua"
 tags = ["enemy"]
-shape = "Circle"
-radius = 7.0
 collision_layer = 2
 collision_mask = 3
+radius = 7.0
+shape = "Circle"
 
 [[node]]
 id = "n_sk_stats"
 kind = "Node"
 name = "Stats"
-parent = "n_sk_root0"
+parent = "n_sk_root0"          # /Skeleton
 
 [[node]]
 id = "n_sk_hurt0"
 kind = "Area"
 name = "Hurtbox"
-parent = "n_sk_root0"
-shape = "Circle"
-radius = 9.0
+parent = "n_sk_root0"          # /Skeleton
 collision_layer = 2
 collision_mask = 4
+radius = 9.0
+shape = "Circle"

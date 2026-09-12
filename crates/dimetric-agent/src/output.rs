@@ -36,7 +36,10 @@ impl Output {
                 "result": self.body,
                 "warnings": self.warnings,
             });
-            println!("{}", serde_json::to_string_pretty(&envelope).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&envelope).unwrap_or_default()
+            );
         } else {
             if !self.text.is_empty() {
                 println!("{}", self.text.trim_end());
@@ -55,7 +58,10 @@ pub fn emit_error(diagnostics: &Diagnostics, as_json: bool) {
             "ok": false,
             "diagnostics": diagnostics,
         });
-        println!("{}", serde_json::to_string_pretty(&envelope).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&envelope).unwrap_or_default()
+        );
     } else {
         for d in diagnostics.iter() {
             eprintln!("{d}");

@@ -60,6 +60,8 @@ impl UserData for LuaFx {
         m.add_method("floor", |_, this, ()| Ok(this.0.floor_int()));
         m.add_method("round", |_, this, ()| Ok(this.0.round_int()));
         m.add_method("sqrt", |_, this, ()| Ok(LuaFx(this.0.sqrt())));
+        // I3-exempt: handing a scalar to Lua is the scripting boundary. What
+        // comes back is converted with deterministic rounding, never accumulated.
         m.add_method("tonumber", |_, this, ()| Ok(this.0.to_f64()));
         m.add_meta_method("__add", |_, this, other: LuaFx| Ok(LuaFx(this.0 + other.0)));
         m.add_meta_method("__sub", |_, this, other: LuaFx| Ok(LuaFx(this.0 - other.0)));
@@ -78,6 +80,8 @@ impl mlua::FromLua for LuaFx {
         match value {
             mlua::Value::UserData(ud) => Ok(*ud.borrow::<LuaFx>()?),
             mlua::Value::Integer(i) => Ok(LuaFx(Fx::from_int(i as i32))),
+            // I3-exempt: the scripting boundary. Lua numbers are f64 and this
+            // is the single point where one becomes a scalar.
             mlua::Value::Number(n) => Ok(LuaFx(Fx::from_f64_lossy(n))),
             other => Err(mlua::Error::FromLuaConversionError {
                 from: other.type_name(),
@@ -259,28 +263,31 @@ impl UserData for NodeHandle {
             lua.create_sequence_from(handles)
         });
 
-        m.add_method("emit", |lua, this, (name, payload): (String, Option<Table>)| {
-            let state = shared(lua)?;
-            let mut state = state.borrow_mut();
-            let mut fields = IndexMap::new();
-            if let Some(table) = payload {
-                // Sorted, so a payload built in a different order still
-                // produces the same delivery and the same hash (I4).
-                let mut pairs: Vec<(String, mlua::Value)> = table
-                    .pairs::<String, mlua::Value>()
-                    .collect::<mlua::Result<Vec<_>>>()?;
-                pairs.sort_by(|a, b| a.0.cmp(&b.0));
-                for (k, v) in pairs {
-                    fields.insert(k, from_lua(v)?);
+        m.add_method(
+            "emit",
+            |lua, this, (name, payload): (String, Option<Table>)| {
+                let state = shared(lua)?;
+                let mut state = state.borrow_mut();
+                let mut fields = IndexMap::new();
+                if let Some(table) = payload {
+                    // Sorted, so a payload built in a different order still
+                    // produces the same delivery and the same hash (I4).
+                    let mut pairs: Vec<(String, mlua::Value)> = table
+                        .pairs::<String, mlua::Value>()
+                        .collect::<mlua::Result<Vec<_>>>()?;
+                    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                    for (k, v) in pairs {
+                        fields.insert(k, from_lua(v)?);
+                    }
                 }
-            }
-            state.signals.push(SignalEvent {
-                from: this.0,
-                name,
-                payload: fields,
-            });
-            Ok(())
-        });
+                state.signals.push(SignalEvent {
+                    from: this.0,
+                    name,
+                    payload: fields,
+                });
+                Ok(())
+            },
+        );
 
         m.add_method("destroy", |lua, this, ()| {
             let state = shared(lua)?;
@@ -308,7 +315,11 @@ impl UserData for NodeHandle {
             let state = state.borrow();
             let id = resolve(&state, this.0)?;
             Ok(LuaVec2(
-                state.scene.world_of(id).map(|t| t.pos).unwrap_or(Vec2Fx::ZERO),
+                state
+                    .scene
+                    .world_of(id)
+                    .map(|t| t.pos)
+                    .unwrap_or(Vec2Fx::ZERO),
             ))
         });
 
@@ -319,12 +330,22 @@ impl UserData for NodeHandle {
             let id = resolve(&state, this.0)?;
             match key.as_str() {
                 "pos" => {
-                    let pos = state.scene.get(id).map(|n| n.transform.pos).unwrap_or(Vec2Fx::ZERO);
+                    let pos = state
+                        .scene
+                        .get(id)
+                        .map(|n| n.transform.pos)
+                        .unwrap_or(Vec2Fx::ZERO);
                     Ok(mlua::Value::UserData(lua.create_userdata(LuaVec2(pos))?))
                 }
                 "rot" => {
-                    let rot = state.scene.get(id).map(|n| n.transform.rot).unwrap_or(Angle::ZERO);
-                    Ok(mlua::Value::String(lua.create_string(rot.to_degrees_string())?))
+                    let rot = state
+                        .scene
+                        .get(id)
+                        .map(|n| n.transform.rot)
+                        .unwrap_or(Angle::ZERO);
+                    Ok(mlua::Value::String(
+                        lua.create_string(rot.to_degrees_string())?,
+                    ))
                 }
                 "visible" => Ok(mlua::Value::Boolean(
                     state.scene.get(id).is_some_and(|n| n.visible),
@@ -336,47 +357,50 @@ impl UserData for NodeHandle {
             }
         });
 
-        m.add_meta_method("__newindex", |lua, this, (key, value): (String, mlua::Value)| {
-            let state = shared(lua)?;
-            let mut state = state.borrow_mut();
-            let id = resolve(&state, this.0)?;
-            match key.as_str() {
-                "pos" => {
-                    let v = LuaVec2::from_lua(value, lua)?;
-                    state.scene.set_position(id, v.0);
-                }
-                "rot" => {
-                    let text = match value {
-                        mlua::Value::String(s) => s.to_str()?.to_string(),
-                        mlua::Value::Integer(i) => format!("{i}.0"),
-                        mlua::Value::Number(n) => format!("{n}"),
-                        other => {
-                            return Err(mlua::Error::runtime(format!(
-                                "rot expects degrees, found {}",
-                                other.type_name()
-                            )))
+        m.add_meta_method(
+            "__newindex",
+            |lua, this, (key, value): (String, mlua::Value)| {
+                let state = shared(lua)?;
+                let mut state = state.borrow_mut();
+                let id = resolve(&state, this.0)?;
+                match key.as_str() {
+                    "pos" => {
+                        let v = LuaVec2::from_lua(value, lua)?;
+                        state.scene.set_position(id, v.0);
+                    }
+                    "rot" => {
+                        let text = match value {
+                            mlua::Value::String(s) => s.to_str()?.to_string(),
+                            mlua::Value::Integer(i) => format!("{i}.0"),
+                            mlua::Value::Number(n) => format!("{n}"),
+                            other => {
+                                return Err(mlua::Error::runtime(format!(
+                                    "rot expects degrees, found {}",
+                                    other.type_name()
+                                )))
+                            }
+                        };
+                        let angle = Angle::from_degrees_str(&text)
+                            .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                        if let Some(node) = state.scene.get_mut(id) {
+                            node.transform.rot = angle;
                         }
-                    };
-                    let angle = Angle::from_degrees_str(&text)
-                        .map_err(|e| mlua::Error::runtime(e.to_string()))?;
-                    if let Some(node) = state.scene.get_mut(id) {
-                        node.transform.rot = angle;
+                    }
+                    "visible" => {
+                        if let (Some(node), mlua::Value::Boolean(b)) =
+                            (state.scene.node_mut_no_transform(id), &value)
+                        {
+                            node.visible = *b;
+                        }
+                    }
+                    _ => {
+                        let v = from_lua(value)?;
+                        state.set_var(this.0, key, v);
                     }
                 }
-                "visible" => {
-                    if let (Some(node), mlua::Value::Boolean(b)) =
-                        (state.scene.node_mut_no_transform(id), &value)
-                    {
-                        node.visible = *b;
-                    }
-                }
-                _ => {
-                    let v = from_lua(value)?;
-                    state.set_var(this.0, key, v);
-                }
-            }
-            Ok(())
-        });
+                Ok(())
+            },
+        );
 
         m.add_meta_method("__tostring", |lua, this, ()| {
             let state = shared(lua)?;
@@ -447,6 +471,7 @@ fn from_lua(value: mlua::Value) -> mlua::Result<Value> {
         mlua::Value::Nil => Value::Bool(false),
         mlua::Value::Boolean(b) => Value::Bool(b),
         mlua::Value::Integer(i) => Value::Int(i),
+        // I3-exempt: the scripting boundary, as above.
         mlua::Value::Number(n) => Value::Scalar(Fx::from_f64_lossy(n)),
         mlua::Value::String(s) => Value::Str(s.to_str()?.to_string()),
         mlua::Value::UserData(ud) => {
@@ -535,9 +560,24 @@ impl LuaHost {
         let globals = lua.globals();
 
         for name in [
-            "assert", "error", "ipairs", "next", "pairs", "pcall", "select", "tonumber",
-            "tostring", "type", "unpack", "xpcall", "rawequal", "rawget", "rawset", "rawlen",
-            "setmetatable", "getmetatable",
+            "assert",
+            "error",
+            "ipairs",
+            "next",
+            "pairs",
+            "pcall",
+            "select",
+            "tonumber",
+            "tostring",
+            "type",
+            "unpack",
+            "xpcall",
+            "rawequal",
+            "rawget",
+            "rawset",
+            "rawlen",
+            "setmetatable",
+            "getmetatable",
         ] {
             if let Ok(v) = globals.get::<mlua::Value>(name) {
                 let _ = env.set(name, v);
@@ -553,16 +593,28 @@ impl LuaHost {
         // platform-dependent ones do not.
         if let Ok(math) = globals.get::<Table>("math") {
             let safe = lua.create_table().map_err(|e| runtime_error(path, e))?;
-            for name in ["abs", "ceil", "floor", "fmod", "max", "min", "tointeger", "type"] {
+            for name in [
+                "abs",
+                "ceil",
+                "floor",
+                "fmod",
+                "max",
+                "min",
+                "tointeger",
+                "type",
+            ] {
                 if let Ok(v) = math.get::<mlua::Value>(name) {
                     let _ = safe.set(name, v);
                 }
             }
+            // I3-exempt: `math.huge` is a Lua constant scripts compare against;
+            // it never becomes simulation state.
             let _ = safe.set("huge", f64::INFINITY);
             let _ = env.set("math", safe);
         }
 
-        env.set("_G", env.clone()).map_err(|e| runtime_error(path, e))?;
+        env.set("_G", env.clone())
+            .map_err(|e| runtime_error(path, e))?;
         self.install_api(&env, path)?;
         Ok(env)
     }
@@ -649,8 +701,8 @@ impl LuaHost {
                 lua.create_function(|lua, id: String| {
                     let state = shared(lua)?;
                     let state = state.borrow();
-                    let uid = NodeUid::parse(&id)
-                        .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                    let uid =
+                        NodeUid::parse(&id).map_err(|e| mlua::Error::runtime(e.to_string()))?;
                     Ok(state.scene.by_uid(uid).map(|_| NodeHandle(uid)))
                 })
                 .map_err(err)?,
@@ -775,10 +827,16 @@ impl ScriptHost for LuaHost {
         self.lua.set_app_data(state.clone());
         let handle = NodeHandle(node);
         let result = match hook {
-            Hook::Collide { other, normal, trigger } => {
+            Hook::Collide {
+                other,
+                normal,
+                trigger,
+            } => {
                 let mut args = MultiValue::new();
                 args.push_back(mlua::Value::UserData(
-                    self.lua.create_userdata(handle).map_err(|e| runtime_error(script, e))?,
+                    self.lua
+                        .create_userdata(handle)
+                        .map_err(|e| runtime_error(script, e))?,
                 ));
                 args.push_back(mlua::Value::UserData(
                     self.lua
@@ -793,14 +851,21 @@ impl ScriptHost for LuaHost {
                 args.push_back(mlua::Value::Boolean(*trigger));
                 function.call::<mlua::Value>(args)
             }
-            Hook::Signal { name, from, payload, .. } => {
+            Hook::Signal {
+                name,
+                from,
+                payload,
+                ..
+            } => {
                 let table = self
                     .lua
                     .create_table()
                     .map_err(|e| runtime_error(script, e))?;
                 for (k, v) in payload {
                     let value = to_lua(&self.lua, v).map_err(|e| runtime_error(script, e))?;
-                    table.set(k.as_str(), value).map_err(|e| runtime_error(script, e))?;
+                    table
+                        .set(k.as_str(), value)
+                        .map_err(|e| runtime_error(script, e))?;
                 }
                 function.call::<mlua::Value>((handle, NodeHandle(*from), name.as_str(), table))
             }

@@ -3,6 +3,7 @@
 //! These are the checks CI runs, in a form you can run locally.
 
 mod check_deps;
+mod fmt_scenes;
 mod gen_docs;
 mod gen_trig;
 mod lint_sim;
@@ -19,6 +20,7 @@ fn main() -> ExitCode {
         "lint-sim" => lint_sim::run(),
         "check-deps" => check_deps::run(),
         "gen-docs" => gen_docs::run(),
+        "fmt-scenes" => fmt_scenes::run(args.iter().any(|a| a == "--check")),
         "ci" => run_ci(),
         "help" | "--help" | "-h" => {
             usage();
@@ -42,6 +44,7 @@ tasks:
   ci          everything below, in the order CI runs it
   lint-sim    refuse floats, HashMap iteration and wall-clock reads in sim crates (I3, I4, I5)
   check-deps  refuse upward dependencies between crates
+  fmt-scenes  rewrite every .dim in canonical form (--check to only report)
   gen-docs    regenerate docs/API.md and docs/schemas/
   gen-trig    regenerate the committed trig tables
 ";
@@ -53,8 +56,16 @@ fn usage() {
 fn run_ci() -> Result<(), String> {
     lint_sim::run()?;
     check_deps::run()?;
+    fmt_scenes::run(true)?;
     cargo(&["fmt", "--all", "--check"])?;
-    cargo(&["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])?;
+    cargo(&[
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings",
+    ])?;
     cargo(&["test", "--workspace"])?;
     Ok(())
 }

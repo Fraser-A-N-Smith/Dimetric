@@ -219,8 +219,13 @@ pub struct Diagnostic {
     /// Human-readable summary. Never parse this; match on `code` instead.
     pub message: String,
     /// Where it happened.
+    ///
+    /// Boxed because a `Diagnostic` is returned by value from a great many
+    /// fallible functions, and a span carries a path string. Boxing it keeps
+    /// the whole type comfortably small enough that returning one in a `Result`
+    /// costs nothing worth thinking about.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub span: Option<Span>,
+    pub span: Option<Box<Span>>,
     /// The node involved, as a scene path.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_path: Option<String>,
@@ -244,8 +249,13 @@ impl Diagnostic {
 
     /// Attach a source location.
     pub fn with_span(mut self, span: Span) -> Diagnostic {
-        self.span = Some(span);
+        self.span = Some(Box::new(span));
         self
+    }
+
+    /// The source location, if there is one.
+    pub fn span(&self) -> Option<&Span> {
+        self.span.as_deref()
     }
 
     /// Attach the scene path of the node involved.

@@ -1,0 +1,13 @@
+# The first runner reaches the target and says so; the connection carries the
+# payload to the tally.
+tick 199 /Arena/Runner_01 var:arrived == true
+tick 199 /Arena var:arrivals == 1
+
+# The second runner is blocked by the first, which is parked on the target, so
+# it never gets within arrival range. That is the physics working, not a bug.
+tick 199 /Arena/Runner_02 var:arrived == false
+tick 199 /Arena var:enemies == 2
+
+# Each instance draws its own value from the seeded stream.
+tick 199 /Arena/Runner_01 var:jitter == 7
+tick 199 /Arena/Runner_02 var:jitter == 15

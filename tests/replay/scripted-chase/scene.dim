@@ -1,0 +1,44 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Arena"
+script = "script:scripts/tally.lua"
+
+[[node]]
+id = "n_target00"
+kind = "Node2D"
+name = "Target"
+parent = "n_root0000"          # /Arena
+
+[[node]]
+id = "n_runner01"
+kind = "Instance"
+name = "Runner_01"
+parent = "n_root0000"          # /Arena
+scene = "scene:prefabs/runner"
+pos = [120.0, 0.0]
+
+[[node]]
+id = "n_runner02"
+kind = "Instance"
+name = "Runner_02"
+parent = "n_root0000"          # /Arena
+scene = "scene:prefabs/runner"
+pos = [0.0, 160.0]
+
+[[override]]
+instance = "n_runner02"        # /Arena/Runner_02
+target = "n_run_root"
+radius = 9.0
+
+[[connect]]
+from = "n_runner01"            # /Arena/Runner_01
+signal = "arrived"
+to = "n_root0000"              # /Arena
+method = "on_arrived"

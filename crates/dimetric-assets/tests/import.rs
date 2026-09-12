@@ -1,6 +1,8 @@
 //! Import settings and the millisecond-to-tick conversion.
 
-use dimetric_assets::{content_hash, ms_to_ticks, Clip, Frame, ImportSettings, MetaError, SourceKind};
+use dimetric_assets::{
+    content_hash, ms_to_ticks, Clip, Frame, ImportSettings, MetaError, SourceKind,
+};
 use dimetric_core::AssetId;
 
 #[test]
@@ -35,9 +37,21 @@ fn clip() -> Clip {
     Clip {
         name: "attack".into(),
         frames: vec![
-            Frame { index: 0, ticks: 3, event: None },
-            Frame { index: 1, ticks: 2, event: Some("hitbox_on".into()) },
-            Frame { index: 2, ticks: 5, event: Some("hitbox_off".into()) },
+            Frame {
+                index: 0,
+                ticks: 3,
+                event: None,
+            },
+            Frame {
+                index: 1,
+                ticks: 2,
+                event: Some("hitbox_on".into()),
+            },
+            Frame {
+                index: 2,
+                ticks: 5,
+                event: Some("hitbox_off".into()),
+            },
         ],
         looping: false,
     }
@@ -99,10 +113,19 @@ fn import_settings_without_an_id_are_refused() {
 fn source_kinds_are_recognised_by_extension() {
     use std::path::Path;
     assert_eq!(SourceKind::of(Path::new("a/b.png")), Some(SourceKind::Png));
-    assert_eq!(SourceKind::of(Path::new("a/b.aseprite")), Some(SourceKind::Aseprite));
-    assert_eq!(SourceKind::of(Path::new("a/b.ASE")), Some(SourceKind::Aseprite));
+    assert_eq!(
+        SourceKind::of(Path::new("a/b.aseprite")),
+        Some(SourceKind::Aseprite)
+    );
+    assert_eq!(
+        SourceKind::of(Path::new("a/b.ASE")),
+        Some(SourceKind::Aseprite)
+    );
     assert_eq!(SourceKind::of(Path::new("a/b.ogg")), Some(SourceKind::Ogg));
-    assert_eq!(SourceKind::of(Path::new("a/b.ldtk")), Some(SourceKind::Ldtk));
+    assert_eq!(
+        SourceKind::of(Path::new("a/b.ldtk")),
+        Some(SourceKind::Ldtk)
+    );
     assert_eq!(SourceKind::of(Path::new("a/b.txt")), None);
 }
 

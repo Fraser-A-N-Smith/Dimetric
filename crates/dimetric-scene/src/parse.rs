@@ -132,9 +132,12 @@ pub fn parse(source: &str, path: &str, registry: &KindRegistry) -> ParseOutput {
     let mut seen: Vec<NodeUid> = Vec::new();
 
     for (index, table) in node_tables.iter().enumerate() {
-        let key_lines = lines.get("node").and_then(|v| v.get(index)).cloned().unwrap_or_default();
-        if let Some((node, parent)) =
-            parse_node(table, index, &all_ids, &seen, &key_lines, &mut cx)
+        let key_lines = lines
+            .get("node")
+            .and_then(|v| v.get(index))
+            .cloned()
+            .unwrap_or_default();
+        if let Some((node, parent)) = parse_node(table, index, &all_ids, &seen, &key_lines, &mut cx)
         {
             let uid = node.uid;
             let parent_id = match &parent {
@@ -147,7 +150,9 @@ pub fn parse(source: &str, path: &str, registry: &KindRegistry) -> ParseOutput {
             };
             match scene.insert(node, parent_id) {
                 Ok(_) => seen.push(uid),
-                Err(d) => cx.diags.push(d.with_span(span_at(&key_lines, "id", cx.path))),
+                Err(d) => cx
+                    .diags
+                    .push(d.with_span(span_at(&key_lines, "id", cx.path))),
             }
         }
     }
@@ -271,7 +276,10 @@ struct Cx<'a> {
 }
 
 fn check_header(doc: &DocumentMut, cx: &mut Cx) {
-    let format = doc.get("format").and_then(Item::as_value).and_then(TomlValue::as_str);
+    let format = doc
+        .get("format")
+        .and_then(Item::as_value)
+        .and_then(TomlValue::as_str);
     let version = doc
         .get("version")
         .and_then(Item::as_value)
@@ -344,7 +352,11 @@ fn parse_node(
         .map(str::to_string)
         .unwrap_or_else(|| uid.to_text());
 
-    let parent = match table.get("parent").and_then(Item::as_value).and_then(TomlValue::as_str) {
+    let parent = match table
+        .get("parent")
+        .and_then(Item::as_value)
+        .and_then(TomlValue::as_str)
+    {
         None => ParentRef::None,
         Some(s) => match ParentRef::parse(s) {
             Ok(p) => {
@@ -406,7 +418,12 @@ fn parse_node(
         .get("tags")
         .and_then(Item::as_value)
         .and_then(TomlValue::as_array)
-        .map(|a| a.iter().filter_map(TomlValue::as_str).map(str::to_string).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(TomlValue::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     node.script = read_reference(table, "script", "script:", lines, cx);
     node.scene = read_reference(table, "scene", "scene:", lines, cx);
@@ -576,7 +593,9 @@ fn read_typed(
                 })
         }
         PropertyType::Color => {
-            let s = v.as_str().ok_or_else(|| type_error(key, "color", v, lines, path))?;
+            let s = v
+                .as_str()
+                .ok_or_else(|| type_error(key, "color", v, lines, path))?;
             Color::parse(s).map(Value::Color).map_err(|e| {
                 Diagnostic::new(Code::TYPE_MISMATCH, format!("{key} = {s:?}: {e}"))
                     .with_span(span_at(lines, key, path))
@@ -584,7 +603,9 @@ fn read_typed(
             })
         }
         PropertyType::Enum(names) => {
-            let s = v.as_str().ok_or_else(|| type_error(key, "enum", v, lines, path))?;
+            let s = v
+                .as_str()
+                .ok_or_else(|| type_error(key, "enum", v, lines, path))?;
             if names.iter().any(|n| n == s) {
                 Ok(Value::Enum(s.to_string()))
             } else {
@@ -601,7 +622,9 @@ fn read_typed(
         | PropertyType::SceneRef
         | PropertyType::NodeRef
         | PropertyType::ScriptRef => {
-            let s = v.as_str().ok_or_else(|| type_error(key, "reference", v, lines, path))?;
+            let s = v
+                .as_str()
+                .ok_or_else(|| type_error(key, "reference", v, lines, path))?;
             let want = match ty {
                 PropertyType::AssetRef => "asset:",
                 PropertyType::SceneRef => "scene:",
@@ -661,7 +684,10 @@ fn fixed_array<'a>(
     if arr.len() != n {
         return Err(Diagnostic::new(
             Code::TYPE_MISMATCH,
-            format!("{key} is a {what}: expected {n} numbers, found {}", arr.len()),
+            format!(
+                "{key} is a {what}: expected {n} numbers, found {}",
+                arr.len()
+            ),
         )
         .with_span(span_at(lines, key, path))
         .with_field("property", key.to_string()));
@@ -712,7 +738,11 @@ fn check_range(
 }
 
 fn required_str(table: &Table, key: &str, lines: &KeyLines, cx: &mut Cx) -> Option<String> {
-    match table.get(key).and_then(Item::as_value).and_then(TomlValue::as_str) {
+    match table
+        .get(key)
+        .and_then(Item::as_value)
+        .and_then(TomlValue::as_str)
+    {
         Some(s) => Some(s.to_string()),
         None => {
             cx.diags.push(
@@ -788,7 +818,10 @@ fn read_reference(
     lines: &KeyLines,
     cx: &mut Cx,
 ) -> Option<Reference> {
-    let s = table.get(key).and_then(Item::as_value).and_then(TomlValue::as_str)?;
+    let s = table
+        .get(key)
+        .and_then(Item::as_value)
+        .and_then(TomlValue::as_str)?;
     match Reference::parse(s) {
         Ok(r) if r.prefix() == want => Some(r),
         Ok(r) => {
@@ -816,7 +849,11 @@ fn parse_overrides(doc: &DocumentMut, lines: &LineIndex, scene: &mut Scene, cx: 
         return;
     };
     for (index, table) in tables.iter().enumerate() {
-        let key_lines = lines.get("override").and_then(|v| v.get(index)).cloned().unwrap_or_default();
+        let key_lines = lines
+            .get("override")
+            .and_then(|v| v.get(index))
+            .cloned()
+            .unwrap_or_default();
         let (Some(instance), Some(target)) = (
             read_uid(table, "instance", &key_lines, cx),
             read_uid(table, "target", &key_lines, cx),
@@ -881,7 +918,11 @@ fn parse_connections(doc: &DocumentMut, lines: &LineIndex, scene: &mut Scene, cx
         return;
     };
     for (index, table) in tables.iter().enumerate() {
-        let key_lines = lines.get("connect").and_then(|v| v.get(index)).cloned().unwrap_or_default();
+        let key_lines = lines
+            .get("connect")
+            .and_then(|v| v.get(index))
+            .cloned()
+            .unwrap_or_default();
         let (Some(from), Some(to)) = (
             read_uid(table, "from", &key_lines, cx),
             read_uid(table, "to", &key_lines, cx),
@@ -920,7 +961,11 @@ fn parse_chunks(doc: &DocumentMut, lines: &LineIndex, scene: &mut Scene, cx: &mu
         return;
     };
     for (index, table) in tables.iter().enumerate() {
-        let key_lines = lines.get("chunk").and_then(|v| v.get(index)).cloned().unwrap_or_default();
+        let key_lines = lines
+            .get("chunk")
+            .and_then(|v| v.get(index))
+            .cloned()
+            .unwrap_or_default();
         let Some(layer) = read_uid(table, "layer", &key_lines, cx) else {
             continue;
         };
@@ -934,8 +979,14 @@ fn parse_chunks(doc: &DocumentMut, lines: &LineIndex, scene: &mut Scene, cx: &mu
             })
             .unwrap_or([0, 0]);
 
-        let inline = table.get("data").and_then(Item::as_value).and_then(TomlValue::as_str);
-        let external = table.get("src").and_then(Item::as_value).and_then(TomlValue::as_str);
+        let inline = table
+            .get("data")
+            .and_then(Item::as_value)
+            .and_then(TomlValue::as_str);
+        let external = table
+            .get("src")
+            .and_then(Item::as_value)
+            .and_then(TomlValue::as_str);
         let data = match (inline, external) {
             (Some(text), None) => match decode_rle(text) {
                 Ok(cells) => ChunkData::Inline(cells),
@@ -994,9 +1045,7 @@ fn collect_lines(source: &str) -> LineIndex {
     let starts: Vec<usize> = std::iter::once(0)
         .chain(source.match_indices('\n').map(|(i, _)| i + 1))
         .collect();
-    let line_of = |offset: usize| -> u32 {
-        starts.partition_point(|s| *s <= offset) as u32
-    };
+    let line_of = |offset: usize| -> u32 { starts.partition_point(|s| *s <= offset) as u32 };
 
     for block in ["node", "override", "connect", "chunk"] {
         let Some(tables) = im.get(block).and_then(Item::as_array_of_tables) else {
@@ -1031,7 +1080,10 @@ fn span_at(lines: &KeyLines, key: &str, path: &str) -> Span {
 fn nearest<'a>(needle: &str, options: impl Iterator<Item = &'a str>) -> Option<String> {
     options
         .map(|o| (edit_distance(needle, o), o))
-        .filter(|(d, o)| *d <= 2 || (*d as f32) < o.len() as f32 * 0.4)
+        // Within two edits, or under two fifths of the word's length. Written
+        // as an integer ratio rather than 0.4, because a float here would be
+        // the only one in the crate and would have to be argued about.
+        .filter(|(d, o)| *d <= 2 || *d * 5 < o.len() * 2)
         .min_by_key(|(d, _)| *d)
         .map(|(_, o)| o.to_string())
 }

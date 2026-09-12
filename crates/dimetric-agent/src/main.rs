@@ -34,9 +34,10 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<Output, Diagnostics> {
-    match &cli.command {
-        Top::Api(cmd) => return api(cmd),
-        _ => {}
+    // The API group describes the engine rather than a project, so it runs
+    // before any scene is opened.
+    if let Top::Api(cmd) = &cli.command {
+        return api(cmd);
     }
 
     let root = cli.project.clone().unwrap_or_else(|| ".".to_string());
@@ -121,7 +122,12 @@ fn kind_of(project: &Project, uid: dimetric_core::NodeUid) -> Result<String, Dia
         .by_uid(uid)
         .and_then(|id| doc.scene.get(id))
         .map(|n| n.kind.clone())
-        .ok_or_else(|| one(Diagnostic::new(Code::NO_SUCH_NODE, format!("no node {uid}"))))
+        .ok_or_else(|| {
+            one(Diagnostic::new(
+                Code::NO_SUCH_NODE,
+                format!("no node {uid}"),
+            ))
+        })
 }
 
 /// Apply a command and write the scene back.
@@ -141,7 +147,13 @@ fn scene_command(project: &mut Project, cmd: SceneCmd) -> Result<Output, Diagnos
             let mut nodes = Vec::new();
             for id in doc.scene.walk() {
                 let node = doc.scene.get(id).expect("walk yields live nodes");
-                let depth = doc.scene.path_of(id).unwrap_or_default().matches('/').count() - 1;
+                let depth = doc
+                    .scene
+                    .path_of(id)
+                    .unwrap_or_default()
+                    .matches('/')
+                    .count()
+                    - 1;
                 text.push_str(&format!(
                     "{}{} [{}] {}\n",
                     "  ".repeat(depth),
@@ -181,13 +193,11 @@ fn scene_command(project: &mut Project, cmd: SceneCmd) -> Result<Output, Diagnos
                 return if canonical_already {
                     Ok(out)
                 } else {
-                    Err(one(
-                        Diagnostic::new(
-                            Code::COMMAND_REJECTED,
-                            format!("{} is not in canonical form", doc.source_path),
-                        )
-                        .with_field("path", doc.source_path.clone()),
-                    ))
+                    Err(one(Diagnostic::new(
+                        Code::COMMAND_REJECTED,
+                        format!("{} is not in canonical form", doc.source_path),
+                    )
+                    .with_field("path", doc.source_path.clone())))
                 };
             }
             let path = doc.source_path.clone();
@@ -270,9 +280,8 @@ fn node_command(project: &mut Project, cmd: NodeCmd) -> Result<Output, Diagnosti
         } => {
             let parent_uid = uid_of(project, &parent)?;
             let uid = match id {
-                Some(text) => dimetric_core::NodeUid::parse(&text).map_err(|e| {
-                    one(Diagnostic::new(Code::BAD_ID_FORM, e.to_string()))
-                })?,
+                Some(text) => dimetric_core::NodeUid::parse(&text)
+                    .map_err(|e| one(Diagnostic::new(Code::BAD_ID_FORM, e.to_string())))?,
                 None => project.new_node_id(),
             };
             let mut props = indexmap::IndexMap::new();
@@ -376,13 +385,11 @@ fn split_assignment(text: &str) -> Result<(String, String), Diagnostics> {
     text.split_once('=')
         .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
         .ok_or_else(|| {
-            one(
-                Diagnostic::new(
-                    Code::BAD_ARGUMENT,
-                    format!("expected key=value, found {text:?}"),
-                )
-                .with_field("argument", text.to_string()),
+            one(Diagnostic::new(
+                Code::BAD_ARGUMENT,
+                format!("expected key=value, found {text:?}"),
             )
+            .with_field("argument", text.to_string()))
         })
 }
 
@@ -439,20 +446,27 @@ fn override_command(project: &mut Project, cmd: OverrideCmd) -> Result<Output, D
             // The target lives in the source scene, whose kind is only known
             // once the prefab is loaded, so the literal is parsed loosely here
             // and typed when the instance resolves.
-            let parsed = dimetric_scene::parse_value_literal(
-                &value,
-                &dimetric_scene::PropertyType::Str,
-            )
-            .or_else(|_| {
-                dimetric_scene::parse_value_literal(&value, &dimetric_scene::PropertyType::Int)
-            })
-            .or_else(|_| {
-                dimetric_scene::parse_value_literal(&value, &dimetric_scene::PropertyType::Scalar)
-            })
-            .or_else(|_| {
-                dimetric_scene::parse_value_literal(&value, &dimetric_scene::PropertyType::Bool)
-            })
-            .map_err(one)?;
+            let parsed =
+                dimetric_scene::parse_value_literal(&value, &dimetric_scene::PropertyType::Str)
+                    .or_else(|_| {
+                        dimetric_scene::parse_value_literal(
+                            &value,
+                            &dimetric_scene::PropertyType::Int,
+                        )
+                    })
+                    .or_else(|_| {
+                        dimetric_scene::parse_value_literal(
+                            &value,
+                            &dimetric_scene::PropertyType::Scalar,
+                        )
+                    })
+                    .or_else(|_| {
+                        dimetric_scene::parse_value_literal(
+                            &value,
+                            &dimetric_scene::PropertyType::Bool,
+                        )
+                    })
+                    .map_err(one)?;
             apply_and_save(
                 project,
                 Command::SetOverride {
@@ -521,10 +535,8 @@ fn parse_vec2(text: &str) -> Result<dimetric_core::Vec2Fx, Diagnostics> {
     })?;
     let parse = |s: &str| {
         dimetric_core::Fx::parse_exact(s.trim()).map_err(|e| {
-            one(
-                Diagnostic::new(Code::NOT_REPRESENTABLE, e.to_string())
-                    .with_field("literal", s.trim().to_string()),
-            )
+            one(Diagnostic::new(Code::NOT_REPRESENTABLE, e.to_string())
+                .with_field("literal", s.trim().to_string()))
         })
     };
     Ok(dimetric_core::Vec2Fx::new(parse(x)?, parse(y)?))
@@ -746,14 +758,12 @@ fn asset_command(project: &mut Project, cmd: AssetCmd) -> Result<Output, Diagnos
         }
         AssetCmd::Import { path } => {
             project.apply(Command::ImportAsset { path: path.clone() })?;
-            Err(one(
-                Diagnostic::new(
-                    Code::NOT_IMPLEMENTED,
-                    "the import pipeline is not in this build; the file was found but not processed",
-                )
-                .with_field("path", path)
-                .with_field("milestone", "M6"),
-            ))
+            Err(one(Diagnostic::new(
+                Code::NOT_IMPLEMENTED,
+                "the import pipeline is not in this build; the file was found but not processed",
+            )
+            .with_field("path", path)
+            .with_field("milestone", "M6")))
         }
     }
 }
@@ -945,15 +955,13 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
 
 fn frame_command(cmd: FrameCmd) -> Result<Output, Diagnostics> {
     let FrameCmd::Capture { tick, png } = cmd;
-    Err(one(
-        Diagnostic::new(
-            Code::NOT_IMPLEMENTED,
-            "frame capture needs the renderer, which is not in this build",
-        )
-        .with_field("tick", tick as i64)
-        .with_field("png", png)
-        .with_field("milestone", "M3"),
-    ))
+    Err(one(Diagnostic::new(
+        Code::NOT_IMPLEMENTED,
+        "frame capture needs the renderer, which is not in this build",
+    )
+    .with_field("tick", tick as i64)
+    .with_field("png", png)
+    .with_field("milestone", "M3")))
 }
 
 fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Diagnostics> {
@@ -1019,13 +1027,10 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
         let mut failures = Diagnostics::new();
         if let Some(d) = &report.divergence {
             failures.push(
-                Diagnostic::new(
-                    Code::REPLAY_DIVERGED,
-                    dimetric_host::replay::describe(d),
-                )
-                .with_field("tick", d.tick as i64)
-                .with_field("expected", d.expected.to_hex())
-                .with_field("actual", d.actual.to_hex()),
+                Diagnostic::new(Code::REPLAY_DIVERGED, dimetric_host::replay::describe(d))
+                    .with_field("tick", d.tick as i64)
+                    .with_field("expected", d.expected.to_hex())
+                    .with_field("actual", d.actual.to_hex()),
             );
         }
         for probe in report.probes.iter().filter(|p| !p.passed) {
@@ -1048,14 +1053,12 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
 }
 
 fn build_command(args: BuildArgs) -> Result<Output, Diagnostics> {
-    Err(one(
-        Diagnostic::new(
-            Code::NOT_IMPLEMENTED,
-            "packaging is not in this build",
-        )
-        .with_field("target", args.target)
-        .with_field("milestone", "M10"),
-    ))
+    Err(one(Diagnostic::new(
+        Code::NOT_IMPLEMENTED,
+        "packaging is not in this build",
+    )
+    .with_field("target", args.target)
+    .with_field("milestone", "M10")))
 }
 
 // -- generated reference ------------------------------------------------
@@ -1115,10 +1118,7 @@ fn api(cmd: &ApiCmd) -> Result<Output, Diagnostics> {
         }
         ApiCmd::Commands => {
             let names = command_names();
-            Ok(Output::new(
-                json!({ "commands": names }),
-                names.join("\n"),
-            ))
+            Ok(Output::new(json!({ "commands": names }), names.join("\n")))
         }
         ApiCmd::Schema => {
             let schema = command_schema();

@@ -100,9 +100,10 @@ impl Project {
     /// Writes the `toml_edit` document, so an unedited scene is written back
     /// exactly as it was read (I2).
     pub fn save_scene(&self, relative: Option<&str>) -> Result<PathBuf, Diagnostic> {
-        let doc = self.open.as_ref().ok_or_else(|| {
-            Diagnostic::new(Code::COMMAND_REJECTED, "no scene is open")
-        })?;
+        let doc = self
+            .open
+            .as_ref()
+            .ok_or_else(|| Diagnostic::new(Code::COMMAND_REJECTED, "no scene is open"))?;
         let path = match relative {
             Some(r) => self.scene_path(r),
             None => PathBuf::from(&doc.source_path),
@@ -199,7 +200,11 @@ impl Project {
             root: self.root.clone(),
             registry: self.registry.clone(),
         };
-        Ok(dimetric_scene::resolve(&doc.scene, &sources, &self.registry))
+        Ok(dimetric_scene::resolve(
+            &doc.scene,
+            &sources,
+            &self.registry,
+        ))
     }
 
     /// Load every `.lua` file under `scripts/`.

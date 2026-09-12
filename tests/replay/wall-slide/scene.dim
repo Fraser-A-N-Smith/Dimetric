@@ -1,0 +1,35 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Arena"
+
+[[node]]
+id = "n_mover000"
+kind = "Collider"
+name = "Mover"
+parent = "n_root0000"          # /Arena
+script = "script:scripts/mover.lua"
+
+[[node]]
+id = "n_wallrt01"
+kind = "Collider"
+name = "WallRight"
+parent = "n_root0000"          # /Arena
+pos = [100.0, 0.0]
+is_static = true
+size = [16.0, 400.0]
+
+[[node]]
+id = "n_walldn01"
+kind = "Collider"
+name = "WallDown"
+parent = "n_root0000"          # /Arena
+pos = [0.0, 140.0]
+is_static = true
+size = [400.0, 16.0]

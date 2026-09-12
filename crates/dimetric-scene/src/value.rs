@@ -47,7 +47,8 @@ impl Color {
         if body.len() != 8 {
             return Err(ColorError::WrongLength(body.len()));
         }
-        let byte = |i: usize| u8::from_str_radix(&body[i..i + 2], 16).map_err(|_| ColorError::NotHex);
+        let byte =
+            |i: usize| u8::from_str_radix(&body[i..i + 2], 16).map_err(|_| ColorError::NotHex);
         Ok(Color {
             r: byte(0)?,
             g: byte(2)?,
@@ -62,8 +63,9 @@ impl Color {
     }
 
     /// Linear components in `0.0 ..= 1.0` for the renderer.
+    ///
+    /// I3-exempt: this is the render boundary.
     pub fn to_f32_array(self) -> [f32; 4] {
-        // I3-exempt: render boundary conversion.
         [
             self.r as f32 / 255.0,
             self.g as f32 / 255.0,

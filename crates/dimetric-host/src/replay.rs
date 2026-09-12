@@ -95,7 +95,9 @@ pub fn diff(expected: &SimState, actual: &SimState) -> Vec<Difference> {
     }
 
     for id in expected.scene.walk() {
-        let Some(node) = expected.scene.get(id) else { continue };
+        let Some(node) = expected.scene.get(id) else {
+            continue;
+        };
         let path = expected.scene.path_of(id).unwrap_or_default();
         let Some(other_id) = actual.scene.by_uid(node.uid) else {
             out.push(Difference {
@@ -288,17 +290,12 @@ pub fn parse_probes(text: &str) -> Result<Vec<Probe>, Diagnostic> {
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
         let bad = |what: &str| {
-            Diagnostic::new(
-                Code::PROBE_FAILED,
-                format!("line {}: {what}", number + 1),
-            )
-            .with_field("line", (number + 1) as i64)
-            .with_field("text", raw.to_string())
+            Diagnostic::new(Code::PROBE_FAILED, format!("line {}: {what}", number + 1))
+                .with_field("line", (number + 1) as i64)
+                .with_field("text", raw.to_string())
         };
         if parts.len() < 6 || parts[0] != "tick" {
-            return Err(bad(
-                "expected `tick <n> <path> <field> <op> <value>`",
-            ));
+            return Err(bad("expected `tick <n> <path> <field> <op> <value>`"));
         }
         let tick: u64 = parts[1].parse().map_err(|_| bad("tick is not a number"))?;
         let op = Comparison::parse(parts[4])

@@ -35,8 +35,17 @@ pub use vec::{vec2, Vec2Fx};
 
 /// A tick number. Simulation sees these and never a wall clock (I5).
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default,
-    serde::Serialize, serde::Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[serde(transparent)]
 pub struct Tick(pub u64);

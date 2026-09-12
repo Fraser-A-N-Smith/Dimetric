@@ -9,7 +9,9 @@ use crate::schema::{NodeKindSchema, PropertySchema, PropertyType};
 use crate::value::{Color, Value};
 
 fn scalar(v: &str) -> Option<Value> {
-    Some(Value::Scalar(Fx::parse_exact(v).expect("built-in defaults are exact")))
+    Some(Value::Scalar(
+        Fx::parse_exact(v).expect("built-in defaults are exact"),
+    ))
 }
 fn int(v: i64) -> Option<Value> {
     Some(Value::Int(v))
@@ -24,7 +26,9 @@ fn variant(v: &str) -> Option<Value> {
     Some(Value::Enum(v.into()))
 }
 fn color(v: &str) -> Option<Value> {
-    Some(Value::Color(Color::parse(v).expect("built-in colours are valid")))
+    Some(Value::Color(
+        Color::parse(v).expect("built-in colours are valid"),
+    ))
 }
 fn enum_of(names: &[&str]) -> PropertyType {
     PropertyType::Enum(names.iter().map(|s| s.to_string()).collect())
@@ -84,13 +88,11 @@ fn shape_props() -> Vec<PropertySchema> {
 
 /// Every kind the engine ships with.
 pub fn builtin_kinds() -> Vec<NodeKindSchema> {
-    let mut kinds = Vec::new();
-
-    kinds.push(NodeKindSchema::new(
+    let mut kinds = vec![NodeKindSchema::new(
         "Node",
         "Bare node. Groups children and runs a script; has no presence in the world.",
         vec![],
-    ));
+    )];
 
     kinds.push(NodeKindSchema::new(
         "Node2D",
@@ -116,8 +118,18 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 Some(Value::Vec2(dimetric_core::Vec2Fx::ZERO)),
                 "Draw offset from the node origin.",
             ),
-            prop("flip_h", PropertyType::Bool, boolean(false), "Mirror horizontally."),
-            prop("flip_v", PropertyType::Bool, boolean(false), "Mirror vertically."),
+            prop(
+                "flip_h",
+                PropertyType::Bool,
+                boolean(false),
+                "Mirror horizontally.",
+            ),
+            prop(
+                "flip_v",
+                PropertyType::Bool,
+                boolean(false),
+                "Mirror vertically.",
+            ),
             prop(
                 "blend",
                 enum_of(&["Alpha", "Additive", "Multiply"]),
@@ -138,9 +150,24 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 "Imported sprite sheet carrying the named clips.",
             )
             .required(),
-            prop("animation", PropertyType::Str, text(""), "Clip to play. Empty means the first."),
-            prop("playing", PropertyType::Bool, boolean(true), "Advance frames on tick."),
-            prop("looping", PropertyType::Bool, boolean(true), "Restart at the end of the clip."),
+            prop(
+                "animation",
+                PropertyType::Str,
+                text(""),
+                "Clip to play. Empty means the first.",
+            ),
+            prop(
+                "playing",
+                PropertyType::Bool,
+                boolean(true),
+                "Advance frames on tick.",
+            ),
+            prop(
+                "looping",
+                PropertyType::Bool,
+                boolean(true),
+                "Restart at the end of the clip.",
+            ),
             prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
             prop(
                 "speed_numerator",
@@ -217,7 +244,12 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
             ),
             prop("zoom", PropertyType::Scalar, scalar("1.0"), "Scale factor.")
                 .ranged(Fx::from_raw(1), Fx::MAX),
-            prop("current", PropertyType::Bool, boolean(false), "Use this camera for rendering."),
+            prop(
+                "current",
+                PropertyType::Bool,
+                boolean(false),
+                "Use this camera for rendering.",
+            ),
             prop(
                 "pixel_snap",
                 PropertyType::Bool,
@@ -237,18 +269,38 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
         "Light2D",
         "A light contributing to the additive light buffer.",
         vec![
-            prop("color", PropertyType::Color, color("#ffffffff"), "Light colour."),
-            prop("radius", PropertyType::Scalar, scalar("64.0"), "Falloff radius.")
-                .ranged(Fx::ZERO, Fx::MAX),
-            prop("energy", PropertyType::Scalar, scalar("1.0"), "Brightness multiplier.")
-                .ranged(Fx::ZERO, Fx::MAX),
+            prop(
+                "color",
+                PropertyType::Color,
+                color("#ffffffff"),
+                "Light colour.",
+            ),
+            prop(
+                "radius",
+                PropertyType::Scalar,
+                scalar("64.0"),
+                "Falloff radius.",
+            )
+            .ranged(Fx::ZERO, Fx::MAX),
+            prop(
+                "energy",
+                PropertyType::Scalar,
+                scalar("1.0"),
+                "Brightness multiplier.",
+            )
+            .ranged(Fx::ZERO, Fx::MAX),
             prop(
                 "shape",
                 enum_of(&["Radial", "Cone"]),
                 variant("Radial"),
                 "Radial fills the radius; cone is limited to cone_angle.",
             ),
-            prop("cone_angle", PropertyType::Angle, None, "Cone width, for a cone light."),
+            prop(
+                "cone_angle",
+                PropertyType::Angle,
+                None,
+                "Cone width, for a cone light.",
+            ),
             prop(
                 "cast_shadows",
                 PropertyType::Bool,
@@ -262,7 +314,13 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
         "TileLayer",
         "A grid of tiles, stored as run-length encoded chunks.",
         vec![
-            prop("tileset", PropertyType::AssetRef, None, "Tileset to draw from.").required(),
+            prop(
+                "tileset",
+                PropertyType::AssetRef,
+                None,
+                "Tileset to draw from.",
+            )
+            .required(),
             prop(
                 "cell",
                 PropertyType::Vec2i,
@@ -290,12 +348,22 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 variant("Sfx"),
                 "Mixer bus to route through.",
             ),
-            prop("autoplay", PropertyType::Bool, boolean(false), "Start on ready."),
-            prop("looping", PropertyType::Bool, boolean(false), "Repeat when finished."),
+            prop(
+                "autoplay",
+                PropertyType::Bool,
+                boolean(false),
+                "Start on ready.",
+            ),
+            prop(
+                "looping",
+                PropertyType::Bool,
+                boolean(false),
+                "Repeat when finished.",
+            ),
             prop(
                 "volume_db",
                 PropertyType::Scalar,
-                scalar("0.0",),
+                scalar("0.0"),
                 "Gain in decibels.",
             ),
             prop(

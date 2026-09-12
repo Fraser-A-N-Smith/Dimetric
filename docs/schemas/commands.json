@@ -1,0 +1,252 @@
+{
+  "commands": [
+    {
+      "example": {
+        "command": "create_node",
+        "id": "n_example0",
+        "kind": "Sprite2D",
+        "name": "Hero",
+        "parent": "n_example0",
+        "props": {}
+      },
+      "fields": [
+        "id",
+        "kind",
+        "name",
+        "parent",
+        "props"
+      ],
+      "name": "create_node",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "delete_node",
+        "id": "n_example0"
+      },
+      "fields": [
+        "id"
+      ],
+      "name": "delete_node",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "set_property",
+        "id": "n_example0",
+        "key": "radius",
+        "value": {
+          "type": "scalar",
+          "value": "72.0"
+        }
+      },
+      "fields": [
+        "id",
+        "key",
+        "value"
+      ],
+      "name": "set_property",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "reparent",
+        "id": "n_example0",
+        "new_parent": "n_example0"
+      },
+      "fields": [
+        "id",
+        "new_parent"
+      ],
+      "name": "reparent",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "rename_node",
+        "id": "n_example0",
+        "name": "Hero"
+      },
+      "fields": [
+        "id",
+        "name"
+      ],
+      "name": "rename_node",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "instance_prefab",
+        "id": "n_example0",
+        "name": "Skeleton_01",
+        "parent": "n_example0",
+        "pos": null,
+        "scene": "prefabs/skeleton"
+      },
+      "fields": [
+        "id",
+        "name",
+        "parent",
+        "pos",
+        "scene"
+      ],
+      "name": "instance_prefab",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "set_override",
+        "instance": "n_example0",
+        "key": "health",
+        "target": "n_example0",
+        "value": {
+          "type": "int",
+          "value": 40
+        }
+      },
+      "fields": [
+        "instance",
+        "key",
+        "target",
+        "value"
+      ],
+      "name": "set_override",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "clear_override",
+        "instance": "n_example0",
+        "key": "health",
+        "target": "n_example0"
+      },
+      "fields": [
+        "instance",
+        "key",
+        "target"
+      ],
+      "name": "clear_override",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "connect",
+        "from": "n_example0",
+        "method": "on_enemy_died",
+        "signal": "died",
+        "to": "n_example0"
+      },
+      "fields": [
+        "from",
+        "method",
+        "signal",
+        "to"
+      ],
+      "name": "connect",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "disconnect",
+        "from": "n_example0",
+        "method": "on_enemy_died",
+        "signal": "died",
+        "to": "n_example0"
+      },
+      "fields": [
+        "from",
+        "method",
+        "signal",
+        "to"
+      ],
+      "name": "disconnect",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "write_script",
+        "path": "scripts/enemy.lua",
+        "source": ""
+      },
+      "fields": [
+        "path",
+        "source"
+      ],
+      "name": "write_script",
+      "undoable": false
+    },
+    {
+      "example": {
+        "command": "import_asset",
+        "path": "assets/sprites/hero.png"
+      },
+      "fields": [
+        "path"
+      ],
+      "name": "import_asset",
+      "undoable": false
+    },
+    {
+      "example": {
+        "command": "set_tiles",
+        "layer": "n_example0",
+        "tiles": [
+          [
+            0,
+            0,
+            1
+          ]
+        ]
+      },
+      "fields": [
+        "layer",
+        "tiles"
+      ],
+      "name": "set_tiles",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "fill_tiles",
+        "layer": "n_example0",
+        "rect": [
+          0,
+          0,
+          8,
+          8
+        ],
+        "tile": 1
+      },
+      "fields": [
+        "layer",
+        "rect",
+        "tile"
+      ],
+      "name": "fill_tiles",
+      "undoable": true
+    },
+    {
+      "example": {
+        "command": "load_scene",
+        "path": "arena01"
+      },
+      "fields": [
+        "path"
+      ],
+      "name": "load_scene",
+      "undoable": false
+    },
+    {
+      "example": {
+        "command": "save_scene",
+        "path": null
+      },
+      "fields": [
+        "path"
+      ],
+      "name": "save_scene",
+      "undoable": false
+    }
+  ],
+  "version": "0.0.1"
+}

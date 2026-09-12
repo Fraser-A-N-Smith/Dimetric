@@ -1,0 +1,184 @@
+{
+  "codes": [
+    {
+      "code": "DIM0100",
+      "severity": "error",
+      "summary": "File is not well-formed TOML"
+    },
+    {
+      "code": "DIM0101",
+      "severity": "error",
+      "summary": "Unknown node kind"
+    },
+    {
+      "code": "DIM0102",
+      "severity": "error",
+      "summary": "Duplicate node id"
+    },
+    {
+      "code": "DIM0103",
+      "severity": "error",
+      "summary": "Dangling parent reference"
+    },
+    {
+      "code": "DIM0104",
+      "severity": "error",
+      "summary": "Property shadows a reserved key"
+    },
+    {
+      "code": "DIM0105",
+      "severity": "error",
+      "summary": "Duplicate sibling name"
+    },
+    {
+      "code": "DIM0106",
+      "severity": "error",
+      "summary": "Child declared before its parent"
+    },
+    {
+      "code": "DIM0107",
+      "severity": "error",
+      "summary": "Instance cycle"
+    },
+    {
+      "code": "DIM0108",
+      "severity": "error",
+      "summary": "Scene declares a root that does not exist"
+    },
+    {
+      "code": "DIM0109",
+      "severity": "error",
+      "summary": "Malformed node id"
+    },
+    {
+      "code": "DIM0110",
+      "severity": "error",
+      "summary": "Missing or unsupported format header"
+    },
+    {
+      "code": "DIM0111",
+      "severity": "error",
+      "summary": "A block is missing a key it must have"
+    },
+    {
+      "code": "DIM0201",
+      "severity": "error",
+      "summary": "Property type mismatch"
+    },
+    {
+      "code": "DIM0202",
+      "severity": "error",
+      "summary": "Value outside the schema's range"
+    },
+    {
+      "code": "DIM0203",
+      "severity": "error",
+      "summary": "Scalar not exactly representable in fixed-point"
+    },
+    {
+      "code": "DIM0204",
+      "severity": "error",
+      "summary": "Malformed typed reference"
+    },
+    {
+      "code": "DIM0205",
+      "severity": "error",
+      "summary": "Malformed run-length tile data"
+    },
+    {
+      "code": "DIM0301",
+      "severity": "error",
+      "summary": "Unknown property"
+    },
+    {
+      "code": "DIM0302",
+      "severity": "warning",
+      "summary": "Override targets a node the source no longer has"
+    },
+    {
+      "code": "DIM0303",
+      "severity": "error",
+      "summary": "Required property is absent"
+    },
+    {
+      "code": "DIM0401",
+      "severity": "error",
+      "summary": "Command names a node that does not exist"
+    },
+    {
+      "code": "DIM0402",
+      "severity": "error",
+      "summary": "Reparenting would create a cycle"
+    },
+    {
+      "code": "DIM0403",
+      "severity": "error",
+      "summary": "Undo stack is empty"
+    },
+    {
+      "code": "DIM0404",
+      "severity": "error",
+      "summary": "Command is not valid in this run mode"
+    },
+    {
+      "code": "DIM0501",
+      "severity": "error",
+      "summary": "Lua syntax error"
+    },
+    {
+      "code": "DIM0502",
+      "severity": "error",
+      "summary": "Lua runtime error"
+    },
+    {
+      "code": "DIM0503",
+      "severity": "error",
+      "summary": "Script reached for something the sandbox withholds"
+    },
+    {
+      "code": "DIM0504",
+      "severity": "error",
+      "summary": "Script used a handle to a destroyed node"
+    },
+    {
+      "code": "DIM0601",
+      "severity": "error",
+      "summary": "Referenced asset is not in the project"
+    },
+    {
+      "code": "DIM0602",
+      "severity": "error",
+      "summary": "Asset import failed"
+    },
+    {
+      "code": "DIM0603",
+      "severity": "error",
+      "summary": "Unsupported source format"
+    },
+    {
+      "code": "DIM0701",
+      "severity": "error",
+      "summary": "Replay state hash diverged from the recorded log"
+    },
+    {
+      "code": "DIM0702",
+      "severity": "error",
+      "summary": "Replay probe assertion failed"
+    },
+    {
+      "code": "DIM0703",
+      "severity": "error",
+      "summary": "Input log was recorded against a different scene or engine version"
+    },
+    {
+      "code": "DIM0801",
+      "severity": "error",
+      "summary": "The command exists but this build does not implement it yet"
+    },
+    {
+      "code": "DIM0802",
+      "severity": "error",
+      "summary": "A command-line argument could not be parsed"
+    }
+  ]
+}

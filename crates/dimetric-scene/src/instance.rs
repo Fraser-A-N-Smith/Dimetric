@@ -103,6 +103,11 @@ fn resolve_nested(
             scene, root, None, &mut out, sources, registry, &mut diags, stack, depth,
         );
     }
+    // Connections and chunks belong to the scene as much as its nodes do.
+    // Nodes that were not instanced keep their ids, and an instance root keeps
+    // the instance's own id, so the outer file's blocks carry over unchanged.
+    out.connections.extend(scene.connections.iter().cloned());
+    out.chunks.extend(scene.chunks.iter().cloned());
     (out, diags)
 }
 
@@ -142,7 +147,9 @@ fn graft(
 
     let instance_uid = node.uid;
     for child in src.children(src_id).collect::<Vec<_>>() {
-        let Some(child_node) = src.get(child) else { continue };
+        let Some(child_node) = src.get(child) else {
+            continue;
+        };
         // A child declared with an `<instance>/<inner>` parent attaches inside
         // the instantiated tree; a plain child attaches at its root.
         let target = match child_node.inner_parent {
@@ -165,7 +172,9 @@ fn graft(
             },
             None => Some(anchor),
         };
-        graft(src, child, target, out, sources, registry, diags, stack, depth);
+        graft(
+            src, child, target, out, sources, registry, diags, stack, depth,
+        );
     }
     Some(anchor)
 }
@@ -264,7 +273,7 @@ fn expand_instance(
     stack.pop();
 
     let source_root = flat_source.root()?;
-    copy_instanced(
+    let anchor = copy_instanced(
         &flat_source,
         source_root,
         dst_parent,
@@ -275,7 +284,39 @@ fn expand_instance(
         registry,
         true,
         src.get(src_id),
-    )
+    );
+
+    // The prefab's own connections and chunks come with it, with their ids
+    // rewritten to the ones the instanced copy actually has. Without this a
+    // prefab's signals would resolve to nodes that are not in the scene, and
+    // they would fail silently — the worst way for a signal to fail.
+    let remap = |uid: NodeUid| -> NodeUid {
+        if flat_source
+            .root()
+            .and_then(|r| flat_source.get(r))
+            .map(|n| n.uid)
+            == Some(uid)
+        {
+            instance_uid
+        } else {
+            derive_uid(instance_uid, uid)
+        }
+    };
+    for connection in &flat_source.connections {
+        out.connections.push(crate::node::Connection {
+            from: remap(connection.from),
+            signal: connection.signal.clone(),
+            to: remap(connection.to),
+            method: connection.method.clone(),
+        });
+    }
+    for chunk in &flat_source.chunks {
+        let mut copy = chunk.clone();
+        copy.layer = remap(chunk.layer);
+        out.chunks.push(copy);
+    }
+
+    anchor
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -393,8 +434,8 @@ fn apply_override(
                 if let Some(a) = value.as_angle() {
                     node.transform.rot = a;
                 } else if let Some(s) = value.as_scalar() {
-                    node.transform.rot = Angle::from_degrees_str(&s.to_exact_string())
-                        .unwrap_or(node.transform.rot);
+                    node.transform.rot =
+                        Angle::from_degrees_str(&s.to_exact_string()).unwrap_or(node.transform.rot);
                 }
             }
             "visible" => {
@@ -444,9 +485,9 @@ fn apply_override(
     let coerced = match (&prop.ty, value) {
         // A whole number written for a scalar property is unambiguous and
         // lossless, so it is widened rather than rejected. The reverse is not.
-        (crate::schema::PropertyType::Scalar, Value::Int(i)) => {
-            i32::try_from(*i).ok().map(|i| Value::Scalar(dimetric_core::Fx::from_int(i)))
-        }
+        (crate::schema::PropertyType::Scalar, Value::Int(i)) => i32::try_from(*i)
+            .ok()
+            .map(|i| Value::Scalar(dimetric_core::Fx::from_int(i))),
         (crate::schema::PropertyType::Enum(names), Value::Str(s)) if names.contains(s) => {
             Some(Value::Enum(s.clone()))
         }
@@ -454,7 +495,9 @@ fn apply_override(
             Some(Value::Vec2(Vec2Fx::from_ints(*x, *y)))
         }
         (crate::schema::PropertyType::Angle, Value::Scalar(s)) => {
-            Angle::from_degrees_str(&s.to_exact_string()).ok().map(Value::Angle)
+            Angle::from_degrees_str(&s.to_exact_string())
+                .ok()
+                .map(Value::Angle)
         }
         _ => Some(value.clone()),
     };

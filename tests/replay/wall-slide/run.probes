@@ -1,0 +1,5 @@
+# The mover reaches the corner and stops, without passing through either wall.
+tick 179 /Arena/Mover pos.x < 92.0
+tick 179 /Arena/Mover pos.y < 132.0
+tick 179 /Arena/Mover pos.x > 80.0
+tick 179 /Arena/Mover pos.y > 120.0

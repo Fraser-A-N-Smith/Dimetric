@@ -64,7 +64,11 @@ fn setting_a_property_and_undoing_restores_the_file_exactly() {
     assert!(doc.to_text().contains("# Lighting pass still to do."));
 
     bus.undo(&mut doc, &registry).unwrap();
-    assert_eq!(doc.to_text(), ROOM, "undo should restore the file byte for byte");
+    assert_eq!(
+        doc.to_text(),
+        ROOM,
+        "undo should restore the file byte for byte"
+    );
 }
 
 #[test]
@@ -178,7 +182,11 @@ fn a_fresh_edit_clears_the_redo_branch() {
         },
     )
     .unwrap();
-    assert_eq!(bus.redo_depth(), 0, "you cannot redo into a future you left");
+    assert_eq!(
+        bus.redo_depth(),
+        0,
+        "you cannot redo into a future you left"
+    );
 }
 
 #[test]
@@ -252,11 +260,19 @@ fn tiles_are_written_per_chunk_and_undone_cell_by_cell() {
     .unwrap();
     assert_eq!(tile_at(&doc, 1, 1), Some(12));
     bus.undo(&mut doc, &registry).unwrap();
-    assert_eq!(tile_at(&doc, 1, 1), Some(7), "undo restores the covered tile");
+    assert_eq!(
+        tile_at(&doc, 1, 1),
+        Some(7),
+        "undo restores the covered tile"
+    );
 
     bus.undo(&mut doc, &registry).unwrap();
     assert_eq!(tile_at(&doc, 0, 0), Some(0));
-    assert_eq!(doc.to_text(), ROOM, "an emptied layer writes no chunk blocks");
+    assert_eq!(
+        doc.to_text(),
+        ROOM,
+        "an emptied layer writes no chunk blocks"
+    );
 }
 
 fn tile_at(doc: &SceneDoc, x: i32, y: i32) -> Option<u16> {

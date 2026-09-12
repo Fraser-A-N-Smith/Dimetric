@@ -291,18 +291,20 @@ impl Fx {
     /// Convert to `f32` for the render or authoring boundary.
     ///
     /// Never call this from simulation code — invariant I3.
+    ///
+    /// I3-exempt: this is the render boundary.
     #[inline]
     pub fn to_f32(self) -> f32 {
-        // I3-exempt: render/authoring boundary conversion.
         self.to_raw() as f32 / ONE_RAW as f32
     }
 
     /// Convert to `f64` for the render or authoring boundary.
     ///
     /// Never call this from simulation code — invariant I3.
+    ///
+    /// I3-exempt: this is the render boundary.
     #[inline]
     pub fn to_f64(self) -> f64 {
-        // I3-exempt: render/authoring boundary conversion.
         self.to_raw() as f64 / ONE_RAW as f64
     }
 
@@ -311,8 +313,9 @@ impl Fx {
     /// This is lossy by construction and exists only for asset import and
     /// tooling that reads float-typed third-party formats. Scene files parse
     /// through [`Fx::parse_exact`], which refuses to round.
+    ///
+    /// I3-exempt: this is the import and scripting boundary.
     pub fn from_f64_lossy(v: f64) -> Fx {
-        // I3-exempt: import boundary conversion.
         if v.is_nan() {
             return Fx::ZERO;
         }
@@ -406,8 +409,7 @@ pub fn split_decimal(s: &str) -> Result<(bool, u128, u32), FxParseError> {
     if int_str.is_empty() && frac_str.is_empty() {
         return Err(FxParseError::Malformed(s.to_string()));
     }
-    if !int_str.bytes().all(|b| b.is_ascii_digit())
-        || !frac_str.bytes().all(|b| b.is_ascii_digit())
+    if !int_str.bytes().all(|b| b.is_ascii_digit()) || !frac_str.bytes().all(|b| b.is_ascii_digit())
     {
         return Err(FxParseError::Malformed(s.to_string()));
     }
@@ -458,8 +460,7 @@ fn parse_decimal(s: &str) -> Result<(bool, u128, u32), FxParseError> {
     if int_str.is_empty() && frac_str.is_empty() {
         return Err(FxParseError::Malformed(s.to_string()));
     }
-    if !int_str.bytes().all(|b| b.is_ascii_digit())
-        || !frac_str.bytes().all(|b| b.is_ascii_digit())
+    if !int_str.bytes().all(|b| b.is_ascii_digit()) || !frac_str.bytes().all(|b| b.is_ascii_digit())
     {
         return Err(FxParseError::Malformed(s.to_string()));
     }
@@ -467,9 +468,7 @@ fn parse_decimal(s: &str) -> Result<(bool, u128, u32), FxParseError> {
     let int: u128 = if int_str.is_empty() {
         0
     } else {
-        int_str
-            .parse()
-            .map_err(|_| FxParseError::OutOfRange)?
+        int_str.parse().map_err(|_| FxParseError::OutOfRange)?
     };
 
     let trimmed = frac_str.trim_end_matches('0');
@@ -608,7 +607,11 @@ impl Neg for Fx {
     type Output = Fx;
     #[inline]
     fn neg(self) -> Fx {
-        Fx(guard32(self.0.checked_neg(), self.0.saturating_neg(), "neg"))
+        Fx(guard32(
+            self.0.checked_neg(),
+            self.0.saturating_neg(),
+            "neg",
+        ))
     }
 }
 
@@ -792,7 +795,10 @@ impl FxWide {
     pub fn sqrt(self) -> Fx {
         let raw = self.to_raw();
         if raw <= 0 {
-            debug_assert!(raw >= 0, "FxWide::sqrt of a negative value. See invariant I3.");
+            debug_assert!(
+                raw >= 0,
+                "FxWide::sqrt of a negative value. See invariant I3."
+            );
             return Fx::ZERO;
         }
         // sqrt(raw / 2^16) = sqrt(raw * 2^16) / 2^16
@@ -895,7 +901,11 @@ impl Neg for FxWide {
     type Output = FxWide;
     #[inline]
     fn neg(self) -> FxWide {
-        FxWide(guard64(self.0.checked_neg(), self.0.saturating_neg(), "neg"))
+        FxWide(guard64(
+            self.0.checked_neg(),
+            self.0.saturating_neg(),
+            "neg",
+        ))
     }
 }
 impl AddAssign for FxWide {

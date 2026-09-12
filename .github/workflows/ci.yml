@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # The gates that do not need three operating systems to be meaningful.
+  checks:
+    name: Lints and invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # I3, I4 and I5. None of these produces a compile error on its own, and
+      # all of them surface weeks later as a replay that diverges on somebody
+      # else's machine.
+      - name: Simulation invariants
+        run: cargo run -p xtask -- lint-sim
+
+      # core <- scene <- {sim, render, audio, assets} <- host <- {editor, agent}
+      - name: Dependency direction
+        run: cargo run -p xtask -- check-deps
+
+      # Scenes in the repository are canonical, so a diff only ever shows a
+      # real change rather than someone's editor reformatting a file.
+      - name: Scene canonical form
+        run: cargo run -p xtask -- fmt-scenes --check
+
+      # docs/API.md and docs/schemas/ are build artifacts that are committed.
+      # If they drift, an agent reads a contract the engine no longer honours.
+      - name: Generated documentation is current
+        run: |
+          cargo run -p xtask -- gen-docs
+          git diff --exit-code -- docs/ \
+            || (echo "::error::docs/ is stale; run 'cargo xtask gen-docs' and commit" && exit 1)
+
+  # Determinism and the test suite, on every platform the engine targets. A
+  # replay that only holds on Linux is not determinism.
+  test:
+    name: Tests on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+      # Called out separately from the suite above so a divergence is obvious
+      # in the job list rather than buried in test output.
+      - name: Replay fixtures
+        run: cargo test -p dimetric-agent --test fixtures

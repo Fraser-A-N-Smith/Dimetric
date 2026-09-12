@@ -77,7 +77,12 @@ fn write_node(out: &mut String, scene: &Scene, registry: &KindRegistry, id: Node
             None => ParentRef::Node(parent_uid),
         };
         if let Some(rendered) = text.to_text() {
-            line(out, "parent", &quote(&rendered), scene.path_of(parent).as_deref());
+            line(
+                out,
+                "parent",
+                &quote(&rendered),
+                scene.path_of(parent).as_deref(),
+            );
         }
     }
     if let Some(scene_ref) = &node.scene {
@@ -120,7 +125,10 @@ fn write_node(out: &mut String, scene: &Scene, registry: &KindRegistry, id: Node
     keys.sort();
     for key in keys {
         let value = &node.props[key];
-        if let Some(default) = schema.and_then(|s| s.property(key)).and_then(|p| p.default.as_ref()) {
+        if let Some(default) = schema
+            .and_then(|s| s.property(key))
+            .and_then(|p| p.default.as_ref())
+        {
             if default == value {
                 continue;
             }
@@ -158,7 +166,9 @@ fn write_overrides(out: &mut String, scene: &Scene, resolve: Option<&SourceResol
 
     for block in blocks {
         out.push_str("\n[[override]]\n");
-        let instance_path = scene.by_uid(block.instance).and_then(|id| scene.path_of(id));
+        let instance_path = scene
+            .by_uid(block.instance)
+            .and_then(|id| scene.path_of(id));
         line(
             out,
             "instance",
@@ -171,7 +181,12 @@ fn write_overrides(out: &mut String, scene: &Scene, resolve: Option<&SourceResol
             .and_then(|n| n.scene.as_ref())
             .zip(resolve)
             .and_then(|(source, r)| r(source, block.target));
-        line(out, "target", &quote(&block.target.to_text()), target_path.as_deref());
+        line(
+            out,
+            "target",
+            &quote(&block.target.to_text()),
+            target_path.as_deref(),
+        );
         if block.removed {
             line(out, "removed", "true", None);
         }
@@ -221,7 +236,12 @@ fn write_chunks(out: &mut String, scene: &Scene) {
         }
         out.push_str("\n[[chunk]]\n");
         let layer_path = scene.by_uid(chunk.layer).and_then(|id| scene.path_of(id));
-        line(out, "layer", &quote(&chunk.layer.to_text()), layer_path.as_deref());
+        line(
+            out,
+            "layer",
+            &quote(&chunk.layer.to_text()),
+            layer_path.as_deref(),
+        );
         line(
             out,
             "at",

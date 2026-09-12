@@ -219,9 +219,10 @@ impl Vec2Fx {
     }
 
     /// Components as `f32`, for the render boundary only.
+    ///
+    /// I3-exempt: this is the render boundary.
     #[inline]
     pub fn to_f32_pair(self) -> (f32, f32) {
-        // I3-exempt: render boundary conversion.
         (self.x.to_f32(), self.y.to_f32())
     }
 }

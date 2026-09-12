@@ -39,7 +39,10 @@ fn a_full_pool_steals_the_oldest_lowest_priority_voice() {
     // A new high-priority sound evicts the footstep, not the roar.
     let new = pool.play(voice("thunder", 5)).unwrap();
     let clips: Vec<&str> = pool.voices().iter().map(|v| v.clip.as_str()).collect();
-    assert!(clips.contains(&"roar"), "higher priority survives: {clips:?}");
+    assert!(
+        clips.contains(&"roar"),
+        "higher priority survives: {clips:?}"
+    );
     assert!(!clips.contains(&"footstep"));
     assert_ne!(new, quiet);
     assert_ne!(new, loud);
@@ -63,7 +66,10 @@ fn stopping_frees_a_slot() {
     assert!(pool.stop(handle));
     assert!(pool.is_empty());
     assert!(pool.play(voice("hum", 1)).is_ok());
-    assert!(!pool.stop(handle), "stopping twice is not an error, just false");
+    assert!(
+        !pool.stop(handle),
+        "stopping twice is not an error, just false"
+    );
 }
 
 #[test]
@@ -103,5 +109,9 @@ fn pitch_variation_stays_within_its_spread_and_repeats_for_a_seed() {
         assert!((0.8..=1.2).contains(&pitch), "{pitch} left its spread");
         assert_eq!(pitch, pitch_variation(&mut b, 0.2));
     }
-    assert_eq!(pitch_variation(&mut a, 0.0), 1.0, "no spread means no change");
+    assert_eq!(
+        pitch_variation(&mut a, 0.0),
+        1.0,
+        "no spread means no change"
+    );
 }

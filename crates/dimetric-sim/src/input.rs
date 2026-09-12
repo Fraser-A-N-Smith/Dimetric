@@ -50,7 +50,9 @@ impl PlayerInput {
 
     /// Feed into a state hash.
     pub fn hash_state(&self, h: &mut StateHasher) {
-        h.u64(self.buttons as u64).vec2(self.move_dir).angle(self.aim);
+        h.u64(self.buttons as u64)
+            .vec2(self.move_dir)
+            .angle(self.aim);
     }
 }
 

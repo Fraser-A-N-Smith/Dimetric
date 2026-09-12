@@ -106,9 +106,9 @@ impl ImportSettings {
 
     /// Parse from TOML.
     pub fn parse(text: &str) -> Result<ImportSettings, MetaError> {
-        let doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| {
-            MetaError::Malformed(e.to_string())
-        })?;
+        let doc: toml_edit::DocumentMut = text
+            .parse()
+            .map_err(|e: toml_edit::TomlError| MetaError::Malformed(e.to_string()))?;
         let get_str = |key: &str| {
             doc.get(key)
                 .and_then(|i| i.as_value())

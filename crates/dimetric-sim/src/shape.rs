@@ -61,12 +61,8 @@ impl Shape {
     pub fn contains(&self, pos: Vec2Fx, point: Vec2Fx) -> bool {
         let local = point - pos;
         match self {
-            Shape::Aabb { half } => {
-                local.x.abs() <= half.x && local.y.abs() <= half.y
-            }
-            Shape::Circle { radius } => {
-                local.length_squared() <= radius.wide() * radius.wide()
-            }
+            Shape::Aabb { half } => local.x.abs() <= half.x && local.y.abs() <= half.y,
+            Shape::Circle { radius } => local.length_squared() <= radius.wide() * radius.wide(),
             Shape::Polygon { points } => {
                 if points.len() < 3 {
                     return false;

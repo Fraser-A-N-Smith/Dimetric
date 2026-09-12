@@ -10,7 +10,10 @@ fn every_representable_value_round_trips_through_decimal() {
             let v = Fx::from_raw(raw);
             let text = v.to_exact_string();
             let back = Fx::parse_exact(&text).expect("exact text must parse");
-            assert_eq!(v, back, "round trip failed for raw {raw} rendered as {text}");
+            assert_eq!(
+                v, back,
+                "round trip failed for raw {raw} rendered as {text}"
+            );
         }
     }
 }
@@ -87,4 +90,36 @@ fn rounding_is_symmetric_about_zero() {
     assert_eq!(Fx::parse_exact("-3.5").unwrap().round_int(), -4);
     assert_eq!(Fx::parse_exact("2.25").unwrap().round_int(), 2);
     assert_eq!(Fx::parse_exact("-2.25").unwrap().round_int(), -2);
+}
+
+#[test]
+fn arithmetic_is_identical_in_debug_and_release() {
+    // The point of making the operators saturating rather than inheriting
+    // Rust's panic-in-debug, wrap-in-release semantics. This test computes a
+    // value that depends on every operator and pins the result, so a profile
+    // that computed something different would fail here rather than in someone
+    // else's replay six weeks later.
+    // Deliberately bounded: each pass halves the accumulator before adding a
+    // small term, so the sequence cannot leave range. An unbounded version
+    // would trip the saturation assertion, which is the assertion doing its job
+    // rather than a reason to relax it.
+    let mut acc = Fx::parse_exact("1.5").unwrap();
+    for i in 1..500i32 {
+        acc = acc * Fx::HALF;
+        acc = acc + Fx::from_int(i % 7);
+        acc = acc - Fx::from_int(i % 5);
+        acc = acc / 2;
+        if i % 13 == 0 {
+            acc = -acc;
+        }
+    }
+    assert_eq!(
+        acc.to_exact_string(),
+        "-1.263671875",
+        "fixed-point arithmetic drifted; every recorded replay is now invalid"
+    );
+
+    // Saturation, which release builds would otherwise wrap.
+    assert_eq!(Fx::MAX.saturating_add(Fx::MAX), Fx::MAX);
+    assert_eq!(Fx::MIN.saturating_add(Fx::MIN), Fx::MIN);
 }

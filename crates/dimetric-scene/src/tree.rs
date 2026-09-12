@@ -125,7 +125,10 @@ impl Scene {
         } else if self.root.is_some() {
             return Err(Diagnostic::new(
                 Code::DANGLING_PARENT,
-                format!("node {} has no parent, but the scene already has a root", node.uid),
+                format!(
+                    "node {} has no parent, but the scene already has a root",
+                    node.uid
+                ),
             )
             .with_field("id", node.uid.to_text()));
         }
@@ -234,7 +237,11 @@ impl Scene {
     ///
     /// Fails with `DIM0402` if the move would put a node inside its own
     /// subtree, and `DIM0105` on a name collision at the destination.
-    pub fn reparent(&mut self, id: NodeId, new_parent: NodeId) -> Result<Option<NodeId>, Diagnostic> {
+    pub fn reparent(
+        &mut self,
+        id: NodeId,
+        new_parent: NodeId,
+    ) -> Result<Option<NodeId>, Diagnostic> {
         if id == new_parent || self.is_ancestor(id, new_parent) {
             return Err(Diagnostic::new(
                 Code::ILLEGAL_REPARENT,
@@ -409,7 +416,9 @@ impl Scene {
     }
 
     fn unlink(&mut self, id: NodeId) {
-        let Some(node) = self.nodes.get(id) else { return };
+        let Some(node) = self.nodes.get(id) else {
+            return;
+        };
         let (parent, prev, next) = (node.parent, node.prev_sibling, node.next_sibling);
         if let Some(p) = prev {
             self.nodes[p].next_sibling = next;

@@ -193,7 +193,10 @@ impl Command {
     pub fn is_scene_edit(&self) -> bool {
         !matches!(
             self,
-            Command::LoadScene { .. } | Command::SaveScene { .. } | Command::ImportAsset { .. }
+            Command::LoadScene { .. }
+                | Command::SaveScene { .. }
+                | Command::ImportAsset { .. }
+                | Command::WriteScript { .. }
         )
     }
 }
@@ -694,7 +697,9 @@ fn node_table_index(doc: &SceneDoc, uid: NodeUid) -> Option<usize> {
 }
 
 fn write_raw(doc: &mut SceneDoc, uid: NodeUid, key: &str, item: Item) {
-    let Some(index) = node_table_index(doc, uid) else { return };
+    let Some(index) = node_table_index(doc, uid) else {
+        return;
+    };
     let existing = has_key(doc, uid, key);
     if let Some(tables) = doc.doc["node"].as_array_of_tables_mut() {
         if let Some(table) = tables.get_mut(index) {
@@ -729,7 +734,9 @@ fn write_property(doc: &mut SceneDoc, uid: NodeUid, key: &str, value: Option<&Va
     match value {
         Some(v) => write_raw(doc, uid, key, value_item(v)),
         None => {
-            let Some(index) = node_table_index(doc, uid) else { return };
+            let Some(index) = node_table_index(doc, uid) else {
+                return;
+            };
             if let Some(tables) = doc.doc["node"].as_array_of_tables_mut() {
                 if let Some(table) = tables.get_mut(index) {
                     table.remove(key);
@@ -789,7 +796,9 @@ fn push_table(doc: &mut SceneDoc, block: &str, table: Table) {
 }
 
 fn remove_node_table(doc: &mut SceneDoc, uid: NodeUid) {
-    let Some(index) = node_table_index(doc, uid) else { return };
+    let Some(index) = node_table_index(doc, uid) else {
+        return;
+    };
     if let Some(tables) = doc.doc["node"].as_array_of_tables_mut() {
         tables.remove(index);
     }
@@ -909,7 +918,9 @@ fn write_tile(
         .ok_or_else(|| {
             Diagnostic::new(
                 Code::BAD_CHUNK_DATA,
-                format!("chunk at {chunk_at:?} stores its cells externally and cannot be edited yet"),
+                format!(
+                    "chunk at {chunk_at:?} stores its cells externally and cannot be edited yet"
+                ),
             )
         })
 }
@@ -921,7 +932,11 @@ fn write_tile(
 /// changes, so there is no smaller edit to make.
 fn sync_chunk_tables(doc: &mut SceneDoc, layer: NodeUid) {
     let target = layer.to_text();
-    if let Some(tables) = doc.doc.get_mut("chunk").and_then(Item::as_array_of_tables_mut) {
+    if let Some(tables) = doc
+        .doc
+        .get_mut("chunk")
+        .and_then(Item::as_array_of_tables_mut)
+    {
         tables.retain(|t| {
             t.get("layer")
                 .and_then(Item::as_value)
@@ -935,7 +950,10 @@ fn sync_chunk_tables(doc: &mut SceneDoc, layer: NodeUid) {
         .chunks
         .iter()
         .filter(|c| c.layer == layer && !c.is_empty())
-        .filter_map(|c| c.cells().map(|cells| (c, dimetric_scene::chunk::encode_rle(cells))))
+        .filter_map(|c| {
+            c.cells()
+                .map(|cells| (c, dimetric_scene::chunk::encode_rle(cells)))
+        })
         .collect();
     chunks.sort_by_key(|(c, _)| (c.at[1], c.at[0]));
 

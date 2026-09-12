@@ -193,7 +193,9 @@ fn angles_wrap_without_special_cases() {
     assert_eq!((a + Angle::from_bam(10000)).to_bam(), 4464);
     assert_eq!(Angle::ZERO.delta_to(Angle::from_bam(65000)), -536);
     assert_eq!(
-        Angle::ZERO.rotate_toward(Angle::from_bam(65000), 100).to_bam(),
+        Angle::ZERO
+            .rotate_toward(Angle::from_bam(65000), 100)
+            .to_bam(),
         65436
     );
 }
@@ -208,5 +210,8 @@ fn shuffle_is_a_permutation_and_depends_only_on_the_seed() {
     let mut sorted = a.clone();
     sorted.sort_unstable();
     assert_eq!(sorted, (0..64).collect::<Vec<_>>());
-    assert_ne!(a, sorted, "a seeded shuffle of 64 items should reorder them");
+    assert_ne!(
+        a, sorted,
+        "a seeded shuffle of 64 items should reorder them"
+    );
 }

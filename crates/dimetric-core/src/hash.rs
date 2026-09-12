@@ -74,7 +74,8 @@ impl serde::Serialize for StateHash {
 impl<'de> serde::Deserialize<'de> for StateHash {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<StateHash, D::Error> {
         let s = String::deserialize(d)?;
-        StateHash::from_hex(&s).ok_or_else(|| serde::de::Error::custom("expected 64 hex characters"))
+        StateHash::from_hex(&s)
+            .ok_or_else(|| serde::de::Error::custom("expected 64 hex characters"))
     }
 }
 

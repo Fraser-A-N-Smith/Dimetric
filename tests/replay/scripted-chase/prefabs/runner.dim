@@ -1,0 +1,20 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_run_root"
+
+[[node]]
+id = "n_run_root"
+kind = "Collider"
+name = "Runner"
+script = "script:scripts/runner.lua"
+tags = ["enemy"]
+radius = 6.0
+shape = "Circle"
+
+[[node]]
+id = "n_run_stat"
+kind = "Node"
+name = "Stats"
+parent = "n_run_root"          # /Runner

@@ -75,9 +75,10 @@ impl Angle {
     }
 
     /// Degrees as a float, for the render and authoring boundary only.
+    ///
+    /// I3-exempt: this is the render boundary.
     #[inline]
     pub fn to_degrees_f32(self) -> f32 {
-        // I3-exempt: render/authoring boundary conversion.
         self.0 as f32 * (360.0 / 65536.0)
     }
 
@@ -166,7 +167,7 @@ fn sin_quarter(rem: u32) -> i32 {
     let frac = (rem & 0xF) as i64;
     let lo = SIN_Q[index] as i64;
     let hi = SIN_Q[index + 1] as i64;
-    (lo + ((hi - lo) * frac >> 4)) as i32
+    (lo + (((hi - lo) * frac) >> 4)) as i32
 }
 
 /// `atan(small / large)` in binary units, for `0 <= small <= large`.
@@ -181,7 +182,7 @@ fn atan_unit_ratio(small: u64, large: u64) -> i64 {
     let frac = (ratio & 0xFF) as i64;
     let lo = ATAN_UNIT[index] as i64;
     let hi = ATAN_UNIT[index + 1] as i64;
-    lo + ((hi - lo) * frac >> 8)
+    lo + (((hi - lo) * frac) >> 8)
 }
 
 impl Add for Angle {

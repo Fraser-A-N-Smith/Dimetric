@@ -102,7 +102,9 @@ impl PhysicsWorld {
             if is_area && !prop_bool(node, "monitoring", true) {
                 continue;
             }
-            let Some(shape) = shape_of(node) else { continue };
+            let Some(shape) = shape_of(node) else {
+                continue;
+            };
             let world_transform = scene
                 .world_of(id)
                 .map(|t| t.pos)

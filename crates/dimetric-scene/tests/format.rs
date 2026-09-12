@@ -85,7 +85,9 @@ fn the_tree_is_rebuilt_from_the_flat_list() {
     let (doc, _) = load(ARENA);
     let scene = doc.unwrap().scene;
     assert_eq!(scene.len(), 4);
-    let glow = scene.resolve_path("/Arena01/Brazier/Glow").expect("path resolves");
+    let glow = scene
+        .resolve_path("/Arena01/Brazier/Glow")
+        .expect("path resolves");
     assert_eq!(scene.path_of(glow).unwrap(), "/Arena01/Brazier/Glow");
     assert_eq!(scene.get(glow).unwrap().kind, "Light2D");
     // Depth-first, parents before children.
@@ -119,7 +121,10 @@ fn canonical_form_is_stable_under_reformatting() {
     assert!(!diags.has_errors(), "canonical output must parse: {diags}");
     let twice = dimetric_scene::write::to_canonical_text(&doc2.unwrap().scene, &registry(), None);
     assert_eq!(once, twice, "formatting is not idempotent");
-    assert!(once.contains("# /Arena01/Brazier"), "path comments regenerate");
+    assert!(
+        once.contains("# /Arena01/Brazier"),
+        "path comments regenerate"
+    );
     // Defaults are omitted.
     assert!(!once.contains("collision = false"));
     assert!(!once.contains("visible = true"));
@@ -182,7 +187,12 @@ fn dim0104_property_shadows_a_reserved_key() {
         .register(NodeKindSchema::new(
             "Bad",
             "declares a reserved key",
-            vec![PropertySchema::new("pos", PropertyType::Vec2, None, "clash")],
+            vec![PropertySchema::new(
+                "pos",
+                PropertyType::Vec2,
+                None,
+                "clash",
+            )],
         ))
         .unwrap_err();
     assert_eq!(err.code, Code::RESERVED_KEY);
@@ -345,7 +355,10 @@ pos = [8.0, 0.0]
 struct Prefabs;
 
 impl SceneSource for Prefabs {
-    fn load(&self, reference: &dimetric_scene::Reference) -> Result<Scene, dimetric_core::Diagnostic> {
+    fn load(
+        &self,
+        reference: &dimetric_scene::Reference,
+    ) -> Result<Scene, dimetric_core::Diagnostic> {
         match reference.target() {
             "prefabs/skeleton" => Ok(parse(SKELETON, "skeleton.dim", &registry())
                 .doc
@@ -406,7 +419,9 @@ fn an_instance_resolves_with_sparse_overrides() {
     assert!(!diags.has_errors(), "{diags}");
 
     // The instance node's own pos overrides the prefab root's transform.
-    let skeleton = flat.resolve_path("/Arena01/Skeleton_01").expect("instance root");
+    let skeleton = flat
+        .resolve_path("/Arena01/Skeleton_01")
+        .expect("instance root");
     assert_eq!(
         flat.get(skeleton).unwrap().transform.pos,
         dimetric_core::Vec2Fx::from_ints(120, 64)
@@ -427,7 +442,10 @@ fn an_instance_resolves_with_sparse_overrides() {
     assert_eq!(flat.get(cursed).unwrap().kind, "Light2D");
 
     // Nothing named Instance survives resolution.
-    assert!(flat.walk().iter().all(|id| flat.get(*id).unwrap().kind != "Instance"));
+    assert!(flat
+        .walk()
+        .iter()
+        .all(|id| flat.get(*id).unwrap().kind != "Instance"));
 }
 
 #[test]
@@ -462,7 +480,10 @@ fn dim0302_orphaned_override_is_kept_and_warned_about() {
         diags.iter().any(|d| d.code == Code::ORPHANED_OVERRIDE),
         "{diags}"
     );
-    assert!(!diags.has_errors(), "an orphaned override is a warning, not an error");
+    assert!(
+        !diags.has_errors(),
+        "an orphaned override is a warning, not an error"
+    );
     // Still in the file, ready for the prefab to grow the node back.
     assert!(doc.to_text().contains("n_sk_gone0"));
 }
@@ -479,7 +500,10 @@ fn dim0107_instance_cycle() {
     let src = "format = \"dimetric\"\nversion = 1\n\n[scene]\nroot = \"n_top00000\"\n\n[[node]]\nid = \"n_top00000\"\nkind = \"Instance\"\nname = \"Top\"\nscene = \"scene:loop\"\n";
     let doc = parse(src, "top.dim", &registry()).doc.unwrap();
     let (_, diags) = dimetric_scene::resolve(&doc.scene, &SelfRef, &registry());
-    assert!(diags.iter().any(|d| d.code == Code::INSTANCE_CYCLE), "{diags}");
+    assert!(
+        diags.iter().any(|d| d.code == Code::INSTANCE_CYCLE),
+        "{diags}"
+    );
 }
 
 // -- tiles --------------------------------------------------------------
@@ -509,13 +533,20 @@ fn tile_coordinates_split_correctly_either_side_of_the_origin() {
 #[test]
 fn scenes_hash_by_content_not_by_authoring_order() {
     let (a, _) = load(ARENA);
-    let reordered = ARENA.replace("color = \"#ffb347e0\"\nradius = 72.0", "radius = 72.0\ncolor = \"#ffb347e0\"");
+    let reordered = ARENA.replace(
+        "color = \"#ffb347e0\"\nradius = 72.0",
+        "radius = 72.0\ncolor = \"#ffb347e0\"",
+    );
     let (b, _) = load(&reordered);
     let mut ha = dimetric_core::StateHasher::new();
     let mut hb = dimetric_core::StateHasher::new();
     a.unwrap().scene.hash_state(&mut ha);
     b.unwrap().scene.hash_state(&mut hb);
-    assert_eq!(ha.finish(), hb.finish(), "key order must not change the hash");
+    assert_eq!(
+        ha.finish(),
+        hb.finish(),
+        "key order must not change the hash"
+    );
 }
 
 #[test]
@@ -541,7 +572,11 @@ fn reparenting_moves_a_subtree_and_keeps_ids() {
         scene.resolve_path("/Arena01/Floor/Brazier/Glow"),
         Some(scene.resolve_path("/Arena01/Floor/Brazier/Glow").unwrap())
     );
-    assert_eq!(scene.get(brazier).unwrap().uid, uid_before, "ids are permanent");
+    assert_eq!(
+        scene.get(brazier).unwrap().uid,
+        uid_before,
+        "ids are permanent"
+    );
 }
 
 #[test]
@@ -563,7 +598,10 @@ fn integers_widen_to_scalars_but_scalars_do_not_narrow_to_integers() {
     // The other direction loses information, so it is refused.
     let bad = scene_with(&(root() + "\n[[node]]\nid = \"n_aaaaaaaa\"\nkind = \"Light2D\"\nname = \"L\"\nparent = \"n_root0000\"\nz = 1.5\n"));
     let (_, diags) = load(&bad);
-    assert!(diags.iter().any(|d| d.code == Code::TYPE_MISMATCH), "{diags}");
+    assert!(
+        diags.iter().any(|d| d.code == Code::TYPE_MISMATCH),
+        "{diags}"
+    );
 }
 
 #[test]

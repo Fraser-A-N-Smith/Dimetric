@@ -142,12 +142,7 @@ pub struct Sim {
 
 impl Sim {
     /// Start a simulation over an already-resolved scene.
-    pub fn new(
-        scene: Scene,
-        seed: u64,
-        scripts: Box<dyn ScriptHost>,
-        config: SimConfig,
-    ) -> Sim {
+    pub fn new(scene: Scene, seed: u64, scripts: Box<dyn ScriptHost>, config: SimConfig) -> Sim {
         let mut state = SimState::new(scene, seed);
         state.scene.update_world_transforms();
         Sim {
@@ -300,7 +295,9 @@ impl Sim {
 
     /// Sweep every dynamic body along its intended motion.
     fn resolve_collisions(&mut self) {
-        let Some(world) = self.world.take() else { return };
+        let Some(world) = self.world.take() else {
+            return;
+        };
         let mut state = self.state.borrow_mut();
         let mut events = Vec::new();
         let mut writes: Vec<(NodeUid, Vec2Fx)> = Vec::new();
@@ -327,7 +324,9 @@ impl Sim {
         }
 
         for (uid, world_pos) in writes {
-            let Some(id) = state.scene.by_uid(uid) else { continue };
+            let Some(id) = state.scene.by_uid(uid) else {
+                continue;
+            };
             // Positions come back in world space; the node stores a local one.
             let parent_world = state
                 .scene
@@ -414,7 +413,9 @@ impl Sim {
         }
         let mut state = self.state.borrow_mut();
         for uid in pending {
-            let Some(id) = state.scene.by_uid(uid) else { continue };
+            let Some(id) = state.scene.by_uid(uid) else {
+                continue;
+            };
             for removed in state.scene.remove_subtree(id) {
                 state.velocity.remove(&removed.uid);
                 state.vars.remove(&removed.uid);
@@ -425,7 +426,12 @@ impl Sim {
     }
 
     /// Queue a signal for this tick's flush.
-    pub fn emit(&mut self, from: NodeUid, name: impl Into<String>, payload: IndexMap<String, Value>) {
+    pub fn emit(
+        &mut self,
+        from: NodeUid,
+        name: impl Into<String>,
+        payload: IndexMap<String, Value>,
+    ) {
         self.state.borrow_mut().signals.push(SignalEvent {
             from,
             name: name.into(),

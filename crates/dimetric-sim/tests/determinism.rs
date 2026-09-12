@@ -54,7 +54,12 @@ is_static = true
 "##;
 
 fn corridor_sim() -> Sim {
-    Sim::new(load(CORRIDOR), 1234, Box::new(NoScripts), SimConfig::default())
+    Sim::new(
+        load(CORRIDOR),
+        1234,
+        Box::new(NoScripts),
+        SimConfig::default(),
+    )
 }
 
 #[test]
@@ -108,7 +113,11 @@ fn a_body_slides_along_a_wall_rather_than_sticking_to_it() {
         sim.step(InputFrame::idle(1));
     }
     let pos = sim.state().scene.get(player).unwrap().transform.pos;
-    assert!(pos.x < Fx::from_int(85), "x should be blocked, is {}", pos.x);
+    assert!(
+        pos.x < Fx::from_int(85),
+        "x should be blocked, is {}",
+        pos.x
+    );
     assert!(
         pos.y > Fx::from_int(50),
         "y should keep moving while sliding, is {}",
@@ -137,7 +146,12 @@ fn a_very_fast_body_does_not_tunnel_through_a_thin_wall() {
 #[test]
 fn the_same_seed_and_inputs_produce_the_same_state_hash() {
     let run = |seed: u64| {
-        let mut sim = Sim::new(load(CORRIDOR), seed, Box::new(NoScripts), SimConfig::default());
+        let mut sim = Sim::new(
+            load(CORRIDOR),
+            seed,
+            Box::new(NoScripts),
+            SimConfig::default(),
+        );
         let player = sim.state().scene.resolve_path("/Arena/Player").unwrap();
         let uid = sim.state().scene.get(player).unwrap().uid;
         sim.set_velocity(uid, Vec2Fx::from_ints(240, 180));
@@ -201,7 +215,11 @@ fn the_state_hash_notices_a_single_changed_bit() {
     b.set_velocity(uid, Vec2Fx::from_raw(100 * 65536 + 1, 0));
     a.step(InputFrame::idle(1));
     b.step(InputFrame::idle(1));
-    assert_ne!(a.hash(), b.hash(), "one raw unit of difference must show up");
+    assert_ne!(
+        a.hash(),
+        b.hash(),
+        "one raw unit of difference must show up"
+    );
 }
 
 #[test]
@@ -300,8 +318,10 @@ end
 
 fn scripted_sim(seed: u64) -> Sim {
     let mut host = LuaHost::new(60).expect("lua host");
-    host.load("scripts/walker.lua", WALKER_LUA).expect("walker loads");
-    host.load("scripts/spawner.lua", SPAWNER_LUA).expect("spawner loads");
+    host.load("scripts/walker.lua", WALKER_LUA)
+        .expect("walker loads");
+    host.load("scripts/spawner.lua", SPAWNER_LUA)
+        .expect("spawner loads");
     Sim::new(load(SCRIPTED), seed, Box::new(host), SimConfig::default())
 }
 
@@ -324,7 +344,9 @@ fn a_lua_driven_node_moves_and_keeps_its_state_in_rust() {
     // `self.steps` lives in the simulation, not in a Lua global, which is what
     // makes it survive a snapshot.
     assert_eq!(
-        state.var(uid, "steps").and_then(dimetric_scene::Value::as_int),
+        state
+            .var(uid, "steps")
+            .and_then(dimetric_scene::Value::as_int),
         Some(10)
     );
 }
@@ -340,12 +362,16 @@ fn a_signal_reaches_its_connection() {
     let state = sim.state();
     let uid = state.scene.get(spawner).unwrap().uid;
     assert_eq!(
-        state.var(uid, "heard").and_then(dimetric_scene::Value::as_int),
+        state
+            .var(uid, "heard")
+            .and_then(dimetric_scene::Value::as_int),
         Some(1),
         "the stepped signal should have arrived exactly once"
     );
     assert_eq!(
-        state.var(uid, "last_count").and_then(dimetric_scene::Value::as_int),
+        state
+            .var(uid, "last_count")
+            .and_then(dimetric_scene::Value::as_int),
         Some(5),
         "the payload should come through"
     );
@@ -386,7 +412,10 @@ fn a_scripted_run_survives_a_rollback() {
             sim.hash()
         })
         .collect();
-    assert_eq!(expected, actual, "Lua state must not leak outside the snapshot");
+    assert_eq!(
+        expected, actual,
+        "Lua state must not leak outside the snapshot"
+    );
 }
 
 #[test]
@@ -395,8 +424,14 @@ fn the_sandbox_withholds_the_things_that_break_determinism() {
         ("os", "function on_tick(self) local t = os.time() end"),
         ("io", "function on_tick(self) io.open('x') end"),
         ("require", "function on_tick(self) require('x') end"),
-        ("math.random", "function on_tick(self) local x = math.random() end"),
-        ("math.sin", "function on_tick(self) local x = math.sin(1) end"),
+        (
+            "math.random",
+            "function on_tick(self) local x = math.random() end",
+        ),
+        (
+            "math.sin",
+            "function on_tick(self) local x = math.sin(1) end",
+        ),
     ] {
         let mut host = LuaHost::new(60).unwrap();
         host.load("scripts/walker.lua", source).unwrap();
@@ -413,8 +448,11 @@ fn the_sandbox_withholds_the_things_that_break_determinism() {
 #[test]
 fn a_script_error_is_reported_with_a_code_and_does_not_stop_the_tick() {
     let mut host = LuaHost::new(60).unwrap();
-    host.load("scripts/walker.lua", "function on_tick(self) error('boom') end")
-        .unwrap();
+    host.load(
+        "scripts/walker.lua",
+        "function on_tick(self) error('boom') end",
+    )
+    .unwrap();
     host.load("scripts/spawner.lua", "").unwrap();
     let mut sim = Sim::new(load(SCRIPTED), 1, Box::new(host), SimConfig::default());
     sim.step(InputFrame::idle(1));
@@ -431,7 +469,10 @@ fn a_script_error_is_reported_with_a_code_and_does_not_stop_the_tick() {
 fn a_syntax_error_is_reported_when_the_script_is_loaded() {
     let mut host = LuaHost::new(60).unwrap();
     let err = host
-        .load("scripts/bad.lua", "function on_tick(self) this is not lua end")
+        .load(
+            "scripts/bad.lua",
+            "function on_tick(self) this is not lua end",
+        )
         .unwrap_err();
     assert_eq!(err.code, dimetric_core::Code::SCRIPT_SYNTAX);
 }
@@ -453,6 +494,9 @@ fn a_destroyed_node_leaves_no_state_behind() {
     }
     let state = sim.state();
     assert!(state.scene.by_uid(uid).is_none(), "the node should be gone");
-    assert!(!state.vars.contains_key(&uid), "its variables should be gone too");
+    assert!(
+        !state.vars.contains_key(&uid),
+        "its variables should be gone too"
+    );
     assert!(!state.velocity.contains_key(&uid));
 }

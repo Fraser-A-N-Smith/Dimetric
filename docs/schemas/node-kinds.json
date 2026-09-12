@@ -1,0 +1,431 @@
+{
+  "kinds": [
+    {
+      "doc": "A sprite playing frame clips imported from Aseprite tags.",
+      "kind": "AnimatedSprite2D",
+      "properties": [
+        {
+          "default": null,
+          "doc": "Imported sprite sheet carrying the named clips.",
+          "name": "frames",
+          "required": true,
+          "type": "asset-ref"
+        },
+        {
+          "default": "\"\"",
+          "doc": "Clip to play. Empty means the first.",
+          "name": "animation",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "default": "true",
+          "doc": "Advance frames on tick.",
+          "name": "playing",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "true",
+          "doc": "Restart at the end of the clip.",
+          "name": "looping",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "\"#ffffffff\"",
+          "doc": "Tint.",
+          "name": "modulate",
+          "required": false,
+          "type": "color"
+        },
+        {
+          "default": "1",
+          "doc": "Playback rate numerator. Integer ratio, not a float, because frame advance is gameplay and must land on the same tick everywhere.",
+          "name": "speed_numerator",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": "1",
+          "doc": "Playback rate denominator.",
+          "name": "speed_denominator",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": "\"Alpha\"",
+          "doc": "Blend mode.",
+          "name": "blend",
+          "required": false,
+          "type": "enum(Alpha | Additive | Multiply)"
+        }
+      ]
+    },
+    {
+      "doc": "A trigger volume. Reports overlaps and blocks nothing.",
+      "kind": "Area",
+      "properties": [
+        {
+          "default": "\"AABB\"",
+          "doc": "Which of the size, radius or points properties applies.",
+          "name": "shape",
+          "required": false,
+          "type": "enum(AABB | Circle | Polygon)"
+        },
+        {
+          "default": "[16.0, 16.0]",
+          "doc": "Full extents, for an AABB.",
+          "name": "size",
+          "required": false,
+          "type": "vec2"
+        },
+        {
+          "default": "8.0",
+          "doc": "Radius, for a circle.",
+          "name": "radius",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "[]",
+          "doc": "Convex hull in local space, counter-clockwise, for a polygon.",
+          "name": "points",
+          "required": false,
+          "type": "list<vec2>"
+        },
+        {
+          "default": "1",
+          "doc": "Bitmask of layers this body occupies.",
+          "name": "collision_layer",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": "1",
+          "doc": "Bitmask of layers this body tests against.",
+          "name": "collision_mask",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": "true",
+          "doc": "Report overlaps. A disabled area costs nothing in the broadphase.",
+          "name": "monitoring",
+          "required": false,
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "doc": "A view onto the world.",
+      "kind": "Camera2D",
+      "properties": [
+        {
+          "default": "\"TopDown\"",
+          "doc": "Top-down is identity; isometric is a 2:1 shear applied at render time. The simulation is free-form 2D either way — this flag never reaches it.",
+          "name": "projection",
+          "required": false,
+          "type": "enum(TopDown | Isometric)"
+        },
+        {
+          "default": "1.0",
+          "doc": "Scale factor.",
+          "name": "zoom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "false",
+          "doc": "Use this camera for rendering.",
+          "name": "current",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "true",
+          "doc": "Round the camera to whole pixels, for pixel-art projects.",
+          "name": "pixel_snap",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": null,
+          "doc": "Region the view is confined to. Unconstrained when absent.",
+          "name": "limits",
+          "required": false,
+          "type": "rect"
+        }
+      ]
+    },
+    {
+      "doc": "A solid body. Blocks movement and reports contacts.",
+      "kind": "Collider",
+      "properties": [
+        {
+          "default": "\"AABB\"",
+          "doc": "Which of the size, radius or points properties applies.",
+          "name": "shape",
+          "required": false,
+          "type": "enum(AABB | Circle | Polygon)"
+        },
+        {
+          "default": "[16.0, 16.0]",
+          "doc": "Full extents, for an AABB.",
+          "name": "size",
+          "required": false,
+          "type": "vec2"
+        },
+        {
+          "default": "8.0",
+          "doc": "Radius, for a circle.",
+          "name": "radius",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "[]",
+          "doc": "Convex hull in local space, counter-clockwise, for a polygon.",
+          "name": "points",
+          "required": false,
+          "type": "list<vec2>"
+        },
+        {
+          "default": "1",
+          "doc": "Bitmask of layers this body occupies.",
+          "name": "collision_layer",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": "1",
+          "doc": "Bitmask of layers this body tests against.",
+          "name": "collision_mask",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": "false",
+          "doc": "Immovable. Static bodies go in the broadphase but are never swept.",
+          "name": "is_static",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Blocks only motion opposing the local +Y axis.",
+          "name": "one_way",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Receives the simple impulse response instead of only blocking.",
+          "name": "pushable",
+          "required": false,
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "doc": "An instance of another scene, with sparse property overrides. The source is named by the reserved `scene` key.",
+      "kind": "Instance",
+      "properties": []
+    },
+    {
+      "doc": "A light contributing to the additive light buffer.",
+      "kind": "Light2D",
+      "properties": [
+        {
+          "default": "\"#ffffffff\"",
+          "doc": "Light colour.",
+          "name": "color",
+          "required": false,
+          "type": "color"
+        },
+        {
+          "default": "64.0",
+          "doc": "Falloff radius.",
+          "name": "radius",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "1.0",
+          "doc": "Brightness multiplier.",
+          "name": "energy",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "\"Radial\"",
+          "doc": "Radial fills the radius; cone is limited to cone_angle.",
+          "name": "shape",
+          "required": false,
+          "type": "enum(Radial | Cone)"
+        },
+        {
+          "default": null,
+          "doc": "Cone width, for a cone light.",
+          "name": "cone_angle",
+          "required": false,
+          "type": "angle"
+        },
+        {
+          "default": "false",
+          "doc": "Cast shadows from nearby collider geometry.",
+          "name": "cast_shadows",
+          "required": false,
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "doc": "Bare node. Groups children and runs a script; has no presence in the world.",
+      "kind": "Node",
+      "properties": []
+    },
+    {
+      "doc": "A node with a transform. The base for anything that exists somewhere.",
+      "kind": "Node2D",
+      "properties": []
+    },
+    {
+      "doc": "A sound attached to a node. Presentation only — never hashed, never snapshotted.",
+      "kind": "Sound",
+      "properties": [
+        {
+          "default": null,
+          "doc": "Audio clip.",
+          "name": "stream",
+          "required": true,
+          "type": "asset-ref"
+        },
+        {
+          "default": "\"Sfx\"",
+          "doc": "Mixer bus to route through.",
+          "name": "bus",
+          "required": false,
+          "type": "enum(Music | Sfx | Ui)"
+        },
+        {
+          "default": "false",
+          "doc": "Start on ready.",
+          "name": "autoplay",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Repeat when finished.",
+          "name": "looping",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "0.0",
+          "doc": "Gain in decibels.",
+          "name": "volume_db",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Random pitch spread per trigger, drawn from the presentation RNG stream so it can never perturb gameplay.",
+          "name": "pitch_variation",
+          "required": false,
+          "type": "scalar"
+        }
+      ]
+    },
+    {
+      "doc": "A textured quad.",
+      "kind": "Sprite2D",
+      "properties": [
+        {
+          "default": null,
+          "doc": "Texture to draw.",
+          "name": "texture",
+          "required": true,
+          "type": "asset-ref"
+        },
+        {
+          "default": null,
+          "doc": "Sub-rectangle of the texture, in pixels. Whole texture when absent.",
+          "name": "region",
+          "required": false,
+          "type": "rect"
+        },
+        {
+          "default": "\"#ffffffff\"",
+          "doc": "Tint.",
+          "name": "modulate",
+          "required": false,
+          "type": "color"
+        },
+        {
+          "default": "[0.0, 0.0]",
+          "doc": "Draw offset from the node origin.",
+          "name": "offset",
+          "required": false,
+          "type": "vec2"
+        },
+        {
+          "default": "false",
+          "doc": "Mirror horizontally.",
+          "name": "flip_h",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Mirror vertically.",
+          "name": "flip_v",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "\"Alpha\"",
+          "doc": "Blend mode. Also part of the batching key.",
+          "name": "blend",
+          "required": false,
+          "type": "enum(Alpha | Additive | Multiply)"
+        }
+      ]
+    },
+    {
+      "doc": "A grid of tiles, stored as run-length encoded chunks.",
+      "kind": "TileLayer",
+      "properties": [
+        {
+          "default": null,
+          "doc": "Tileset to draw from.",
+          "name": "tileset",
+          "required": true,
+          "type": "asset-ref"
+        },
+        {
+          "default": "[16, 16]",
+          "doc": "Tile size in pixels.",
+          "name": "cell",
+          "required": false,
+          "type": "vec2i"
+        },
+        {
+          "default": "false",
+          "doc": "Feed this layer into the collision grid.",
+          "name": "collision",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "\"#ffffffff\"",
+          "doc": "Tint.",
+          "name": "modulate",
+          "required": false,
+          "type": "color"
+        }
+      ]
+    }
+  ]
+}

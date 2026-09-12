@@ -125,7 +125,10 @@ fn cell_index(x: i32, y: i32) -> Option<usize> {
 pub fn split_coord(x: i32, y: i32) -> ([i32; 2], [i32; 2]) {
     let cx = x.div_euclid(CHUNK_SIZE);
     let cy = y.div_euclid(CHUNK_SIZE);
-    ([cx, cy], [x.rem_euclid(CHUNK_SIZE), y.rem_euclid(CHUNK_SIZE)])
+    (
+        [cx, cy],
+        [x.rem_euclid(CHUNK_SIZE), y.rem_euclid(CHUNK_SIZE)],
+    )
 }
 
 /// Encode cells as `count:tile` pairs.
@@ -166,7 +169,8 @@ pub fn decode_rle(text: &str) -> Result<Box<[u16; CHUNK_CELLS]>, Diagnostic> {
     let mut written = 0usize;
     for (i, pair) in text.split_whitespace().enumerate() {
         let (count, tile) = pair.split_once(':').ok_or_else(|| {
-            bad_chunk(format!("run {i} is {pair:?}; expected count:tile")).with_field("run", i as i64)
+            bad_chunk(format!("run {i} is {pair:?}; expected count:tile"))
+                .with_field("run", i as i64)
         })?;
         let count: usize = count
             .parse()
@@ -175,10 +179,10 @@ pub fn decode_rle(text: &str) -> Result<Box<[u16; CHUNK_CELLS]>, Diagnostic> {
             .parse()
             .map_err(|_| bad_chunk(format!("run {i} has a non-numeric tile index {tile:?}")))?;
         if written + count > CHUNK_CELLS {
-            return Err(bad_chunk(format!(
-                "runs describe more than {CHUNK_CELLS} cells"
-            ))
-            .with_field("cells", (written + count) as i64));
+            return Err(
+                bad_chunk(format!("runs describe more than {CHUNK_CELLS} cells"))
+                    .with_field("cells", (written + count) as i64),
+            );
         }
         cells[written..written + count].fill(tile);
         written += count;
