@@ -9,7 +9,17 @@ function on_ready(self)
 end
 
 function on_tick(self)
-  local player = scene.find("/Arena01/Player")
+  -- Same idiom as skeleton.lua: resolve the path once, then look up by id.
+  if self.player_id then
+    local cached = scene.by_id(self.player_id)
+    if not cached then self.player_id = nil end
+  end
+  if not self.player_id then
+    local found = scene.find("/Arena01/Player")
+    if found then self.player_id = found:id() end
+  end
+
+  local player = self.player_id and scene.by_id(self.player_id)
   if not player then return end
 
   -- A bolt is resolved as an instant ray for now. The vertical slice will
