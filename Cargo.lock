@@ -536,8 +536,11 @@ dependencies = [
 name = "dimetric-editor"
 version = "0.0.1"
 dependencies = [
+ "dimetric-assets",
  "dimetric-core",
  "dimetric-host",
+ "dimetric-scene",
+ "dimetric-sim",
  "serde",
  "toml_edit 0.22.27",
 ]

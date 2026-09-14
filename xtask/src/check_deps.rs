@@ -49,7 +49,19 @@ fn allowed() -> BTreeMap<&'static str, Vec<&'static str>> {
                 "dimetric-audio",
             ],
         ),
-        ("dimetric-editor", vec!["dimetric-core", "dimetric-host"]),
+        // The editor reads the project's asset catalogue for its browser, and
+        // plays the scene for play-in-editor, so it reaches everything the host
+        // does. All downward: it is the top of the stack beside the agent.
+        (
+            "dimetric-editor",
+            vec![
+                "dimetric-core",
+                "dimetric-scene",
+                "dimetric-sim",
+                "dimetric-assets",
+                "dimetric-host",
+            ],
+        ),
         (
             "dimetric-agent",
             vec![

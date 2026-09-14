@@ -11,5 +11,12 @@ authors.workspace = true
 [dependencies]
 dimetric-core.workspace = true
 dimetric-host.workspace = true
+dimetric-sim.workspace = true
+dimetric-assets.workspace = true
+dimetric-scene.workspace = true
 serde.workspace = true
 toml_edit.workspace = true
+
+[dev-dependencies]
+dimetric-assets.workspace = true
+dimetric-core.workspace = true

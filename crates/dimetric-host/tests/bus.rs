@@ -404,3 +404,73 @@ fn commands_round_trip_through_json() {
         assert_eq!(back, command, "{json}");
     }
 }
+
+#[test]
+fn an_edit_keeps_the_comment_the_author_wrote_beside_the_value() {
+    // `toml_edit` stores a line's comment in the value's decor, so assigning a
+    // fresh item takes the comment with it. Every property edit went through
+    // that path, which made the bus quietly delete comments — the same bug
+    // `scene fmt` had, one layer down.
+    let source = ROOM.replace(
+        "radius = 48.0",
+        "radius = 48.0  # tuned against the brazier sprite",
+    );
+    let registry = KindRegistry::with_builtins();
+    let out = dimetric_scene::parse(&source, "room.dim", &registry);
+    assert!(!out.diagnostics.has_errors(), "{}", out.diagnostics);
+    let mut doc = out.doc.unwrap();
+
+    let mut bus = CommandBus::new();
+    bus.apply(
+        &mut doc,
+        &registry,
+        Command::SetProperty {
+            id: uid("n_torch001"),
+            key: "radius".to_string(),
+            value: Some(Value::Scalar(Fx::from_int(64))),
+        },
+    )
+    .unwrap();
+
+    let text = doc.to_text();
+    assert!(text.contains("radius = 64.0"), "{text}");
+    assert!(
+        text.contains("# tuned against the brazier sprite"),
+        "the comment should have survived the edit:\n{text}"
+    );
+
+    bus.undo(&mut doc, &registry).unwrap();
+    assert_eq!(
+        doc.to_text(),
+        source,
+        "and undo lands on the original bytes"
+    );
+}
+
+#[test]
+fn a_stale_path_comment_survives_an_edit_so_that_undo_is_exact() {
+    // A path comment spells out a path built from *other* nodes' names, so a
+    // single edit cannot regenerate it correctly — renaming one node makes
+    // comments elsewhere wrong. Keeping it verbatim means an undo lands on the
+    // bytes it started from; `dim scene fmt` is where they all get fixed.
+    let source = ROOM.replace(
+        "parent = \"n_root0000\"\npos = [32.0, 16.0]",
+        "parent = \"n_root0000\"          # /Arena\npos = [32.0, 16.0]",
+    );
+    let registry = KindRegistry::with_builtins();
+    let out = dimetric_scene::parse(&source, "room.dim", &registry);
+    let mut doc = out.doc.unwrap();
+
+    let mut bus = CommandBus::new();
+    bus.apply(
+        &mut doc,
+        &registry,
+        Command::Reparent {
+            id: uid("n_torch001"),
+            new_parent: uid("n_floor001"),
+        },
+    )
+    .unwrap();
+    bus.undo(&mut doc, &registry).unwrap();
+    assert_eq!(doc.to_text(), source);
+}

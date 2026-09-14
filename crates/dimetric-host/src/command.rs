@@ -703,7 +703,11 @@ fn write_raw(doc: &mut SceneDoc, uid: NodeUid, key: &str, item: Item) {
     let existing = has_key(doc, uid, key);
     if let Some(tables) = doc.doc["node"].as_array_of_tables_mut() {
         if let Some(table) = tables.get_mut(index) {
-            table[key] = item;
+            // Through the scene crate's setter, which keeps the comment the
+            // author wrote beside the value. Assigning the item directly takes
+            // the comment with it, because `toml_edit` stores it in the value's
+            // decor rather than the line's.
+            dimetric_scene::write::set_preserving_comment(table, key, item);
             // Overwriting a key leaves the author's ordering alone. A *new* key
             // has no authored position, so it goes where `scene fmt` would put
             // it — which also means nodes the CLI writes pass `fmt --check`.

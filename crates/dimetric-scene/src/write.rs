@@ -547,6 +547,35 @@ fn key_rank(key: &str) -> (usize, String) {
     }
 }
 
+/// Overwrite a key's value, keeping everything after it on the line.
+///
+/// `toml_edit` stores a line's comment in the *value's* decor, so assigning a
+/// fresh item to a key takes the comment with it. An edit that quietly deleted
+/// whatever the author wrote beside a value would be the same bug this module
+/// exists to avoid, one layer down.
+///
+/// Derived path comments are kept too, stale and all, and that is deliberate.
+/// They cannot be regenerated correctly from a single edit — the comment beside
+/// a `parent` key spells out a path built from *other* nodes' names, so a
+/// rename makes comments elsewhere in the file wrong. Regenerating just the one
+/// being written would make an undo land on different bytes from the ones it
+/// started with, which costs more than a comment that is briefly out of date.
+/// `dim scene fmt` rewrites them all at once, which is the only point they can
+/// all be right.
+pub fn set_preserving_comment(table: &mut Table, key: &str, item: Item) {
+    let suffix = table
+        .get(key)
+        .and_then(Item::as_value)
+        .and_then(|v| v.decor().suffix())
+        .and_then(|s| s.as_str())
+        .map(str::to_string);
+    table[key] = item;
+    if let Some(value) = table[key].as_value_mut() {
+        value.decor_mut().set_prefix(" ");
+        value.decor_mut().set_suffix(suffix.unwrap_or_default());
+    }
+}
+
 /// Set a key to a rendered literal, keeping any trailing comment on the line.
 ///
 /// The comment is the author's; the value is the engine's. Replacing the whole
