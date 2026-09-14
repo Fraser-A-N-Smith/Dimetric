@@ -170,13 +170,33 @@ Dependencies run strictly downward and CI enforces it.
 | M4 | Scripting | done — mlua, handles, sandbox, structured errors, cost measured at 2000 entities |
 | M5 | Physics | done — spatial hash, swept movement with sliding, triggers |
 | M6 | Assets, tiles, audio, animation | done — import pipeline, LDtk baking, mixer and fades, tweens and frame animation; the audio **device** is behind the `kira` feature |
-| M7 | Editor | sidecar format only; **no egui client** |
+| M7 | Editor | tree, inspector, viewport, console, assets, play-in-editor and scrubber; the window is behind the `gui` feature |
 | M8 | Agent interface | done — full CLI, generated docs and schemas |
 | M9 | Vertical slice | a worked example, not yet a game |
 | M10 | Hardening | not started |
 
 Commands that exist but are not implemented fail with `DIM0801` naming the
 milestone they belong to, rather than pretending to succeed.
+
+## Editor
+
+```sh
+cargo run -p dimetric-editor --features gui -- <project> [scene]
+```
+
+Behind a feature, so building the engine does not build a GUI toolkit.
+
+The interesting half is not the window. Every rule the editor has lives in
+`dimetric-editor` as a library that draws nothing: the tree, the inspector, the
+asset browser, play-in-editor and the scrubber are models over engine state, and
+the window is a few hundred lines that draws them and dispatches `Action`s.
+§16 names editor scope as the highest risk in the project, and a client that
+holds no logic cannot grow any.
+
+Two rules hold, and both are tests rather than intentions. Every mutation goes
+through the command bus — a scripted session asserts that anything which changed
+the file produced a command. And opening and closing a scene produces zero diff:
+camera, selection and fold state live in a committed `.dim.editor` sidecar.
 
 ## Assets
 

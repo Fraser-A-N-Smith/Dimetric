@@ -243,6 +243,45 @@ pub fn capture(
     })
 }
 
+/// Draw a scene offscreen, with no simulation at all.
+///
+/// What an editor viewport needs: the scene as it stands, including edits that
+/// have not been saved. The simulation's own state goes through the same path
+/// while playing, so what the editor shows in play mode is the state it is
+/// actually running rather than a re-run from tick zero.
+pub fn draw_scene(
+    project: &Project,
+    scene: &Scene,
+    size: (u32, u32),
+    settings: RenderSettings,
+) -> Result<CapturedFrame, Diagnostics> {
+    let (atlas, diagnostics) = build_atlas(project, scene);
+    let camera = scene_camera(scene, settings.internal_resolution);
+    let frame = extract(scene, &atlas, &camera, None);
+
+    let instance = headless_instance();
+    let mut renderer = Renderer::new(&instance, None, &atlas, settings).map_err(|e| {
+        Diagnostics(vec![Diagnostic::new(
+            Code::NOT_IMPLEMENTED,
+            format!("{e}; headless rendering needs a graphics adapter, and a software one such as Mesa's lavapipe is enough"),
+        )])
+    })?;
+    let target = Capture::new(&renderer, size);
+    let pixels = target
+        .render(&mut renderer, &frame)
+        .map_err(|e| Diagnostics(vec![Diagnostic::new(Code::COMMAND_REJECTED, e.to_string())]))?;
+
+    Ok(CapturedFrame {
+        width: target.size().0,
+        height: target.size().1,
+        pixels,
+        draw_calls: frame.draw_calls(),
+        sprites: frame.sprites.len(),
+        adapter: renderer.adapter_info.name.clone(),
+        diagnostics,
+    })
+}
+
 fn one(d: Diagnostic) -> Diagnostics {
     Diagnostics(vec![d])
 }

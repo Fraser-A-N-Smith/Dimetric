@@ -21,6 +21,6 @@ pub mod run;
 pub use bus::CommandBus;
 pub use command::{apply, Applied, Command};
 pub use project::{DiskScenes, Project};
-pub use render::{capture, CaptureRequest, CapturedFrame};
+pub use render::{capture, draw_scene, CaptureRequest, CapturedFrame};
 pub use replay::{Divergence, Probe, Replay, ReplayReport};
 pub use run::{Accumulator, RunMode};

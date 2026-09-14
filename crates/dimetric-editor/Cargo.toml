@@ -8,7 +8,20 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+# The window. Off by default so `cargo build --workspace` does not pull egui and
+# winit into every build of the engine.
+gui = ["dep:eframe", "dep:dimetric-render"]
+
+[[bin]]
+name = "dim-editor"
+path = "src/bin/dim-editor.rs"
+required-features = ["gui"]
+
 [dependencies]
+eframe = { version = "0.35", optional = true }
+dimetric-render = { workspace = true, optional = true }
 dimetric-core.workspace = true
 dimetric-host.workspace = true
 dimetric-sim.workspace = true
@@ -18,5 +31,6 @@ serde.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]
+egui_kittest = "0.35"
 dimetric-assets.workspace = true
 dimetric-core.workspace = true

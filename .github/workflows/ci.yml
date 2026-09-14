@@ -126,6 +126,34 @@ jobs:
       - name: Clippy
         run: cargo clippy -p dimetric-audio --features kira --all-targets -- -D warnings
 
+  # The editor window. Off by default so the engine's own build does not pull
+  # egui and winit; built and *driven* here, headlessly, so "it compiles" is not
+  # the only thing anybody knows about it.
+  editor-gui:
+    name: Editor window
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the windowing development headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libxcb-shape0-dev libxcb-xfixes0-dev mesa-vulkan-drivers
+
+      - name: Build
+        run: cargo build -p dimetric-editor --features gui
+
+      - name: Clippy
+        run: cargo clippy -p dimetric-editor --features gui --all-targets -- -D warnings
+
+      # egui_kittest drives the real widgets with no display attached: clicks
+      # the actual buttons, types into the actual fields, and asserts what
+      # reached the project underneath.
+      - name: Drive the window headlessly
+        run: cargo test -p dimetric-editor --features gui
+
   # M0 — the de-risking spike. Its own job because it is its own workspace and
   # pulls in wgpu and winit, which nothing in the engine should build.
   #
