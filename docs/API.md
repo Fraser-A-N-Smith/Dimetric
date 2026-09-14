@@ -51,6 +51,7 @@ A sprite playing frame clips imported from Aseprite tags.
 | `animation` | `string` | `""` | Clip to play. Empty means the first. |
 | `playing` | `bool` | `true` | Advance frames on tick. |
 | `looping` | `bool` | `true` | Restart at the end of the clip. |
+| `frame` | `int` | `0` | Frame showing now. Written by the engine as the clip plays, and read by the renderer to pick a slice of the sheet — the one-way path from simulation to presentation that invariant I7 asks for. Setting it by hand pins a frame until playback moves it. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
 | `speed_numerator` | `int` | `1` | Playback rate numerator. Integer ratio, not a float, because frame advance is gameplay and must land on the same tick everywhere. |
 | `speed_denominator` | `int` | `1` | Playback rate denominator. |

@@ -67,6 +67,28 @@ pub struct ImportSettings {
     /// Pack into a shared atlas.
     #[serde(default = "yes")]
     pub atlas: bool,
+    /// Animation frames the image holds, side by side.
+    ///
+    /// One for a still. An Aseprite document says how many it has, so this is
+    /// for the other common case: a sprite strip exported as a plain PNG, which
+    /// nothing in the file itself identifies as a strip.
+    #[serde(default = "one")]
+    pub frames: u32,
+    /// How long each frame of a declared strip is held, in milliseconds.
+    ///
+    /// Milliseconds here and ticks in the cache: the conversion happens once,
+    /// at import, against the project's tick rate, for the same reason an
+    /// Aseprite duration does.
+    #[serde(default = "default_frame_ms")]
+    pub frame_ms: u32,
+}
+
+fn default_frame_ms() -> u32 {
+    100
+}
+
+fn one() -> u32 {
+    1
 }
 
 fn yes() -> bool {
@@ -81,6 +103,8 @@ impl ImportSettings {
             source_hash: None,
             nearest: true,
             atlas: true,
+            frames: 1,
+            frame_ms: default_frame_ms(),
         }
     }
 
@@ -92,6 +116,10 @@ impl ImportSettings {
         }
         out.push_str(&format!("nearest = {}\n", self.nearest));
         out.push_str(&format!("atlas = {}\n", self.atlas));
+        if self.frames > 1 {
+            out.push_str(&format!("frames = {}\n", self.frames));
+            out.push_str(&format!("frame_ms = {}\n", self.frame_ms));
+        }
         out
     }
 
@@ -112,12 +140,22 @@ impl ImportSettings {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(default)
         };
+        let get_int = |key: &str, default: u32| {
+            doc.get(key)
+                .and_then(|i| i.as_value())
+                .and_then(|v| v.as_integer())
+                .and_then(|v| u32::try_from(v).ok())
+                .filter(|v| *v > 0)
+                .unwrap_or(default)
+        };
         let id_text = get_str("id").ok_or(MetaError::MissingId)?;
         Ok(ImportSettings {
             id: AssetId::parse(&id_text).map_err(|e| MetaError::BadId(e.to_string()))?,
             source_hash: get_str("source_hash"),
             nearest: get_bool("nearest", true),
             atlas: get_bool("atlas", true),
+            frames: get_int("frames", 1),
+            frame_ms: get_int("frame_ms", default_frame_ms()),
         })
     }
 }

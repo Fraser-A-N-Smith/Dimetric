@@ -40,6 +40,8 @@ struct Fixture {
     size: (u32, u32),
     internal: (u32, u32),
     ambient: Color,
+    /// Tick to run to before drawing. Zero draws the scene as authored.
+    tick: u64,
 }
 
 fn fixtures() -> Vec<Fixture> {
@@ -50,6 +52,7 @@ fn fixtures() -> Vec<Fixture> {
             size: (256, 192),
             internal: (128, 96),
             ambient: Color::WHITE,
+            tick: 0,
         },
         Fixture {
             scene: "room-lit",
@@ -57,6 +60,27 @@ fn fixtures() -> Vec<Fixture> {
             size: (256, 192),
             internal: (128, 96),
             ambient: Color::rgba(0x30, 0x30, 0x40, 0xFF),
+            tick: 0,
+        },
+        // The same scene at two ticks. Two references rather than one because
+        // the pair is the assertion: if animation stops advancing they become
+        // the same image, and if the sheet stops being sliced they become the
+        // same wrong image.
+        Fixture {
+            scene: "walking",
+            reference: "walking-frame0.png",
+            size: (128, 128),
+            internal: (64, 64),
+            ambient: Color::WHITE,
+            tick: 0,
+        },
+        Fixture {
+            scene: "walking",
+            reference: "walking-frame2.png",
+            size: (128, 128),
+            internal: (64, 64),
+            ambient: Color::WHITE,
+            tick: 12,
         },
     ]
 }
@@ -81,7 +105,7 @@ fn every_fixture_matches_its_reference() {
             .unwrap_or_else(|d| panic!("{}: {d}", fixture.scene));
 
         let request = CaptureRequest {
-            tick: 0,
+            tick: fixture.tick,
             seed: 0,
             input: None,
             size: fixture.size,
@@ -217,4 +241,59 @@ fn compare(actual: &[u8], expected: &[u8]) -> Report {
         differing,
         total: actual.len() / 4,
     }
+}
+
+#[test]
+fn the_walk_cycle_draws_a_different_pose_at_a_different_tick() {
+    // The reference images cannot carry this on their own. The comparison has a
+    // tolerance, and two poses of one figure differ by less than it — so if
+    // animation stopped advancing, or the sheet stopped being sliced, both
+    // fixtures would still match their references. This asserts the difference
+    // directly.
+    let root = golden_dir();
+    let capture_at = |tick: u64| {
+        let mut project = Project::open(root.join("scenes"), 0);
+        project.load_scene("walking").expect("the scene loads");
+        capture(
+            &mut project,
+            CaptureRequest {
+                tick,
+                seed: 0,
+                input: None,
+                size: (128, 128),
+                settings: RenderSettings {
+                    internal_resolution: (64, 64),
+                    integer_upscale: true,
+                    pixel_snap: true,
+                    ambient: Color::WHITE,
+                },
+            },
+        )
+    };
+
+    let (first, third) = match (capture_at(0), capture_at(12)) {
+        (Ok(a), Ok(b)) => (a, b),
+        (a, b) => {
+            let diagnostics = a.err().or(b.err()).expect("one of them failed");
+            assert!(
+                std::env::var("DIMETRIC_REQUIRE_GPU").is_err(),
+                "DIMETRIC_REQUIRE_GPU is set but rendering failed: {diagnostics}"
+            );
+            eprintln!("skipping the walk cycle: {diagnostics}");
+            return;
+        }
+    };
+
+    let differing = first
+        .pixels
+        .chunks_exact(4)
+        .zip(third.pixels.chunks_exact(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(
+        differing > 0,
+        "tick 0 and tick 12 drew the same image; the animation is not advancing \
+         or the sheet is not being sliced"
+    );
+    eprintln!("the walk cycle moved {differing} pixels between tick 0 and tick 12");
 }

@@ -168,6 +168,15 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 boolean(true),
                 "Restart at the end of the clip.",
             ),
+            prop(
+                "frame",
+                PropertyType::Int,
+                int(0),
+                "Frame showing now. Written by the engine as the clip plays, and \
+                 read by the renderer to pick a slice of the sheet — the one-way \
+                 path from simulation to presentation that invariant I7 asks for. \
+                 Setting it by hand pins a frame until playback moves it.",
+            ),
             prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
             prop(
                 "speed_numerator",

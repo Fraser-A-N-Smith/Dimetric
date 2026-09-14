@@ -289,3 +289,71 @@ fn indexed_pngs_decode_because_that_is_what_pixel_art_tools_export() {
     let image = dimetric_assets::decode_png(&path).expect("indexed PNGs are supported");
     assert_eq!(image.pixels, [255, 0, 0, 255, 0, 0, 255, 128]);
 }
+
+#[test]
+fn a_png_a_meta_calls_a_strip_imports_as_an_animation() {
+    // Nothing in a PNG says it is a sprite strip, so the `.meta` has to.
+    let project = Project::new("strip");
+    project.png("sprites/walk", 48, 16, [255, 0, 0, 255]);
+    project.write(
+        "assets/sprites/walk.png.meta",
+        "id = \"a_walk0001\"\nframes = 3\nframe_ms = 100\n",
+    );
+
+    let imported = dimetric_assets::import(&Catalog::scan(project.root()), 60);
+    assert_eq!(imported.sheet.placements["sprites/walk"].frames, 3);
+
+    let clips = imported.clips("sprites/walk");
+    assert_eq!(clips.len(), 1);
+    assert_eq!(clips[0].name, "default");
+    // 100ms at 60Hz is 6 ticks a frame.
+    assert_eq!(clips[0].frames.len(), 3);
+    assert_eq!(clips[0].duration_ticks(), 18);
+    assert!(clips[0].looping);
+}
+
+#[test]
+fn a_plain_png_holds_one_frame_and_no_clip() {
+    let project = Project::new("still");
+    project.png("sprites/hero", 16, 16, [255, 0, 0, 255]);
+    let imported = dimetric_assets::import(&Catalog::scan(project.root()), 60);
+    assert_eq!(imported.sheet.placements["sprites/hero"].frames, 1);
+    assert!(imported.clips("sprites/hero").is_empty());
+}
+
+#[test]
+fn the_frame_duration_is_resolved_against_the_tick_rate_at_import() {
+    let project = Project::new("strip-rate");
+    project.png("sprites/walk", 48, 16, [255, 0, 0, 255]);
+    project.write(
+        "assets/sprites/walk.png.meta",
+        "id = \"a_walk0001\"\nframes = 3\nframe_ms = 100\n",
+    );
+    let catalog = Catalog::scan(project.root());
+    assert_eq!(
+        dimetric_assets::import(&catalog, 30).clips("sprites/walk")[0].duration_ticks(),
+        9
+    );
+    assert_eq!(
+        dimetric_assets::import(&catalog, 60).clips("sprites/walk")[0].duration_ticks(),
+        18
+    );
+}
+
+#[test]
+fn a_strip_declaration_survives_the_sidecar_round_trip() {
+    let project = Project::new("strip-meta");
+    project.png("sprites/walk", 48, 16, [255, 0, 0, 255]);
+    project.write(
+        "assets/sprites/walk.png.meta",
+        "id = \"a_walk0001\"\nframes = 3\nframe_ms = 40\n",
+    );
+    let catalog = Catalog::scan(project.root());
+    let imported = dimetric_assets::import(&catalog, 60);
+    cache::write_metas(&catalog, &imported).expect("write metas");
+
+    let after = Catalog::scan(project.root());
+    let settings = &after.get("sprites/walk").unwrap().settings;
+    assert_eq!(settings.frames, 3);
+    assert_eq!(settings.frame_ms, 40);
+}

@@ -7,7 +7,7 @@
 //! and the result is cached. What is here is the renderer's view of a packed
 //! sheet: texture coordinates, and the lookup the batcher does per sprite.
 
-use dimetric_assets::sheet::{pack, Placement, Sheet};
+use dimetric_assets::sheet::{pack, Framed, Placement, Sheet};
 use dimetric_scene::Color;
 
 /// An image waiting to be packed.
@@ -62,6 +62,11 @@ impl Atlas {
         Atlas::from_sheet(pack(sources, max_width))
     }
 
+    /// Pack images that may be animation strips.
+    pub fn pack_framed(framed: Vec<Framed>, max_width: u32) -> Atlas {
+        Atlas::from_sheet(dimetric_assets::sheet::pack_framed(framed, max_width))
+    }
+
     /// Take a sheet the importer already packed.
     pub fn from_sheet(sheet: Sheet) -> Atlas {
         Atlas {
@@ -83,6 +88,17 @@ impl Atlas {
             .placements
             .iter()
             .map(|(name, p)| (name.as_str(), self.region_of(p)))
+    }
+
+    /// How many animation frames an image holds, side by side.
+    ///
+    /// One for a still, which is why a caller can slice unconditionally.
+    pub fn frames(&self, name: &str) -> u32 {
+        self.sheet
+            .placements
+            .get(name)
+            .map(|p| p.frames.max(1))
+            .unwrap_or(1)
     }
 
     /// How many images are packed.

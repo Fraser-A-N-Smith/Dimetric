@@ -57,6 +57,9 @@ fn run_ci() -> Result<(), String> {
     lint_sim::run()?;
     check_deps::run()?;
     fmt_scenes::run(true)?;
+    // docs/ is a committed build artifact. The workflow checks it too, but
+    // finding out here costs a minute and finding out there costs a round trip.
+    check_generated_docs()?;
     cargo(&["fmt", "--all", "--check"])?;
     cargo(&[
         "clippy",
@@ -68,6 +71,64 @@ fn run_ci() -> Result<(), String> {
     ])?;
     cargo(&["test", "--workspace"])?;
     Ok(())
+}
+
+/// Regenerate `docs/` and fail if that changed anything.
+///
+/// The question is whether the committed artifacts match what the engine
+/// generates now, which is a before-and-after comparison rather than a `git
+/// status`: docs legitimately change in the working tree alongside the schema
+/// change that caused them.
+fn check_generated_docs() -> Result<(), String> {
+    let docs = workspace_root().join("docs");
+    let before = snapshot(&docs);
+    gen_docs::run()?;
+    let after = snapshot(&docs);
+
+    let stale: Vec<String> = after
+        .iter()
+        .filter(|(path, content)| before.get(*path) != Some(*content))
+        .map(|(path, _)| path.clone())
+        .collect();
+    if stale.is_empty() {
+        eprintln!("xtask: generated documentation is current");
+        return Ok(());
+    }
+    Err(format!(
+        "docs/ did not match what the engine generates, and has been rewritten:\n  {}\n\n\
+         Commit the result — an agent reading a stale contract writes confident code \
+         against an API that no longer exists.",
+        stale.join("\n  ")
+    ))
+}
+
+/// Every file under a directory, by relative path.
+fn snapshot(dir: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn walk(
+        dir: &std::path::Path,
+        root: &std::path::Path,
+        out: &mut std::collections::BTreeMap<String, Vec<u8>>,
+    ) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, root, out);
+            } else if let Ok(bytes) = std::fs::read(&path) {
+                let name = path
+                    .strip_prefix(root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.insert(name, bytes);
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    walk(dir, dir, &mut out);
+    out
 }
 
 /// Run a cargo subcommand, inheriting stdio.

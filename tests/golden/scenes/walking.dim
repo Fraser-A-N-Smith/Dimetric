@@ -1,0 +1,30 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Room"
+
+[[node]]
+id = "n_camera01"
+kind = "Camera2D"
+name = "View"
+parent = "n_root0000"          # /Room
+pos = [64.0, 48.0]
+current = true
+
+# Three frames at 100ms each, so a capture at tick 0 and one at tick 12 are
+# different poses. That is the whole point of the fixture: it fails if
+# animation stops advancing, and it fails if the sheet stops being sliced.
+[[node]]
+id = "n_walker01"
+kind = "AnimatedSprite2D"
+name = "Walker"
+parent = "n_root0000"          # /Room
+pos = [64.0, 48.0]
+animation = "default"
+frames = "asset:sprites/walk"

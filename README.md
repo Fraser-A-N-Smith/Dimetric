@@ -190,6 +190,17 @@ dim asset reimport          # import what moved
 dim asset info sprites/hero # id, hash, where it sits in the atlas, its clips
 ```
 
+A `.meta` can also declare a plain PNG to be a sprite strip, which nothing in
+the file itself says:
+
+```toml
+frames = 3
+frame_ms = 100
+```
+
+That imports as an animation with one clip, the same shape an Aseprite document
+produces from its tags.
+
 Three things happen at import rather than at runtime, all for the same reason.
 Atlas packing, so a golden image is of one layout rather than whichever the
 packer happened to produce. Aseprite frame durations, which are milliseconds in

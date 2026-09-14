@@ -356,3 +356,123 @@ fn the_shear_moves_a_sprite_without_deforming_it() {
         "an upright 16x16 quad, not a 32x16 parallelogram"
     );
 }
+
+/// A three-frame strip: red, green, blue, side by side, 8 pixels each.
+fn strip_atlas() -> Atlas {
+    let mut pixels = Vec::with_capacity(24 * 8 * 4);
+    for _ in 0..8 {
+        for x in 0..24u32 {
+            pixels.extend_from_slice(match x / 8 {
+                0 => &[0xFF, 0x00, 0x00, 0xFF],
+                1 => &[0x00, 0xFF, 0x00, 0xFF],
+                _ => &[0x00, 0x00, 0xFF, 0xFF],
+            });
+        }
+    }
+    Atlas::pack_framed(
+        vec![dimetric_assets::sheet::Framed {
+            image: Source {
+                name: "sprites/walk".into(),
+                width: 24,
+                height: 8,
+                pixels,
+            },
+            frames: 3,
+        }],
+        256,
+    )
+}
+
+/// An `AnimatedSprite2D` showing a given frame of the strip.
+fn animated_scene(frame: i64) -> Scene {
+    let mut scene = Scene::new();
+    let root = scene
+        .insert(
+            Node::new(NodeUid::parse("n_root0000").unwrap(), "Node2D", "Room"),
+            None,
+        )
+        .expect("the root inserts");
+    let mut node = Node::new(
+        NodeUid::parse("n_walker01").unwrap(),
+        "AnimatedSprite2D",
+        "Walker",
+    );
+    node.set(
+        "frames".to_string(),
+        Value::Ref(dimetric_scene::Reference::Asset("sprites/walk".into())),
+    );
+    node.set("frame".to_string(), Value::Int(frame));
+    scene.insert(node, Some(root)).expect("the sprite inserts");
+    scene
+}
+
+#[test]
+fn the_frame_index_picks_a_slice_of_the_strip() {
+    // Without this the whole sheet draws as one sprite, and an animation that
+    // advances correctly still looks like a contact sheet.
+    let atlas = strip_atlas();
+    let camera = Camera::new((64, 64));
+
+    let first = extract(&animated_scene(0), &atlas, &camera, None);
+    let second = extract(&animated_scene(1), &atlas, &camera, None);
+
+    assert_eq!(first.sprites.len(), 1);
+    assert_eq!(second.sprites.len(), 1);
+
+    let uv_of = |frame: &dimetric_render::Frame| frame.sprites[0].uv;
+    assert_ne!(
+        uv_of(&first),
+        uv_of(&second),
+        "different frame, different uv"
+    );
+
+    // A third of the strip each, and the second starts where the first ends.
+    let (a, b) = (uv_of(&first), uv_of(&second));
+    let width = a[2] - a[0];
+    assert!((b[0] - a[2]).abs() < 1e-5, "{a:?} then {b:?}");
+    assert!((width * 3.0 - (atlas.frames("sprites/walk") as f32 * width)).abs() < 1e-5);
+}
+
+#[test]
+fn a_sprite_slice_is_one_frame_wide_rather_than_the_whole_sheet() {
+    let atlas = strip_atlas();
+    let camera = Camera::new((64, 64));
+    let frame = extract(&animated_scene(2), &atlas, &camera, None);
+    // Eight pixels of a twenty-four pixel strip.
+    assert_eq!(frame.sprites[0].size, Vec2Fx::from_ints(8, 8));
+}
+
+#[test]
+fn a_frame_index_past_the_end_clamps_rather_than_sampling_nothing() {
+    let atlas = strip_atlas();
+    let camera = Camera::new((64, 64));
+    let last = extract(&animated_scene(2), &atlas, &camera, None);
+    let past = extract(&animated_scene(99), &atlas, &camera, None);
+    assert_eq!(last.sprites[0].uv, past.sprites[0].uv);
+}
+
+#[test]
+fn a_still_image_is_not_sliced() {
+    let frame = extract(
+        &{
+            let mut scene = Scene::new();
+            let root = scene
+                .insert(
+                    Node::new(NodeUid::parse("n_root0000").unwrap(), "Node2D", "Room"),
+                    None,
+                )
+                .expect("the root inserts");
+            let mut node = Node::new(NodeUid::parse("n_block001").unwrap(), "Sprite2D", "Block");
+            node.set(
+                "texture".to_string(),
+                Value::Ref(dimetric_scene::Reference::Asset("sprites/block".into())),
+            );
+            scene.insert(node, Some(root)).expect("the sprite inserts");
+            scene
+        },
+        &atlas(),
+        &Camera::new((64, 64)),
+        None,
+    );
+    assert_eq!(frame.sprites[0].size, Vec2Fx::from_ints(16, 16));
+}

@@ -33,6 +33,13 @@
           "type": "bool"
         },
         {
+          "default": "0",
+          "doc": "Frame showing now. Written by the engine as the clip plays, and read by the renderer to pick a slice of the sheet — the one-way path from simulation to presentation that invariant I7 asks for. Setting it by hand pins a frame until playback moves it.",
+          "name": "frame",
+          "required": false,
+          "type": "int"
+        },
+        {
           "default": "\"#ffffffff\"",
           "doc": "Tint.",
           "name": "modulate",

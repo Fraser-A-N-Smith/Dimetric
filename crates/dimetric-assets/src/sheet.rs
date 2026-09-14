@@ -32,6 +32,18 @@ pub struct Placement {
     pub width: u32,
     /// Height in pixels.
     pub height: u32,
+    /// How many animation frames the image holds, side by side.
+    ///
+    /// One for a still. An Aseprite document imports as a horizontal strip, and
+    /// this is what lets the renderer slice the strip without being told the
+    /// frame size separately — a number that could disagree with the image is a
+    /// number that eventually does.
+    #[serde(default = "one")]
+    pub frames: u32,
+}
+
+fn one() -> u32 {
+    1
 }
 
 /// One packed image and the map of what is where in it.
@@ -47,14 +59,40 @@ pub struct Sheet {
     pub placements: BTreeMap<String, Placement>,
 }
 
+/// An image to pack, and how many frames it holds.
+pub struct Framed {
+    /// The pixels.
+    pub image: Image,
+    /// Frames side by side within it. One for a still.
+    pub frames: u32,
+}
+
 /// Pack images into a single sheet.
 ///
 /// Shelf packing: tallest first, laid left to right in rows. Not the tightest
 /// algorithm, but it is simple and — sorted by height and then by name —
 /// completely deterministic, which matters because a golden image of a
 /// differently-packed atlas is a different image.
-pub fn pack(mut images: Vec<Image>, max_width: u32) -> Sheet {
-    images.sort_by(|a, b| b.height.cmp(&a.height).then(a.name.cmp(&b.name)));
+pub fn pack(images: Vec<Image>, max_width: u32) -> Sheet {
+    pack_framed(
+        images
+            .into_iter()
+            .map(|image| Framed { image, frames: 1 })
+            .collect(),
+        max_width,
+    )
+}
+
+/// Pack images that may be animation strips.
+pub fn pack_framed(mut framed: Vec<Framed>, max_width: u32) -> Sheet {
+    framed.sort_by(|a, b| {
+        b.image
+            .height
+            .cmp(&a.image.height)
+            .then(a.image.name.cmp(&b.image.name))
+    });
+    let frame_counts: Vec<u32> = framed.iter().map(|f| f.frames.max(1)).collect();
+    let images: Vec<Image> = framed.into_iter().map(|f| f.image).collect();
 
     let width = max_width.max(
         images
@@ -94,7 +132,7 @@ pub fn pack(mut images: Vec<Image>, max_width: u32) -> Sheet {
 
     let mut sheet = Image::blank("", width, height);
     let mut placements = BTreeMap::new();
-    for (image, (ox, oy)) in images.iter().zip(positions) {
+    for ((image, (ox, oy)), frames) in images.iter().zip(positions).zip(frame_counts) {
         sheet.blit(image, ox, oy);
         placements.insert(
             image.name.clone(),
@@ -103,6 +141,7 @@ pub fn pack(mut images: Vec<Image>, max_width: u32) -> Sheet {
                 y: oy,
                 width: image.width,
                 height: image.height,
+                frames,
             },
         );
     }

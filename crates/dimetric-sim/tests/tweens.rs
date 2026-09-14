@@ -424,3 +424,190 @@ fn a_simulation_with_no_clips_at_all_still_runs() {
     run(&mut sim, 10);
     assert!(!sim.diagnostics().has_errors());
 }
+
+#[test]
+fn an_animated_sprite_node_plays_without_a_script_driving_it() {
+    // `animation = "walk"` in the scene file should be enough. Requiring a
+    // script to call `anim.play` every tick would make the property a lie.
+    const ANIMATED: &str = r##"format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Room"
+
+[[node]]
+id = "n_mover001"
+kind = "AnimatedSprite2D"
+name = "Mover"
+parent = "n_root0000"
+frames = "asset:sprites/hero"
+animation = "walk"
+"##;
+    let registry = KindRegistry::with_builtins();
+    let out = dimetric_scene::parse(ANIMATED, "scene.dim", &registry);
+    assert!(!out.diagnostics.has_errors(), "{}", out.diagnostics);
+    let mut sim = Sim::new(
+        out.doc.unwrap().scene,
+        1,
+        Box::new(dimetric_sim::NoScripts),
+        SimConfig::default(),
+    )
+    .with_clips(clips(walk_clip()));
+
+    run(&mut sim, 3);
+    assert_eq!(sim.state().anim[&mover()].frame, 1);
+}
+
+#[test]
+fn the_frame_the_engine_landed_on_is_written_onto_the_node() {
+    // This is the only path from a playing animation to something being drawn:
+    // the renderer reads the scene and never asks the simulation anything.
+    let mut sim = sim_with("function on_tick(self) anim.play(self, \"walk\") end\n")
+        .with_clips(clips(walk_clip()));
+    let scene_frame = |sim: &Sim| {
+        let state = sim.state();
+        let id = state.scene.by_uid(mover()).expect("node");
+        state
+            .scene
+            .get(id)
+            .and_then(|n| n.get("frame"))
+            .and_then(Value::as_int)
+    };
+    // A Sprite2D is not an animated node, so nothing is written to it.
+    run(&mut sim, 3);
+    assert_eq!(scene_frame(&sim), None);
+}
+
+#[test]
+fn an_animated_node_carries_its_frame_in_the_scene() {
+    const ANIMATED: &str = r##"format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Room"
+
+[[node]]
+id = "n_mover001"
+kind = "AnimatedSprite2D"
+name = "Mover"
+parent = "n_root0000"
+frames = "asset:sprites/hero"
+animation = "walk"
+"##;
+    let registry = KindRegistry::with_builtins();
+    let out = dimetric_scene::parse(ANIMATED, "scene.dim", &registry);
+    let mut sim = Sim::new(
+        out.doc.unwrap().scene,
+        1,
+        Box::new(dimetric_sim::NoScripts),
+        SimConfig::default(),
+    )
+    .with_clips(clips(walk_clip()));
+
+    for expected in [(1u64, 0i64), (3, 1), (5, 2), (7, 0)] {
+        while sim.state().tick.0 < expected.0 {
+            run(&mut sim, 1);
+        }
+        let state = sim.state();
+        let id = state.scene.by_uid(mover()).expect("node");
+        assert_eq!(
+            state
+                .scene
+                .get(id)
+                .and_then(|n| n.get("frame"))
+                .and_then(Value::as_int),
+            Some(expected.1),
+            "at tick {}",
+            expected.0
+        );
+    }
+}
+
+#[test]
+fn two_sheets_may_each_have_a_clip_called_walk() {
+    let mut map = dimetric_sim::anim::Clips::new();
+    map.insert("sprites/hero".to_string(), vec![walk_clip()]);
+    let mut slow = walk_clip();
+    slow.frames[0].ticks = 50;
+    map.insert("sprites/skeleton".to_string(), vec![slow]);
+
+    const ANIMATED: &str = r##"format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Room"
+
+[[node]]
+id = "n_mover001"
+kind = "AnimatedSprite2D"
+name = "Mover"
+parent = "n_root0000"
+frames = "asset:sprites/skeleton"
+animation = "walk"
+"##;
+    let registry = KindRegistry::with_builtins();
+    let out = dimetric_scene::parse(ANIMATED, "scene.dim", &registry);
+    let mut sim = Sim::new(
+        out.doc.unwrap().scene,
+        1,
+        Box::new(dimetric_sim::NoScripts),
+        SimConfig::default(),
+    )
+    .with_clips(map);
+
+    run(&mut sim, 5);
+    // The skeleton's own "walk" holds its first frame for fifty ticks, so this
+    // is still frame zero. Picking the hero's would have advanced it.
+    assert_eq!(sim.state().anim[&mover()].frame, 0);
+}
+
+#[test]
+fn setting_playing_to_false_in_the_scene_holds_the_frame() {
+    const ANIMATED: &str = r##"format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Room"
+
+[[node]]
+id = "n_mover001"
+kind = "AnimatedSprite2D"
+name = "Mover"
+parent = "n_root0000"
+frames = "asset:sprites/hero"
+animation = "walk"
+playing = false
+"##;
+    let registry = KindRegistry::with_builtins();
+    let out = dimetric_scene::parse(ANIMATED, "scene.dim", &registry);
+    let mut sim = Sim::new(
+        out.doc.unwrap().scene,
+        1,
+        Box::new(dimetric_sim::NoScripts),
+        SimConfig::default(),
+    )
+    .with_clips(clips(walk_clip()));
+
+    run(&mut sim, 20);
+    assert_eq!(sim.state().anim[&mover()].frame, 0);
+}

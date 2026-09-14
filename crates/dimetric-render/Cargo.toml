@@ -18,3 +18,6 @@ thiserror.workspace = true
 wgpu = "30"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
+
+[dev-dependencies]
+dimetric-assets = { path = "../dimetric-assets" }

@@ -367,6 +367,11 @@ pub struct Replay<'a> {
     pub expected: Option<&'a [StateHash]>,
     /// Assertions to evaluate.
     pub probes: &'a [Probe],
+    /// Animation clips the scene's nodes play.
+    ///
+    /// A replay of a project with animation has to carry the clips: frame
+    /// advance is simulation state, so a run without them is a different run.
+    pub clips: dimetric_sim::anim::Clips,
 }
 
 impl Replay<'_> {
@@ -377,7 +382,8 @@ impl Replay<'_> {
         scripts: Box<dyn ScriptHost>,
         config: SimConfig,
     ) -> ReplayReport {
-        let mut sim = Sim::new(scene, self.log.seed, scripts, config);
+        let mut sim =
+            Sim::new(scene, self.log.seed, scripts, config).with_clips(self.clips.clone());
         let ticks = self.ticks.unwrap_or(self.log.frames.len() as u64);
         let mut hashes = Vec::with_capacity(ticks as usize);
         let mut divergence = None;

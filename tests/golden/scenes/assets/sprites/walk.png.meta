@@ -1,0 +1,6 @@
+id = "a_walk0001"
+source_hash = "51b368606cff5bb9fdf36f23ffd61ec8a4959539e21c0aec15660f12ae027e76"
+nearest = true
+atlas = true
+frames = 3
+frame_ms = 100

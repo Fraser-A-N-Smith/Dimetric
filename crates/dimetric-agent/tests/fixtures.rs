@@ -60,6 +60,7 @@ fn replay(dir: &Path) -> dimetric_host::ReplayReport {
         ticks: Some(recorded.hashes.len() as u64),
         expected: Some(&recorded.hashes),
         probes: &probes,
+        clips: project.clips(),
     }
     .run(scene, Box::new(host), SimConfig::default())
 }
@@ -169,6 +170,7 @@ fn the_example_project_replays_as_the_readme_says_it_does() {
         ticks: Some(recorded.hashes.len() as u64),
         expected: Some(&recorded.hashes),
         probes: &probes,
+        clips: project.clips(),
     }
     .run(scene, Box::new(host), SimConfig::default());
 

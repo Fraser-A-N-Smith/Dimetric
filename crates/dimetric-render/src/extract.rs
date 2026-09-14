@@ -193,6 +193,21 @@ fn sprite(
         .region(&key)
         .or_else(|| atlas.region(PLACEHOLDER_NAME))?;
 
+    // An animation sheet is one image holding its frames side by side, so the
+    // frame showing now is a slice of it. The index comes off the node, which
+    // the simulation wrote during its own tick: the renderer never asks the
+    // simulation anything (I7).
+    let frames = atlas.frames(&key);
+    if frames > 1 {
+        let width = region.size.0 / frames;
+        let index = node
+            .get("frame")
+            .and_then(Value::as_int)
+            .unwrap_or(0)
+            .clamp(0, frames as i64 - 1) as u32;
+        region = region.sub(index * width, 0, width, region.size.1);
+    }
+
     if let Some(Value::Rect(r)) = node.get("region") {
         region = region.sub(
             r.pos.x.to_int_trunc().max(0) as u32,

@@ -280,7 +280,7 @@ impl Sim {
             let mut state = self.state.borrow_mut();
             let state = &mut *state;
             crate::tween::advance(&mut state.scene, &mut state.tweens);
-            crate::anim::advance(&mut state.anim, &self.clips)
+            crate::anim::advance(&mut state.scene, &mut state.anim, &self.clips)
         };
         for (uid, event) in events {
             let script = self

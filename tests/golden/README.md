@@ -21,6 +21,16 @@ what can silently go wrong.
 **`room-lit.dim`** — the same room under the 2:1 shear, in the dark, with a
 radial torch and a blue cone light.
 
+**`walking.dim`** — one `AnimatedSprite2D` playing a three-frame strip, captured
+at tick 0 and again at tick 12. Two references, because the pair is the
+assertion rather than either image on its own.
+
+A caveat about that pair: two poses of one figure differ by well under the
+comparison's tolerance, so if animation stopped advancing both fixtures would
+still match. `the_walk_cycle_draws_a_different_pose_at_a_different_tick` asserts
+the difference directly, and is the test that actually guards the path from an
+imported clip through the tick loop to a sliced sheet.
+
 ## Why the isometric fixture uses diamond tiles
 
 The projection moves a sprite's **position** and draws its quad upright. That is

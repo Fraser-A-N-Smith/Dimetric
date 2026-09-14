@@ -27,7 +27,7 @@ use dimetric_core::AssetId;
 use crate::clip::Clip;
 use crate::image::{decode_png, encode_png, Image, ImageError};
 use crate::meta::{content_hash, ImportSettings, SourceKind, IMPORT_DIR, META_EXTENSION};
-use crate::sheet::{pack, Sheet};
+use crate::sheet::{pack_framed, Framed, Sheet};
 
 /// Directory sources are read from.
 pub const ASSETS_DIR: &str = "assets";
@@ -172,6 +172,8 @@ pub enum Artifact {
         frame_width: u32,
         /// Height of one frame, in pixels.
         frame_height: u32,
+        /// How many frames the strip holds.
+        frame_count: u32,
         /// Named clips from the document's tags.
         clips: Vec<Clip>,
     },
@@ -216,7 +218,7 @@ impl Imported {
 pub fn import(catalog: &Catalog, tick_rate: u32) -> Imported {
     let mut artifacts = BTreeMap::new();
     let mut failures = Vec::new();
-    let mut packable: Vec<Image> = Vec::new();
+    let mut packable: Vec<Framed> = Vec::new();
 
     for entry in catalog.entries() {
         let full = catalog.root().join(&entry.path);
@@ -227,12 +229,20 @@ pub fn import(catalog: &Catalog, tick_rate: u32) -> Imported {
                         Artifact::Image(image) => {
                             let mut image = image.clone();
                             image.name = entry.name.clone();
-                            packable.push(image);
+                            packable.push(Framed {
+                                image,
+                                frames: entry.settings.frames.max(1),
+                            });
                         }
-                        Artifact::Animation { sheet, .. } => {
-                            let mut sheet = sheet.clone();
-                            sheet.name = entry.name.clone();
-                            packable.push(sheet);
+                        Artifact::Animation {
+                            sheet, frame_count, ..
+                        } => {
+                            let mut image = sheet.clone();
+                            image.name = entry.name.clone();
+                            packable.push(Framed {
+                                image,
+                                frames: *frame_count,
+                            });
                         }
                         _ => {}
                     }
@@ -245,7 +255,7 @@ pub fn import(catalog: &Catalog, tick_rate: u32) -> Imported {
 
     Imported {
         artifacts,
-        sheet: pack(packable, MAX_SHEET_WIDTH),
+        sheet: pack_framed(packable, MAX_SHEET_WIDTH),
         failures,
     }
 }
@@ -255,7 +265,33 @@ fn import_one(full: &Path, entry: &Entry, tick_rate: u32) -> Result<Artifact, Im
         SourceKind::Png => {
             let mut image = decode_png(full)?;
             image.name = entry.name.clone();
-            Ok(Artifact::Image(image))
+            let frames = entry.settings.frames.max(1);
+            if frames == 1 {
+                return Ok(Artifact::Image(image));
+            }
+            // A PNG that the `.meta` calls a strip animates like an Aseprite
+            // document does, with one clip covering every frame. Nothing in a
+            // PNG says it is a strip, so somebody has to.
+            let width = image.width / frames;
+            let height = image.height;
+            let ticks = crate::clip::ms_to_ticks(entry.settings.frame_ms, tick_rate);
+            Ok(Artifact::Animation {
+                sheet: image,
+                frame_width: width,
+                frame_height: height,
+                frame_count: frames,
+                clips: vec![crate::clip::Clip {
+                    name: "default".to_string(),
+                    frames: (0..frames)
+                        .map(|index| crate::clip::Frame {
+                            index,
+                            ticks,
+                            event: None,
+                        })
+                        .collect(),
+                    looping: true,
+                }],
+            })
         }
         SourceKind::Aseprite => {
             let ase = crate::aseprite::import(full, tick_rate)?;
@@ -263,6 +299,7 @@ fn import_one(full: &Path, entry: &Entry, tick_rate: u32) -> Result<Artifact, Im
                 sheet: ase.sheet,
                 frame_width: ase.frame_width,
                 frame_height: ase.frame_height,
+                frame_count: ase.frame_count,
                 clips: ase.clips,
             })
         }

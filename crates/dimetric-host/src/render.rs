@@ -12,6 +12,7 @@
 
 use std::path::Path;
 
+use dimetric_assets::sheet::Framed;
 use dimetric_core::{Code, Diagnostic, Diagnostics};
 use dimetric_render::atlas::{load_png, placeholder, solid};
 use dimetric_render::{
@@ -36,23 +37,36 @@ const ATLAS_WIDTH: u32 = 2048;
 /// still be able to look at the room.
 pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
     let mut diagnostics = Diagnostics::new();
-    let mut sources = vec![placeholder(16), solid(Color::WHITE)];
+    let mut sources = vec![
+        Framed {
+            image: placeholder(16),
+            frames: 1,
+        },
+        Framed {
+            image: solid(Color::WHITE),
+            frames: 1,
+        },
+    ];
 
     let imported = project.imported();
     for name in dimetric_render::extract::required_assets(scene) {
-        // The cache first. It holds Aseprite sheets as well as PNGs, and it
-        // holds them already decoded.
-        if let Some(image) = imported.and_then(|i| cached_image(i, &name)) {
+        // The cache first. It holds animation strips as well as stills, and it
+        // holds them already decoded — and it knows how many frames a strip
+        // has, which is what lets the renderer slice one.
+        if let Some((image, frames)) = imported.and_then(|i| cached_image(i, &name)) {
             let mut image = image.clone();
             image.name = name;
-            sources.push(image);
+            sources.push(Framed { image, frames });
             continue;
         }
         let path = texture_path(&project.root, &name);
         match load_png(&path) {
             Ok(mut source) => {
                 source.name = name;
-                sources.push(source);
+                sources.push(Framed {
+                    image: source,
+                    frames: 1,
+                });
             }
             Err(e) => diagnostics.push(
                 Diagnostic::new(Code::ASSET_MISSING, e.to_string())
@@ -62,17 +76,19 @@ pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
             ),
         }
     }
-    (Atlas::pack(sources, ATLAS_WIDTH), diagnostics)
+    (Atlas::pack_framed(sources, ATLAS_WIDTH), diagnostics)
 }
 
-/// The pixels an imported asset contributes to the atlas.
+/// The pixels an imported asset contributes to the atlas, and its frame count.
 fn cached_image<'a>(
     imported: &'a dimetric_assets::Imported,
     name: &str,
-) -> Option<&'a dimetric_assets::Image> {
+) -> Option<(&'a dimetric_assets::Image, u32)> {
     match imported.artifacts.get(name)? {
-        dimetric_assets::Artifact::Image(image) => Some(image),
-        dimetric_assets::Artifact::Animation { sheet, .. } => Some(sheet),
+        dimetric_assets::Artifact::Image(image) => Some((image, 1)),
+        dimetric_assets::Artifact::Animation {
+            sheet, frame_count, ..
+        } => Some((sheet, *frame_count)),
         _ => None,
     }
 }
@@ -173,7 +189,10 @@ pub fn capture(
     let (atlas, asset_diagnostics) = build_atlas(project, &scene);
     diagnostics.extend(asset_diagnostics);
 
-    let mut sim = Sim::new(scene, request.seed, Box::new(host), SimConfig::default());
+    // With the project's clips, so an animated sprite shows the frame it would
+    // be on rather than the one it started on.
+    let mut sim = Sim::new(scene, request.seed, Box::new(host), SimConfig::default())
+        .with_clips(project.clips());
     let log = request
         .input
         .unwrap_or_else(|| InputLog::new(request.seed, env!("CARGO_PKG_VERSION"), 1));

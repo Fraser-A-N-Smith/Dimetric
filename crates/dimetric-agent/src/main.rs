@@ -1321,6 +1321,8 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
         None => Vec::new(),
     };
 
+    project.import_assets();
+    let clips = project.clips();
     let (scene, mut diags) = project.runtime_scene()?;
     diags.extend(project.load_scripts());
     let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
@@ -1335,6 +1337,7 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
         ticks: args.ticks,
         expected: recorded.as_ref().map(|r| r.hashes.as_slice()),
         probes: &probes,
+        clips,
     };
     let report = replay.run(scene, Box::new(host), dimetric_sim::SimConfig::default());
 
