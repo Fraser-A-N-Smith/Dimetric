@@ -282,10 +282,19 @@ fn both_projections_render_and_disagree() {
         "the shear must actually reach the GPU, not be silently dropped"
     );
 
-    // Under the shear, world +y goes down and to the left.
+    // The sprite sits at world (0, 16) with the camera at the origin.
+    //
+    // Top-down puts it straight below the centre: screen (0, 16), pixel
+    // (32, 48). The shear maps it to (x - y, (x + y) / 2) = (-16, 8), which is
+    // pixel (16, 40) — down, and half as far down as it went left.
+    //
+    // Only the centre is asserted. The quad itself is drawn upright under both
+    // projections, because the projection moves a sprite's position and not its
+    // shape, so checking a corner would be checking the quad and not the
+    // transform.
     let sprite_at = |pixels: &[u8], x: u32, y: u32| at(pixels, 64, x, y)[..3] == [0xC8, 0x28, 0x28];
     assert!(sprite_at(&top_down, 32, 48), "top-down: straight down");
-    assert!(sprite_at(&isometric, 24, 40), "isometric: down and left");
+    assert!(sprite_at(&isometric, 16, 40), "isometric: down and left");
 }
 
 #[test]
@@ -303,4 +312,47 @@ fn rendering_the_same_frame_twice_gives_the_same_pixels() {
     let first = capture.render(&mut renderer, &frame).unwrap();
     let second = capture.render(&mut renderer, &frame).unwrap();
     assert_eq!(first, second, "one adapter must be repeatable");
+}
+
+#[test]
+fn the_shear_moves_a_sprite_without_deforming_it() {
+    // Isometric artwork is already drawn in projection, so the engine projects
+    // where a sprite is and leaves what it looks like alone. Shearing the quad
+    // as well turns every character into a parallelogram — which is what the
+    // first version of this renderer did, and it is obvious in a screenshot
+    // and invisible to a test that only checks the sprite is somewhere.
+    let atlas = atlas();
+    let Some(mut renderer) = renderer(&atlas, settings()) else {
+        return;
+    };
+    let capture = Capture::new(&renderer, (64, 64));
+    let scene = one_sprite();
+
+    let mut camera = Camera::new((64, 64));
+    camera.zoom = 1.0;
+    camera.projection = Projection::Isometric;
+    let pixels = capture
+        .render(&mut renderer, &extract(&scene, &atlas, &camera, None))
+        .unwrap();
+
+    // A 16x16 sprite at the origin, drawn upright, covers exactly 256 pixels.
+    // A sheared one covers the same area — the shear has determinant 1 — so
+    // area proves nothing and the bounding box is what tells them apart.
+    let mut bounds: Option<(u32, u32, u32, u32)> = None;
+    for y in 0..64 {
+        for x in 0..64 {
+            if at(&pixels, 64, x, y)[..3] == [0xC8, 0x28, 0x28] {
+                bounds = Some(match bounds {
+                    None => (x, y, x, y),
+                    Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+                });
+            }
+        }
+    }
+    let (x0, y0, x1, y1) = bounds.expect("the sprite should be drawn");
+    assert_eq!(
+        (x1 - x0 + 1, y1 - y0 + 1),
+        (16, 16),
+        "an upright 16x16 quad, not a 32x16 parallelogram"
+    );
 }

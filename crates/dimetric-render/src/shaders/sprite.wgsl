@@ -6,6 +6,9 @@
 
 struct Camera {
     view_proj: mat4x4<f32>,
+    // Clip-space units per world unit of sprite size. The projection moves a
+    // sprite's position; this sizes its quad.
+    pixel_scale: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -43,8 +46,12 @@ fn vs_main(@builtin(vertex_index) vertex: u32, instance: Instance) -> VertexOut 
         local.x * instance.rotation.y + local.y * instance.rotation.x,
     );
 
+    // The centre goes through the projection; the quad is added in screen
+    // space afterwards. Under the shear that keeps the sprite upright and only
+    // its position projected, which is what isometric artwork expects.
     var out: VertexOut;
-    out.clip_position = camera.view_proj * vec4<f32>(instance.center + rotated, 0.0, 1.0);
+    let center = camera.view_proj * vec4<f32>(instance.center, 0.0, 1.0);
+    out.clip_position = center + vec4<f32>(rotated * camera.pixel_scale.xy, 0.0, 0.0);
     out.uv = mix(instance.uv_min, instance.uv_max, corner);
     out.color = instance.color;
     return out;

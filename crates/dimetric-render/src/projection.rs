@@ -162,6 +162,20 @@ impl Camera {
         ]
     }
 
+    /// How many clip-space units one world unit of sprite size is worth.
+    ///
+    /// Separate from [`view_projection`](Camera::view_projection) because the
+    /// projection applies to a sprite's *position* and not to its shape. Under
+    /// the 2:1 shear a character drawn as an upright quad stays upright and
+    /// only moves along the projected axes — which is how the genre works, and
+    /// what the artwork is already drawn for. Shearing the quad as well turns
+    /// every character into a parallelogram.
+    pub fn pixel_scale(&self) -> [f32; 2] {
+        // I3-exempt: render boundary.
+        let (width, height) = (self.viewport.0.max(1) as f32, self.viewport.1.max(1) as f32);
+        [2.0 * self.zoom / width, -2.0 * self.zoom / height]
+    }
+
     /// Interpolate between two simulation states for display.
     ///
     /// Essential for a 60 Hz simulation on a 144 Hz display, and strictly a

@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 dimetric-core.workspace = true
 dimetric-scene.workspace = true
+dimetric-render.workspace = true
 dimetric-sim.workspace = true
 indexmap.workspace = true
 serde.workspace = true

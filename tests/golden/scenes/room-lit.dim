@@ -1,0 +1,88 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Room"
+
+[[node]]
+id = "n_camera01"
+kind = "Camera2D"
+name = "View"
+parent = "n_root0000"          # /Room
+pos = [64.0, 48.0]
+current = true
+projection = "Isometric"
+
+[[node]]
+id = "n_floor001"
+kind = "TileLayer"
+name = "Floor"
+parent = "n_root0000"          # /Room
+layer = -1
+cell = [32, 16]
+tileset = "asset:tilesets/iso"
+
+[[node]]
+id = "n_hero0001"
+kind = "Sprite2D"
+name = "Hero"
+parent = "n_root0000"          # /Room
+pos = [56.0, 56.0]
+texture = "asset:sprites/hero"
+
+[[node]]
+id = "n_skelet01"
+kind = "Sprite2D"
+name = "Skeleton"
+parent = "n_root0000"          # /Room
+pos = [64.0, 48.0]
+texture = "asset:sprites/skeleton"
+
+[[node]]
+id = "n_glow0001"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_root0000"          # /Room
+pos = [96.0, 40.0]
+blend = "Additive"
+texture = "asset:sprites/glow"
+
+[[node]]
+id = "n_tilted01"
+kind = "Sprite2D"
+name = "Tilted"
+parent = "n_root0000"          # /Room
+pos = [32.0, 32.0]
+rot = 45.0
+texture = "asset:sprites/skeleton"
+
+[[node]]
+id = "n_torch001"
+kind = "Light2D"
+name = "Torch"
+parent = "n_root0000"          # /Room
+pos = [56.0, 56.0]
+color = "#ffb347ff"
+energy = 1.5
+radius = 48.0
+
+[[node]]
+id = "n_beam001x"
+kind = "Light2D"
+name = "Beam"
+parent = "n_root0000"          # /Room
+pos = [96.0, 32.0]
+rot = 135.0
+color = "#7bc4ffff"
+cone_angle = 60.0018310546875
+shape = "Cone"
+
+[[chunk]]
+layer = "n_floor001"           # /Room/Floor
+at = [0, 0]
+data = "1:1 1:2 1:3 1:4 1:1 1:2 1:3 1:4 24:0 1:2 1:3 1:4 1:1 1:2 1:3 1:4 1:1 24:0 1:3 1:4 1:1 1:2 1:3 1:4 1:1 1:2 24:0 1:4 1:1 1:2 1:3 1:4 1:1 1:2 1:3 24:0 1:1 1:2 1:3 1:4 1:1 1:2 1:3 1:4 24:0 1:2 1:3 1:4 1:1 1:2 1:3 1:4 1:1 856:0"

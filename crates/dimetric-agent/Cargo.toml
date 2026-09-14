@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 dimetric-core.workspace = true
+dimetric-render.workspace = true
 dimetric-scene.workspace = true
 dimetric-sim.workspace = true
 dimetric-host.workspace = true

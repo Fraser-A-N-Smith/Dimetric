@@ -26,7 +26,14 @@ fn allowed() -> BTreeMap<&'static str, Vec<&'static str>> {
         ("dimetric-platform", vec!["dimetric-core", "dimetric-sim"]),
         (
             "dimetric-host",
-            vec!["dimetric-core", "dimetric-scene", "dimetric-sim"],
+            vec![
+                "dimetric-core",
+                "dimetric-scene",
+                "dimetric-sim",
+                // Frame capture is a host concern: it runs the simulation to a
+                // tick and then draws it, so the run loop has to reach both.
+                "dimetric-render",
+            ],
         ),
         ("dimetric-editor", vec!["dimetric-core", "dimetric-host"]),
         (
@@ -35,6 +42,7 @@ fn allowed() -> BTreeMap<&'static str, Vec<&'static str>> {
                 "dimetric-core",
                 "dimetric-scene",
                 "dimetric-sim",
+                "dimetric-render",
                 "dimetric-host",
             ],
         ),

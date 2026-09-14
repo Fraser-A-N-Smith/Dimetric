@@ -330,6 +330,7 @@ dependencies = [
  "clap",
  "dimetric-core",
  "dimetric-host",
+ "dimetric-render",
  "dimetric-scene",
  "dimetric-sim",
  "indexmap",
@@ -384,6 +385,7 @@ name = "dimetric-host"
 version = "0.0.1"
 dependencies = [
  "dimetric-core",
+ "dimetric-render",
  "dimetric-scene",
  "dimetric-sim",
  "indexmap",

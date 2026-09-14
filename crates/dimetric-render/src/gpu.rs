@@ -43,6 +43,8 @@ pub enum GpuError {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniform {
     view_proj: [[f32; 4]; 4],
+    /// `xy` only; padded to a vec4 for alignment.
+    pixel_scale: [f32; 4],
 }
 
 #[repr(C)]
@@ -309,6 +311,10 @@ impl Renderer {
             0,
             bytemuck::bytes_of(&CameraUniform {
                 view_proj: camera.view_projection(),
+                pixel_scale: {
+                    let [x, y] = camera.pixel_scale();
+                    [x, y, 0.0, 0.0]
+                },
             }),
         );
 

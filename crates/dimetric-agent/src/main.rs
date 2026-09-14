@@ -67,7 +67,7 @@ fn run(cli: Cli) -> Result<Output, Diagnostics> {
         Top::Asset(cmd) => asset_command(&mut project, cmd)?,
         Top::Run(args) => run_command(&mut project, args)?,
         Top::State(cmd) => state_command(&mut project, cmd)?,
-        Top::Frame(cmd) => frame_command(cmd)?,
+        Top::Frame(cmd) => frame_command(&mut project, cmd)?,
         Top::Replay(args) => replay_command(&mut project, args)?,
         Top::Build(args) => build_command(args)?,
         Top::Api(_) => unreachable!("handled above"),
@@ -953,15 +953,99 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
     }
 }
 
-fn frame_command(cmd: FrameCmd) -> Result<Output, Diagnostics> {
-    let FrameCmd::Capture { tick, png } = cmd;
-    Err(one(Diagnostic::new(
-        Code::NOT_IMPLEMENTED,
-        "frame capture needs the renderer, which is not in this build",
-    )
-    .with_field("tick", tick as i64)
-    .with_field("png", png)
-    .with_field("milestone", "M3")))
+fn frame_command(project: &mut Project, cmd: FrameCmd) -> Result<Output, Diagnostics> {
+    let FrameCmd::Capture {
+        tick,
+        png,
+        seed,
+        input,
+        width,
+        height,
+        internal,
+        no_integer_upscale,
+        ambient,
+    } = cmd;
+
+    let mut settings = dimetric_render::RenderSettings {
+        integer_upscale: !no_integer_upscale,
+        ..Default::default()
+    };
+    if let Some(text) = &internal {
+        settings.internal_resolution = parse_size(text)?;
+    }
+    if let Some(text) = &ambient {
+        settings.ambient = dimetric_scene::Color::parse(text).map_err(|e| {
+            one(Diagnostic::new(
+                Code::BAD_ARGUMENT,
+                format!("--ambient {text:?}: {e}"),
+            ))
+        })?;
+    }
+
+    let log = match &input {
+        Some(path) => Some(read_log(project, path)?),
+        None => None,
+    };
+    let captured = dimetric_host::capture(
+        project,
+        dimetric_host::CaptureRequest {
+            tick,
+            seed,
+            input: log,
+            size: (width.max(1), height.max(1)),
+            settings,
+        },
+    )?;
+
+    let path = project.path_of(&png);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    dimetric_render::write_png(&path, captured.width, captured.height, &captured.pixels)
+        .map_err(|e| one(Diagnostic::new(Code::COMMAND_REJECTED, e.to_string())))?;
+
+    let mut out = Output::new(
+        json!({
+            "png": path.display().to_string(),
+            "tick": tick,
+            "seed": seed,
+            "size": [captured.width, captured.height],
+            "internal": [settings.internal_resolution.0, settings.internal_resolution.1],
+            "sprites": captured.sprites,
+            "draw_calls": captured.draw_calls,
+            "adapter": captured.adapter,
+        }),
+        format!(
+            "captured tick {tick} to {} ({}x{}, {} sprites in {} draw calls, via {})",
+            path.display(),
+            captured.width,
+            captured.height,
+            captured.sprites,
+            captured.draw_calls,
+            captured.adapter
+        ),
+    );
+    out.warnings = captured.diagnostics.0;
+    Ok(out)
+}
+
+/// Parse a `WxH` size argument.
+fn parse_size(text: &str) -> Result<(u32, u32), Diagnostics> {
+    let (w, h) = text.split_once(['x', 'X']).ok_or_else(|| {
+        one(Diagnostic::new(
+            Code::BAD_ARGUMENT,
+            format!("expected a size like 480x270, found {text:?}"),
+        ))
+    })?;
+    let parse = |s: &str| {
+        s.trim().parse::<u32>().map_err(|_| {
+            one(Diagnostic::new(
+                Code::BAD_ARGUMENT,
+                format!("{s:?} is not a number of pixels"),
+            ))
+        })
+    };
+    Ok((parse(w)?.max(1), parse(h)?.max(1)))
 }
 
 fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Diagnostics> {

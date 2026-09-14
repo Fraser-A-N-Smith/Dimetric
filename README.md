@@ -162,6 +162,7 @@ Dependencies run strictly downward and CI enforces it.
 
 | | Milestone | State |
 |---|---|---|
+| M0 | Spike | done — throwaway, findings in `spikes/m0-quad/README.md` |
 | M1 | Core and scenes | done — exact fixed point, `.dim` round trip, prefab overrides |
 | M2 | Determinism harness | done — snapshots, state hashing, replay with first-divergence reporting |
 | M3 | Renderer | projection, sort keys and batching done; **no wgpu backend** |
@@ -171,9 +172,32 @@ Dependencies run strictly downward and CI enforces it.
 | M7 | Editor | sidecar format only; **no egui client** |
 | M8 | Agent interface | done — full CLI, generated docs and schemas |
 | M9 | Vertical slice | a worked example, not yet a game |
+| M10 | Hardening | not started |
 
 Commands that exist but are not implemented fail with `DIM0801` naming the
 milestone they belong to, rather than pretending to succeed.
+
+## Rendering
+
+```sh
+dim --project tests/golden/scenes --scene room \
+    frame capture --png room.png --width 256 --height 192 --internal 128x96
+```
+
+Headless and windowed rendering run the same passes and differ only in the
+target they are handed, so a captured frame is the frame a person would have
+seen. Headless works on a machine with no GPU — CI renders on a software
+adapter — which is what makes the golden-image tests possible at all.
+
+Two things about the isometric path are worth knowing before drawing anything:
+
+- **The projection moves positions, not shapes.** A sprite's position goes
+  through the 2:1 shear and its quad is drawn upright. That is how the genre
+  works: the artwork is already drawn in projection. Shearing the quad as well
+  turns every character into a parallelogram.
+- **So isometric tile art is diamond-shaped**, at the 2:1 ratio the projection
+  places it on. Square tiles under the shear tessellate into columns with gaps,
+  which is the artwork being wrong rather than the engine.
 
 ## Development
 

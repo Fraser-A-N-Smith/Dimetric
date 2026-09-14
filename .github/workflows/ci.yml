@@ -64,16 +64,42 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      # Build runners have no GPU. lavapipe is Mesa's software Vulkan driver,
+      # and is what lets the renderer be tested at all on Linux; macOS has
+      # Metal and Windows has WARP without any extra installation.
+      - name: Install a software Vulkan driver
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+
       - name: Build
         run: cargo build --workspace
 
+      # DIMETRIC_REQUIRE_GPU turns "no adapter, skipping" into a failure. Without
+      # it a runner that lost its driver would go green having rendered nothing,
+      # which is the failure mode a rendering test most needs to avoid.
       - name: Test
         run: cargo test --workspace
+        env:
+          DIMETRIC_REQUIRE_GPU: 1
 
       # Called out separately from the suite above so a divergence is obvious
       # in the job list rather than buried in test output.
       - name: Replay fixtures
         run: cargo test -p dimetric-agent --test fixtures
+
+      - name: Golden images
+        run: cargo test -p dimetric-host --test golden
+        env:
+          DIMETRIC_REQUIRE_GPU: 1
+
+      # Uploaded on failure so the difference can be looked at rather than
+      # guessed at from a percentage.
+      - name: Keep the references on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ matrix.os }}
+          path: tests/golden/references/*.png
 
   # M0 — the de-risking spike. Its own job because it is its own workspace and
   # pulls in wgpu and winit, which nothing in the engine should build.

@@ -390,6 +390,28 @@ pub enum FrameCmd {
         /// Output path.
         #[arg(long)]
         png: String,
+        /// Run seed.
+        #[arg(long, default_value_t = 0)]
+        seed: u64,
+        /// Input log to drive the run up to the tick.
+        #[arg(long)]
+        input: Option<String>,
+        /// Output width in pixels.
+        #[arg(long, default_value_t = 480)]
+        width: u32,
+        /// Output height in pixels.
+        #[arg(long, default_value_t = 270)]
+        height: u32,
+        /// Resolution the world is drawn at before upscaling, as `WxH`.
+        #[arg(long)]
+        internal: Option<String>,
+        /// Scale by whole numbers only. On by default, for pixel art.
+        #[arg(long)]
+        no_integer_upscale: bool,
+        /// Ambient light as `#rrggbbaa`. Anything but white enables the light
+        /// pass; white means lights would add nothing and it is skipped.
+        #[arg(long)]
+        ambient: Option<String>,
     },
 }
 
