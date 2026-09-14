@@ -5,11 +5,17 @@
 //! a state hash. A headless run with sound triggered must produce exactly the
 //! same hash as a windowed one, or replay would depend on audio device latency.
 //!
-//! # What is here and what is not
+//! # The shape of it
 //!
-//! Voice allocation, stealing, per-clip caps and bus gain are implemented and
-//! tested, because they are pure bookkeeping and they are where the bugs are.
-//! The `kira` backend that actually makes noise is **not in this build**.
+//! A [`Mixer`] decides what plays, at what gain, on which bus, and hands those
+//! decisions to a [`backend::Backend`]. Everything that can go wrong — voice
+//! stealing, per-clip caps, fades, bus gain — lives in the mixer, so all of it
+//! is testable against [`backend::Mock`] with no sound card anywhere near it.
+//!
+//! [`kira_backend::Kira`] is the one that makes noise. It is behind the `kira`
+//! feature and off by default: it pulls in a device stack — ALSA and D-Bus
+//! headers on Linux — and a headless run, an agent session and CI all want the
+//! mock anyway.
 //!
 //! # The rule worth repeating
 //!
@@ -19,6 +25,16 @@
 //! sound card is.
 
 #![warn(missing_docs)]
+
+pub mod backend;
+#[cfg(feature = "kira")]
+pub mod kira_backend;
+pub mod mixer;
+pub mod tween;
+
+pub use backend::{AudioError, Mock, VoiceParams};
+pub use mixer::{Mixer, Play};
+pub use tween::{Curve, Tween};
 
 use std::collections::BTreeMap;
 
@@ -222,13 +238,33 @@ pub fn pitch_variation(rng: &mut Rng, spread: f32) -> f32 {
     1.0 + unit * spread.clamp(0.0, 1.0)
 }
 
-/// The audio backend in use.
+/// Which backend a host wants.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Backend {
+pub enum Device {
     /// No device. Headless runs and CI select this, so an agent session and a
     /// test suite produce no device I/O at all.
     #[default]
-    Mock,
-    /// The real `kira` backend. Not in this build.
-    Kira,
+    Silent,
+    /// The system's audio device, through `kira`. Needs the `kira` feature.
+    System,
+}
+
+impl Device {
+    /// Build a backend, falling back to the mock when the real one is not
+    /// compiled in or the device will not open.
+    ///
+    /// Falling back rather than failing: a machine with no sound card should
+    /// still run the game.
+    pub fn open(self) -> Box<dyn backend::Backend> {
+        match self {
+            Device::Silent => Box::new(Mock::new()),
+            #[cfg(feature = "kira")]
+            Device::System => match kira_backend::Kira::new() {
+                Ok(kira) => Box::new(kira),
+                Err(_) => Box::new(Mock::new()),
+            },
+            #[cfg(not(feature = "kira"))]
+            Device::System => Box::new(Mock::new()),
+        }
+    }
 }

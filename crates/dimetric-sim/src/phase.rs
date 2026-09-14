@@ -19,6 +19,8 @@ pub enum Phase {
     CollisionResolve,
     /// `on_collide` for every contact.
     CollisionCallbacks,
+    /// Advance animation frames and cosmetic tweens.
+    Advance,
     /// `on_post_tick` on every scripted node.
     ScriptsPostTick,
     /// Deliver queued signals to their connections.
@@ -35,6 +37,7 @@ pub const PHASE_ORDER: &[Phase] = &[
     Phase::CollisionBroadphase,
     Phase::CollisionResolve,
     Phase::CollisionCallbacks,
+    Phase::Advance,
     Phase::ScriptsPostTick,
     Phase::SignalFlush,
     Phase::TickIncrement,
@@ -50,6 +53,7 @@ impl Phase {
             Phase::CollisionBroadphase => "collision broadphase",
             Phase::CollisionResolve => "collision resolve",
             Phase::CollisionCallbacks => "collision callbacks",
+            Phase::Advance => "animation and tweens",
             Phase::ScriptsPostTick => "scripts on_post_tick",
             Phase::SignalFlush => "signal flush",
             Phase::TickIncrement => "tick counter increment",

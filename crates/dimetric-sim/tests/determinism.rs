@@ -75,6 +75,10 @@ fn the_phase_order_is_the_one_that_was_agreed() {
             Phase::CollisionBroadphase,
             Phase::CollisionResolve,
             Phase::CollisionCallbacks,
+            // Animation and tweens advance after collisions have settled: a
+            // squash tween that ran before the sweep would be overwritten by
+            // it, and a hitbox frame should open against final positions.
+            Phase::Advance,
             Phase::ScriptsPostTick,
             Phase::SignalFlush,
             Phase::TickIncrement,

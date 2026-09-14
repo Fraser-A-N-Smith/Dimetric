@@ -1010,6 +1010,10 @@ fn build_sim(
     project: &mut Project,
     seed: u64,
 ) -> Result<(dimetric_sim::Sim, Diagnostics), Diagnostics> {
+    // Import first: clips carry tick counts baked at import, and a simulation
+    // handed no clips animates nothing.
+    project.import_assets();
+    let clips = project.clips();
     let (scene, mut diags) = project.runtime_scene()?;
     diags.extend(project.load_scripts());
     let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
@@ -1020,7 +1024,7 @@ fn build_sim(
     }
     let config = dimetric_sim::SimConfig::default();
     Ok((
-        dimetric_sim::Sim::new(scene, seed, Box::new(host), config),
+        dimetric_sim::Sim::new(scene, seed, Box::new(host), config).with_clips(clips),
         diags,
     ))
 }

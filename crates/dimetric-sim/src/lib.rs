@@ -12,6 +12,7 @@
 
 #![warn(missing_docs)]
 
+pub mod anim;
 pub mod input;
 pub mod phase;
 pub mod script;
@@ -19,6 +20,7 @@ pub mod shape;
 pub mod state;
 pub mod sweep;
 pub mod tick;
+pub mod tween;
 pub mod world;
 
 pub use input::{InputFrame, InputLog, PlayerInput};

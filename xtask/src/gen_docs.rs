@@ -213,11 +213,25 @@ fn render_markdown(
          | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |\n\
          | `vec2` | `vec2(x, y)`, building a fixed-point vector |\n\
          | `fx` | `new`, `parse`, `sin`, `cos`, `from_angle` |\n\
-         | `log` | `info`, `warn`, `error` |\n\n\
+         | `log` | `info`, `warn`, `error` |\n\
+         | `tween` | `to(node, property, target, ticks, easing)`, `cancel(node, property)`, `running(node, property)` |\n\
+         | `anim` | `play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |\n\n\
          A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,\n\
          `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,\n\
          `kind` and `valid`. Indexing a handle reads and writes script variables, except\n\
          for `pos`, `rot` and `visible`, which reach the node's transform.\n\n\
+         ### Tweens and animation\n\n\
+         Tweens and animation are simulation state, not presentation. They advance on\n\
+         ticks, they are snapshotted, and they are in the state hash — a tween outside\n\
+         the hash could not survive a rollback, and would be left mid-flight writing to\n\
+         positions that had just been rewound. Easing runs in fixed point for the same\n\
+         reason everything else does. The easings are `linear`, `ease_in`, `ease_out`\n\
+         and `ease_in_out`; `pos`, `scale`, `rot` and any scalar, vector, angle or\n\
+         colour property can be tweened.\n\n\
+         Animation clips come from the importer with their frame durations already in\n\
+         ticks. `on_anim_event(self, name)` fires when playback reaches a frame that\n\
+         carries an event, which is how a hitbox opens on the swing frame rather than\n\
+         on a timer someone has to keep in sync by hand.\n\n\
          ### The rule that matters\n\n\
          Lua numbers are `f64`. Gameplay arithmetic done in raw Lua numbers and written\n\
          into simulation state is the easiest way to break replay. Use `vec2` and `fx`\n\

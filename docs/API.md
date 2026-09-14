@@ -224,11 +224,28 @@ Scripts see exactly these globals and nothing else.
 | `vec2` | `vec2(x, y)`, building a fixed-point vector |
 | `fx` | `new`, `parse`, `sin`, `cos`, `from_angle` |
 | `log` | `info`, `warn`, `error` |
+| `tween` | `to(node, property, target, ticks, easing)`, `cancel(node, property)`, `running(node, property)` |
+| `anim` | `play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |
 
 A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,
 `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,
 `kind` and `valid`. Indexing a handle reads and writes script variables, except
 for `pos`, `rot` and `visible`, which reach the node's transform.
+
+### Tweens and animation
+
+Tweens and animation are simulation state, not presentation. They advance on
+ticks, they are snapshotted, and they are in the state hash — a tween outside
+the hash could not survive a rollback, and would be left mid-flight writing to
+positions that had just been rewound. Easing runs in fixed point for the same
+reason everything else does. The easings are `linear`, `ease_in`, `ease_out`
+and `ease_in_out`; `pos`, `scale`, `rot` and any scalar, vector, angle or
+colour property can be tweened.
+
+Animation clips come from the importer with their frame durations already in
+ticks. `on_anim_event(self, name)` fires when playback reaches a frame that
+carries an event, which is how a hitbox opens on the swing frame rather than
+on a timer someone has to keep in sync by hand.
 
 ### The rule that matters
 

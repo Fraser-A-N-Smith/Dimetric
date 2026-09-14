@@ -166,10 +166,10 @@ Dependencies run strictly downward and CI enforces it.
 | M0 | Spike | done — throwaway, findings in `spikes/m0-quad/README.md` |
 | M1 | Core and scenes | done — exact fixed point, `.dim` round trip, prefab overrides |
 | M2 | Determinism harness | done — snapshots, state hashing, replay with first-divergence reporting |
-| M3 | Renderer | projection, sort keys and batching done; **no wgpu backend** |
+| M3 | Renderer | done — wgpu backend, three passes, headless capture, golden images on three platforms |
 | M4 | Scripting | done — mlua, handles, sandbox, structured errors, cost measured at 2000 entities |
 | M5 | Physics | done — spatial hash, swept movement with sliding, triggers |
-| M6 | Assets, tiles, audio | tile editing and voice management done; **no image decoding, no LDtk import, no audio device** |
+| M6 | Assets, tiles, audio, animation | done — import pipeline, LDtk baking, mixer and fades, tweens and frame animation; the audio **device** is behind the `kira` feature |
 | M7 | Editor | sidecar format only; **no egui client** |
 | M8 | Agent interface | done — full CLI, generated docs and schemas |
 | M9 | Vertical slice | a worked example, not yet a game |
@@ -177,6 +177,47 @@ Dependencies run strictly downward and CI enforces it.
 
 Commands that exist but are not implemented fail with `DIM0801` naming the
 milestone they belong to, rather than pretending to succeed.
+
+## Assets
+
+Sources live in `assets/`, settings in a sibling `.meta`, imported artifacts in
+`.import/` keyed by the content hash of the source. The cache is derived and
+gitignored; deleting it costs a reimport and nothing else.
+
+```sh
+dim asset list              # names, ids, hashes, what is stale
+dim asset reimport          # import what moved
+dim asset info sprites/hero # id, hash, where it sits in the atlas, its clips
+```
+
+Three things happen at import rather than at runtime, all for the same reason.
+Atlas packing, so a golden image is of one layout rather than whichever the
+packer happened to produce. Aseprite frame durations, which are milliseconds in
+the source and ticks in the simulation — converting on load would make frame
+advance depend on the tick rate a session happened to run at. And identity: the
+id lives in the `.meta`, not in the path, so renaming a file is free.
+
+LDtk is an authoring front-end and import is one way:
+
+```sh
+dim tile import-ldtk assets/levels/arena.ldtk --level Arena01
+```
+
+Tile layers bake to native chunks through the command bus, so an import undoes
+like any other edit and the tile CLI works the same whether a level came from
+LDtk or from `dim tile fill`. LDtk owns tile layers; `.dim` owns every entity.
+
+## Audio
+
+The mixer decides what plays and the backend makes noise, which is what lets
+voice stealing, per-clip caps and fades be tested with no sound card involved.
+Headless runs and CI get the mock backend and produce no device I/O at all. The
+real one is behind the `kira` feature, off by default because it needs ALSA and
+D-Bus development headers on Linux.
+
+Pitch variation draws from a presentation RNG stream, deliberately not the
+simulation's: sharing one would mean that triggering one fewer sound effect
+shifted every gameplay roll after it.
 
 ## Rendering
 

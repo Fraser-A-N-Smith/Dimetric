@@ -101,6 +101,31 @@ jobs:
           name: golden-${{ matrix.os }}
           path: tests/golden/references/*.png
 
+  # The audio device backend. Off by default because it needs system headers,
+  # which means nothing else in CI compiles it — and an optional feature nobody
+  # builds is an optional feature that stops compiling.
+  audio-device:
+    name: Audio device backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the audio development headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libdbus-1-dev
+
+      # Built and linted, not run: a CI runner has no sound card, and the rules
+      # worth testing — stealing, caps, fades — are in the mixer and covered by
+      # the default suite against the mock backend.
+      - name: Build
+        run: cargo build -p dimetric-audio --features kira
+
+      - name: Clippy
+        run: cargo clippy -p dimetric-audio --features kira --all-targets -- -D warnings
+
   # M0 — the de-risking spike. Its own job because it is its own workspace and
   # pulls in wgpu and winit, which nothing in the engine should build.
   #

@@ -167,6 +167,18 @@ fn shared(lua: &Lua) -> mlua::Result<Shared> {
         .ok_or_else(|| mlua::Error::runtime("no simulation is running"))
 }
 
+impl mlua::FromLua for NodeHandle {
+    fn from_lua(value: mlua::Value, _: &Lua) -> mlua::Result<NodeHandle> {
+        match value {
+            mlua::Value::UserData(ud) => ud.borrow::<NodeHandle>().map(|h| *h),
+            other => Err(mlua::Error::runtime(format!(
+                "expected a node, got {}",
+                other.type_name()
+            ))),
+        }
+    }
+}
+
 impl UserData for NodeHandle {
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_method("id", |_, this, ()| Ok(this.0.to_text()));
@@ -753,6 +765,188 @@ impl LuaHost {
         tick.set("rate", rate).map_err(err)?;
         env.set("tick", tick).map_err(err)?;
 
+        // tween: cosmetic motion, measured in ticks like everything else.
+        let tween = lua.create_table().map_err(err)?;
+        tween
+            .set(
+                "to",
+                lua.create_function(
+                    |lua,
+                     (node, property, target, ticks, easing): (
+                        NodeHandle,
+                        String,
+                        mlua::Value,
+                        u32,
+                        Option<String>,
+                    )| {
+                        let easing = match easing.as_deref() {
+                            None => crate::tween::Easing::Linear,
+                            Some(name) => crate::tween::Easing::parse(name).ok_or_else(|| {
+                                mlua::Error::runtime(format!(
+                                    "no easing called {name:?}; \
+                                     try linear, ease_in, ease_out or ease_in_out"
+                                ))
+                            })?,
+                        };
+                        let target = from_lua(target)?;
+                        let state = shared(lua)?;
+                        let mut state = state.borrow_mut();
+                        let id = resolve(&state, node.0)?;
+                        let from = read_property(&state, id, &property).ok_or_else(|| {
+                            mlua::Error::runtime(format!(
+                                "{property:?} is not a property of this node, \
+                                 so there is nothing to tween from"
+                            ))
+                        })?;
+                        if !crate::tween::can_tween(&from, &target) {
+                            return Err(mlua::Error::runtime(format!(
+                                "{property:?} is a {}, and the target is a {}",
+                                from.type_name(),
+                                target.type_name()
+                            )));
+                        }
+                        // Starting a second tween on a property replaces the
+                        // first. Two tweens fighting over one number is never
+                        // what anybody meant.
+                        let list = state.tweens.entry(node.0).or_default();
+                        list.retain(|t| t.property != property);
+                        list.push(crate::tween::Tween {
+                            property,
+                            from,
+                            to: target,
+                            elapsed: 0,
+                            ticks,
+                            easing,
+                        });
+                        Ok(())
+                    },
+                )
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        tween
+            .set(
+                "cancel",
+                lua.create_function(|lua, (node, property): (NodeHandle, Option<String>)| {
+                    let state = shared(lua)?;
+                    let mut state = state.borrow_mut();
+                    match property {
+                        Some(property) => {
+                            if let Some(list) = state.tweens.get_mut(&node.0) {
+                                list.retain(|t| t.property != property);
+                                if list.is_empty() {
+                                    state.tweens.remove(&node.0);
+                                }
+                            }
+                        }
+                        None => {
+                            state.tweens.remove(&node.0);
+                        }
+                    }
+                    Ok(())
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        tween
+            .set(
+                "running",
+                lua.create_function(|lua, (node, property): (NodeHandle, Option<String>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let Some(list) = state.tweens.get(&node.0) else {
+                        return Ok(false);
+                    };
+                    Ok(match property {
+                        Some(property) => list.iter().any(|t| t.property == property),
+                        None => !list.is_empty(),
+                    })
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        env.set("tween", tween).map_err(err)?;
+
+        // anim: frame playback over the clips the importer produced.
+        let anim = lua.create_table().map_err(err)?;
+        anim.set(
+            "play",
+            lua.create_function(|lua, (node, clip): (NodeHandle, String)| {
+                let state = shared(lua)?;
+                let mut state = state.borrow_mut();
+                let entry = state
+                    .anim
+                    .entry(node.0)
+                    .or_insert_with(|| crate::state::AnimState {
+                        clip: clip.clone(),
+                        frame: 0,
+                        ticks_in_frame: 0,
+                        playing: true,
+                        finished: false,
+                    });
+                // Playing the clip that is already playing does not restart it,
+                // so `anim.play(self, "walk")` every tick is harmless.
+                if entry.clip != clip {
+                    entry.clip = clip;
+                    entry.frame = 0;
+                    entry.ticks_in_frame = 0;
+                }
+                entry.playing = true;
+                entry.finished = false;
+                Ok(())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+        anim.set(
+            "stop",
+            lua.create_function(|lua, node: NodeHandle| {
+                let state = shared(lua)?;
+                let mut state = state.borrow_mut();
+                if let Some(entry) = state.anim.get_mut(&node.0) {
+                    entry.playing = false;
+                }
+                Ok(())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+        anim.set(
+            "frame",
+            lua.create_function(|lua, node: NodeHandle| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                Ok(state.anim.get(&node.0).map(|a| a.frame))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+        anim.set(
+            "playing",
+            lua.create_function(|lua, node: NodeHandle| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                Ok(state
+                    .anim
+                    .get(&node.0)
+                    .map(|a| a.playing && !a.finished)
+                    .unwrap_or(false))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+        anim.set(
+            "finished",
+            lua.create_function(|lua, node: NodeHandle| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                Ok(state.anim.get(&node.0).map(|a| a.finished).unwrap_or(false))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+        env.set("anim", anim).map_err(err)?;
+
         // rng: named streams only. There is no unseeded path.
         let rng = lua.create_table().map_err(err)?;
         rng.set(
@@ -899,4 +1093,15 @@ fn runtime_error(path: &str, e: mlua::Error) -> Diagnostic {
     Diagnostic::new(code, e.to_string())
         .with_span(dimetric_core::Span::file(path))
         .with_field("detail", e.to_string())
+}
+
+/// Read a property for a tween to start from, reserved keys included.
+fn read_property(state: &SimState, id: dimetric_core::NodeId, property: &str) -> Option<Value> {
+    let node = state.scene.get(id)?;
+    Some(match property {
+        "pos" => Value::Vec2(node.transform.pos),
+        "scale" => Value::Vec2(node.transform.scale),
+        "rot" => Value::Angle(node.transform.rot),
+        other => node.get(other)?.clone(),
+    })
 }

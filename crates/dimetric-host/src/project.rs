@@ -96,6 +96,26 @@ impl Project {
         self.imported.insert(imported)
     }
 
+    /// The animation clips the project's assets imported to.
+    ///
+    /// Empty until [`Project::import_assets`] has run, which is what a caller
+    /// building a simulation should do first.
+    pub fn clips(&self) -> dimetric_sim::anim::Clips {
+        let Some(imported) = &self.imported else {
+            return Default::default();
+        };
+        imported
+            .artifacts
+            .iter()
+            .filter_map(|(name, artifact)| match artifact {
+                dimetric_assets::Artifact::Animation { clips, .. } => {
+                    Some((name.clone(), clips.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Assets whose cached artifacts are behind their source.
     pub fn stale_assets(&self) -> Vec<&str> {
         self.catalog

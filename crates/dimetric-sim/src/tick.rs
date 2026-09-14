@@ -139,6 +139,11 @@ impl SimConfig {
 pub struct Sim {
     state: Rc<RefCell<SimState>>,
     scripts: Box<dyn ScriptHost>,
+    /// Animation clips, as the importer produced them.
+    ///
+    /// Supplied by the host, which is what owns the asset catalogue. A
+    /// simulation with no clips runs fine; nothing animates.
+    clips: crate::anim::Clips,
     config: SimConfig,
     diagnostics: Diagnostics,
     /// This tick's intended motion per body, produced by the integrate phase
@@ -160,6 +165,7 @@ impl Sim {
         Sim {
             state: Rc::new(RefCell::new(state)),
             scripts,
+            clips: Default::default(),
             config,
             diagnostics: Diagnostics::new(),
             motion: BTreeMap::new(),
@@ -180,6 +186,21 @@ impl Sim {
     /// Settings.
     pub fn config(&self) -> SimConfig {
         self.config
+    }
+
+    /// Supply the animation clips the scene's nodes play.
+    ///
+    /// Builder-style rather than a `new` argument, because most simulations —
+    /// every physics test in this repository, for one — have no animation at
+    /// all and should not have to say so.
+    pub fn with_clips(mut self, clips: crate::anim::Clips) -> Sim {
+        self.clips = clips;
+        self
+    }
+
+    /// The clips this simulation knows about.
+    pub fn clips(&self) -> &crate::anim::Clips {
+        &self.clips
     }
 
     /// The script host, for a caller that needs to reload sources into it.
@@ -235,6 +256,7 @@ impl Sim {
             Phase::CollisionBroadphase => self.build_broadphase(),
             Phase::CollisionResolve => self.resolve_collisions(),
             Phase::CollisionCallbacks => self.dispatch_collisions(),
+            Phase::Advance => self.advance_animation_and_tweens(),
             Phase::ScriptsPostTick => self.dispatch_all(Hook::PostTick),
             Phase::SignalFlush => {
                 self.flush_signals();
@@ -244,6 +266,30 @@ impl Sim {
                 let mut state = self.state.borrow_mut();
                 state.tick = state.tick.next();
                 state.collisions.clear();
+            }
+        }
+    }
+
+    /// Advance animation frames and cosmetic tweens.
+    ///
+    /// One phase for both because both are "time passed, move the numbers", and
+    /// both have to happen after collisions have settled — a squash tween that
+    /// ran before the sweep would be overwritten by it.
+    fn advance_animation_and_tweens(&mut self) {
+        let events = {
+            let mut state = self.state.borrow_mut();
+            let state = &mut *state;
+            crate::tween::advance(&mut state.scene, &mut state.tweens);
+            crate::anim::advance(&mut state.anim, &self.clips)
+        };
+        for (uid, event) in events {
+            let script = self
+                .scripted_nodes()
+                .into_iter()
+                .find(|(node, _)| *node == uid)
+                .map(|(_, script)| script);
+            if let Some(script) = script {
+                self.call(uid, &script, &Hook::AnimEvent { event });
             }
         }
     }

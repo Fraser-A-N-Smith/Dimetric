@@ -1,6 +1,6 @@
 [package]
 name = "dimetric-audio"
-description = "Mixer buses and voice management. The kira backend is not in this build."
+description = "Mixer buses, voice management and fades, over a mock or kira backend."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,14 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+# The real audio device. Off by default: it needs ALSA and D-Bus development
+# headers on Linux, and every headless path wants the mock backend anyway.
+kira = ["dep:kira"]
+
 [dependencies]
 dimetric-core.workspace = true
 serde.workspace = true
+thiserror.workspace = true
+kira = { version = "0.12", optional = true }

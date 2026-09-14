@@ -17,7 +17,13 @@ fn allowed() -> BTreeMap<&'static str, Vec<&'static str>> {
     BTreeMap::from([
         ("dimetric-core", vec![]),
         ("dimetric-scene", vec!["dimetric-core"]),
-        ("dimetric-sim", vec!["dimetric-core", "dimetric-scene"]),
+        // Animation clips are an imported artifact, and the simulation is
+        // what advances them. Assets is a leaf beside scene: it knows about
+        // bytes and ids, and nothing above it.
+        (
+            "dimetric-sim",
+            vec!["dimetric-core", "dimetric-scene", "dimetric-assets"],
+        ),
         // The packer runs at import time and the renderer consumes what it
         // produced, so assets sits below render rather than beside it.
         (

@@ -91,6 +91,12 @@ pub struct SimState {
     pub vars: BTreeMap<NodeUid, IndexMap<String, Value>>,
     /// Per-node animation playback.
     pub anim: BTreeMap<NodeUid, AnimState>,
+    /// Per-node cosmetic tweens.
+    ///
+    /// Simulation state, not presentation: a tween writes to node properties,
+    /// so it is snapshotted and hashed like everything else that does. See
+    /// [`crate::tween`] for why that is the right side of the line.
+    pub tweens: crate::tween::Tweens,
     /// Input for the tick in progress.
     pub input: InputFrame,
     /// Signals emitted this tick, flushed at the end of it.
@@ -116,6 +122,7 @@ impl SimState {
             velocity: BTreeMap::new(),
             vars: BTreeMap::new(),
             anim: BTreeMap::new(),
+            tweens: BTreeMap::new(),
             input: InputFrame::idle(1),
             signals: Vec::new(),
             collisions: Vec::new(),
@@ -197,6 +204,15 @@ impl HashState for SimState {
         for (uid, a) in &self.anim {
             h.node_uid(*uid);
             a.hash_state(h);
+        }
+
+        h.tag("tweens").len(self.tweens.len());
+        for (uid, list) in &self.tweens {
+            h.node_uid(*uid);
+            h.len(list.len());
+            for tween in list {
+                tween.hash_state(h);
+            }
         }
 
         self.input.hash_state(h);
