@@ -2,6 +2,7 @@
 
 use dimetric_core::{Angle, Fx, FxWide, Rng, Vec2Fx};
 use proptest::prelude::*;
+use proptest::test_runner::{Config, FileFailurePersistence};
 
 fn any_fx() -> impl Strategy<Value = Fx> {
     any::<i32>().prop_map(Fx::from_raw)
@@ -16,6 +17,17 @@ fn small_fx() -> impl Strategy<Value = Fx> {
 }
 
 proptest! {
+    // Keep the seed that found a failure. Without somewhere to write it, a
+    // property test that fails once goes green on the next run and the case is
+    // gone — the default location is derived from a `src/` layout these tests
+    // do not have, so proptest was silently discarding them.
+    #![proptest_config(Config {
+        failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
+            "proptest-regressions",
+        ))),
+        ..Config::default()
+    })]
+
     #[test]
     fn decimal_round_trip_is_exact(v in any_fx()) {
         let text = v.to_exact_string();
@@ -67,12 +79,17 @@ proptest! {
 
     #[test]
     fn sqrt_brackets_the_true_root(raw in 0i64..(1i64 << 46)) {
+        // Checked in exact integer arithmetic rather than by squaring the
+        // result in fixed point. A fixed-point square truncates, and the
+        // truncation can turn a product that genuinely exceeds the input into
+        // one that merely equals it — the property would then look false for a
+        // correct root. Raw `r` is `floor(sqrt(v) * 2^16)`, so the real claim
+        // is about `r^2` against `v << 16`.
         let v = FxWide::from_raw(raw);
-        let r = v.sqrt();
-        // r^2 <= v < (r + delta)^2
-        prop_assert!(r.wide() * r.wide() <= v);
-        let up = Fx::from_raw(r.to_raw().saturating_add(1));
-        prop_assert!(up.wide() * up.wide() > v);
+        let root = v.sqrt().to_raw() as i128;
+        let scaled = (raw as i128) << 16;
+        prop_assert!(root * root <= scaled, "{root}^2 > {scaled}");
+        prop_assert!((root + 1) * (root + 1) > scaled, "({root} + 1)^2 <= {scaled}");
     }
 
     #[test]
@@ -214,4 +231,22 @@ fn shuffle_is_a_permutation_and_depends_only_on_the_seed() {
         a, sorted,
         "a seeded shuffle of 64 items should reorder them"
     );
+}
+
+#[test]
+fn sqrt_of_a_value_whose_next_root_squares_to_itself_after_truncation() {
+    // A case the property test found. `(r + 1)^2` really is greater than the
+    // input, by about six tenths of a raw unit — which a fixed-point square
+    // truncates away, so squaring in `Fx` reports equality. The root is right;
+    // measuring it that way was not.
+    let v = FxWide::from_raw(13_114_317_989_164);
+    let root = v.sqrt().to_raw() as i128;
+    let scaled = 13_114_317_989_164i128 << 16;
+
+    assert!(root * root <= scaled);
+    assert!((root + 1) * (root + 1) > scaled);
+    // And the lossy version, for the record: the product truncates to exactly
+    // the input rather than past it.
+    let up = Fx::from_raw(root as i32 + 1);
+    assert_eq!(up.wide() * up.wide(), v);
 }
