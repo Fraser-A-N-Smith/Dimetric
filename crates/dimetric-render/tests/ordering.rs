@@ -113,6 +113,8 @@ fn item(layer: i32, depth: i32, atlas: u16, blend: Blend, id: &str) -> DrawItem 
         shader: 0,
         pos: Vec2Fx::ZERO,
         size: Vec2Fx::ONE,
+        rotation: dimetric_core::Angle::ZERO,
+        uv: [0.0, 0.0, 1.0, 1.0],
         modulate: [255; 4],
         node: uid(id),
     }
@@ -185,4 +187,51 @@ fn the_matrix_agrees_with_the_mapping_it_claims_to_encode() {
             );
         }
     }
+}
+
+#[test]
+fn the_view_projection_puts_the_camera_centre_in_the_middle_of_the_screen() {
+    // Applies the matrix the GPU is given, rather than checking its components.
+    // The M0 spike shipped a transposed matrix that every component-level test
+    // would have accepted, so this asserts the thing that actually matters:
+    // where a world point lands in clip space.
+    let apply = |m: [[f32; 4]; 4], x: f32, y: f32| {
+        (
+            m[0][0] * x + m[1][0] * y + m[3][0],
+            m[0][1] * x + m[1][1] * y + m[3][1],
+        )
+    };
+
+    for projection in [Projection::TopDown, Projection::Isometric] {
+        let mut camera = Camera::new((320, 180));
+        camera.projection = projection;
+        camera.center = Vec2Fx::from_ints(40, 24);
+        let m = camera.view_projection();
+
+        let (x, y) = apply(m, 40.0, 24.0);
+        assert!(
+            x.abs() < 1e-5 && y.abs() < 1e-5,
+            "{projection:?}: the camera centre should map to clip origin, got ({x}, {y})"
+        );
+    }
+}
+
+#[test]
+fn the_view_projection_shears_and_does_not_transpose() {
+    // Under the 2:1 shear, one unit of world +x must move the point right and
+    // *down* the screen. A transposed matrix moves it right and up, which is
+    // still a plausible-looking diamond and completely wrong.
+    let mut camera = Camera::new((320, 180));
+    camera.projection = Projection::Isometric;
+    camera.zoom = 1.0;
+    let m = camera.view_projection();
+
+    let at = |x: f32, y: f32| (m[0][0] * x + m[1][0] * y, m[0][1] * x + m[1][1] * y);
+    let (px, py) = at(100.0, 0.0);
+    assert!(px > 0.0, "world +x should move right, got {px}");
+    assert!(py < 0.0, "world +x should move down the screen, got {py}");
+
+    let (qx, qy) = at(0.0, 100.0);
+    assert!(qx < 0.0, "world +y should move left, got {qx}");
+    assert!(qy < 0.0, "world +y should move down the screen, got {qy}");
 }

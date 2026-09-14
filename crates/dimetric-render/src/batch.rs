@@ -43,10 +43,14 @@ pub struct DrawItem {
     pub blend: Blend,
     /// Which shader draws it.
     pub shader: u16,
-    /// World position.
+    /// World position of the sprite's centre.
     pub pos: Vec2Fx,
     /// Size in world units.
     pub size: Vec2Fx,
+    /// Rotation about the centre.
+    pub rotation: dimetric_core::Angle,
+    /// Sub-rectangle of the atlas, `[u_min, v_min, u_max, v_max]`.
+    pub uv: [f32; 4],
     /// Tint, as RGBA bytes.
     pub modulate: [u8; 4],
     /// Node it came from, for picking and for debugging.

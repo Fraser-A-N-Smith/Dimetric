@@ -133,6 +133,35 @@ impl Camera {
         self.projection.to_world((x, y))
     }
 
+    /// The view-projection matrix, column-major, as a GPU expects it.
+    ///
+    /// Orthographic with y running down the screen, centred on the camera.
+    ///
+    /// Note the transpose. [`Projection::matrix`] is row-major and WGSL columns
+    /// are `(a, c)` and `(b, d)`, not `(a, b)` and `(c, d)`. Getting that
+    /// backwards produces a picture that still looks plausible — the transpose
+    /// of a 2:1 shear is another shear with the same determinant — which is why
+    /// it lives here once, tested, instead of being written out at each call
+    /// site.
+    pub fn view_projection(&self) -> [[f32; 4]; 4] {
+        // I3-exempt: render boundary.
+        let (width, height) = (self.viewport.0.max(1) as f32, self.viewport.1.max(1) as f32);
+        let [a, b, c, d] = self.projection.matrix();
+        let (mut cx, mut cy) = self.projection.to_screen(self.center);
+        if self.pixel_snap {
+            cx = cx.round();
+            cy = cy.round();
+        }
+        let sx = 2.0 * self.zoom / width;
+        let sy = -2.0 * self.zoom / height;
+        [
+            [a * sx, c * sy, 0.0, 0.0],
+            [b * sx, d * sy, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [-cx * sx, -cy * sy, 0.0, 1.0],
+        ]
+    }
+
     /// Interpolate between two simulation states for display.
     ///
     /// Essential for a 60 Hz simulation on a 144 Hz display, and strictly a
