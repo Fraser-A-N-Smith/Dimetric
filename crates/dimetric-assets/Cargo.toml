@@ -14,3 +14,10 @@ blake3.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 toml_edit.workspace = true
+asefile = "0.3.8"
+png = "0.17"
+serde_json.workspace = true
+
+[dev-dependencies]
+png = "0.17"
+serde_json.workspace = true

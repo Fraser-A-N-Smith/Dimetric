@@ -1,16 +1,20 @@
 //! Runtime texture atlas.
 //!
 //! Sprites batch by atlas, so putting everything in one texture is what turns a
-//! thousand sprites into one draw call. This packs images at load time.
+//! thousand sprites into one draw call.
 //!
-//! The *offline* import cache — content hashing into `.import/`, `.meta`
-//! settings, Aseprite tags — is M6 and lives in `dimetric-assets`. What is here
-//! is only the part M3 needs: get pixels onto the GPU in a layout the batcher
-//! can use.
+//! The packing itself lives in `dimetric-assets`, where it runs at import time
+//! and the result is cached. What is here is the renderer's view of a packed
+//! sheet: texture coordinates, and the lookup the batcher does per sprite.
 
-use std::collections::BTreeMap;
-
+use dimetric_assets::sheet::{pack, Placement, Sheet};
 use dimetric_scene::Color;
+
+/// An image waiting to be packed.
+pub type Source = dimetric_assets::Image;
+
+/// Why an image could not be read.
+pub use dimetric_assets::ImageError;
 
 /// Where one image sits in the atlas.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -41,18 +45,6 @@ impl Region {
     }
 }
 
-/// An image waiting to be packed.
-pub struct Source {
-    /// Name the scene refers to it by, without the `asset:` prefix.
-    pub name: String,
-    /// Width in pixels.
-    pub width: u32,
-    /// Height in pixels.
-    pub height: u32,
-    /// RGBA, row-major, 8 bits per channel.
-    pub pixels: Vec<u8>,
-}
-
 /// One packed texture and the regions inside it.
 pub struct Atlas {
     /// Width in pixels.
@@ -61,182 +53,69 @@ pub struct Atlas {
     pub height: u32,
     /// RGBA pixel data.
     pub pixels: Vec<u8>,
-    regions: BTreeMap<String, Region>,
+    sheet: Sheet,
 }
-
-/// Space left between packed images.
-///
-/// One pixel, so that linear filtering or a half-pixel sampling error cannot
-/// pull a neighbour's colour into a sprite's edge. Nearest sampling does not
-/// need it, but a project can turn nearest off.
-const PADDING: u32 = 1;
 
 impl Atlas {
     /// Pack sources into a single texture.
-    ///
-    /// Shelf packing: tallest first, laid left to right in rows. Not the
-    /// tightest algorithm, but it is simple and — sorted by height and then by
-    /// name — completely deterministic, which matters because a golden image
-    /// of a differently-packed atlas is a different image.
-    pub fn pack(mut sources: Vec<Source>, max_width: u32) -> Atlas {
-        sources.sort_by(|a, b| b.height.cmp(&a.height).then(a.name.cmp(&b.name)));
+    pub fn pack(sources: Vec<Source>, max_width: u32) -> Atlas {
+        Atlas::from_sheet(pack(sources, max_width))
+    }
 
-        let width = max_width.max(
-            sources
-                .iter()
-                .map(|s| s.width + PADDING * 2)
-                .max()
-                .unwrap_or(1),
-        );
-
-        // First pass: decide where everything goes and how tall the result is.
-        let mut placements = Vec::with_capacity(sources.len());
-        let (mut x, mut y, mut shelf_height) = (PADDING, PADDING, 0u32);
-        for source in &sources {
-            if x + source.width + PADDING > width && x > PADDING {
-                x = PADDING;
-                y += shelf_height + PADDING;
-                shelf_height = 0;
-            }
-            placements.push((x, y));
-            x += source.width + PADDING;
-            shelf_height = shelf_height.max(source.height);
-        }
-        let height = (y + shelf_height + PADDING).max(1);
-
-        let mut pixels = vec![0u8; (width * height * 4) as usize];
-        let mut regions = BTreeMap::new();
-        for (source, (ox, oy)) in sources.iter().zip(placements) {
-            for row in 0..source.height {
-                let from = (row * source.width * 4) as usize;
-                let to = (((oy + row) * width + ox) * 4) as usize;
-                let span = (source.width * 4) as usize;
-                if from + span <= source.pixels.len() && to + span <= pixels.len() {
-                    pixels[to..to + span].copy_from_slice(&source.pixels[from..from + span]);
-                }
-            }
-            regions.insert(
-                source.name.clone(),
-                Region {
-                    uv: [
-                        ox as f32 / width as f32,
-                        oy as f32 / height as f32,
-                        (ox + source.width) as f32 / width as f32,
-                        (oy + source.height) as f32 / height as f32,
-                    ],
-                    size: (source.width, source.height),
-                },
-            );
-        }
-
+    /// Take a sheet the importer already packed.
+    pub fn from_sheet(sheet: Sheet) -> Atlas {
         Atlas {
-            width,
-            height,
-            pixels,
-            regions,
+            width: sheet.width,
+            height: sheet.height,
+            pixels: sheet.pixels.clone(),
+            sheet,
         }
     }
 
     /// Look up a region by asset name.
     pub fn region(&self, name: &str) -> Option<Region> {
-        self.regions.get(name).copied()
+        self.sheet.placements.get(name).map(|p| self.region_of(p))
     }
 
     /// Every region, in name order.
-    pub fn regions(&self) -> impl Iterator<Item = (&str, &Region)> {
-        self.regions.iter().map(|(k, v)| (k.as_str(), v))
+    pub fn regions(&self) -> impl Iterator<Item = (&str, Region)> {
+        self.sheet
+            .placements
+            .iter()
+            .map(|(name, p)| (name.as_str(), self.region_of(p)))
     }
 
     /// How many images are packed.
     pub fn len(&self) -> usize {
-        self.regions.len()
+        self.sheet.placements.len()
     }
 
     /// True when nothing is packed.
     pub fn is_empty(&self) -> bool {
-        self.regions.is_empty()
+        self.sheet.placements.is_empty()
     }
-}
 
-/// Why an image could not be read.
-#[derive(Debug, thiserror::Error)]
-pub enum ImageError {
-    /// The file could not be opened.
-    #[error("cannot read {path}: {source}")]
-    Io {
-        /// Path that failed.
-        path: String,
-        /// Underlying error.
-        source: std::io::Error,
-    },
-    /// The file was not a PNG this build can decode.
-    #[error("cannot decode {path}: {detail}")]
-    Decode {
-        /// Path that failed.
-        path: String,
-        /// What the decoder said.
-        detail: String,
-    },
+    fn region_of(&self, p: &Placement) -> Region {
+        let (w, h) = (self.width.max(1) as f32, self.height.max(1) as f32);
+        Region {
+            uv: [
+                p.x as f32 / w,
+                p.y as f32 / h,
+                (p.x + p.width) as f32 / w,
+                (p.y + p.height) as f32 / h,
+            ],
+            size: (p.width, p.height),
+        }
+    }
 }
 
 /// Read a PNG into RGBA pixels.
 ///
-/// Direct decoding, not the import pipeline: no caching, no `.meta`, no atlas
-/// on disk. M6 replaces the call site, not this function's job.
+/// A direct read, for a caller that has a path and wants pixels — golden-image
+/// comparison, mostly. A project's own textures come through the import cache
+/// instead, which is where `.meta` settings and content hashing apply.
 pub fn load_png(path: &std::path::Path) -> Result<Source, ImageError> {
-    let file = std::fs::File::open(path).map_err(|e| ImageError::Io {
-        path: path.display().to_string(),
-        source: e,
-    })?;
-    let decoder = png::Decoder::new(std::io::BufReader::new(file));
-    let mut reader = decoder.read_info().map_err(|e| ImageError::Decode {
-        path: path.display().to_string(),
-        detail: e.to_string(),
-    })?;
-    let mut buffer = vec![0u8; reader.output_buffer_size()];
-    let info = reader
-        .next_frame(&mut buffer)
-        .map_err(|e| ImageError::Decode {
-            path: path.display().to_string(),
-            detail: e.to_string(),
-        })?;
-    buffer.truncate(info.buffer_size());
-
-    let pixels =
-        to_rgba(&buffer, info.color_type, info.bit_depth).ok_or_else(|| ImageError::Decode {
-            path: path.display().to_string(),
-            detail: format!(
-                "unsupported {:?} at {:?} bits; convert the file to 8-bit RGBA",
-                info.color_type, info.bit_depth
-            ),
-        })?;
-
-    Ok(Source {
-        name: String::new(),
-        width: info.width,
-        height: info.height,
-        pixels,
-    })
-}
-
-/// Expand the colour types worth supporting into RGBA.
-fn to_rgba(data: &[u8], color: png::ColorType, depth: png::BitDepth) -> Option<Vec<u8>> {
-    if depth != png::BitDepth::Eight {
-        return None;
-    }
-    Some(match color {
-        png::ColorType::Rgba => data.to_vec(),
-        png::ColorType::Rgb => data
-            .chunks_exact(3)
-            .flat_map(|p| [p[0], p[1], p[2], 255])
-            .collect(),
-        png::ColorType::GrayscaleAlpha => data
-            .chunks_exact(2)
-            .flat_map(|p| [p[0], p[0], p[0], p[1]])
-            .collect(),
-        png::ColorType::Grayscale => data.iter().flat_map(|g| [*g, *g, *g, 255]).collect(),
-        png::ColorType::Indexed => return None,
-    })
+    dimetric_assets::decode_png(path)
 }
 
 /// A checkerboard standing in for a texture the project does not have.

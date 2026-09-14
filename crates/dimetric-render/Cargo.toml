@@ -11,10 +11,10 @@ authors.workspace = true
 [dependencies]
 dimetric-core.workspace = true
 dimetric-scene.workspace = true
+dimetric-assets.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
 wgpu = "30"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
-png = "0.17"

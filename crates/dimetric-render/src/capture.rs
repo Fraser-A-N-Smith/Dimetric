@@ -140,17 +140,8 @@ pub fn write_png(
     height: u32,
     pixels: &[u8],
 ) -> Result<(), GpuError> {
-    let file = std::fs::File::create(path)
-        .map_err(|e| GpuError::Draw(format!("creating {}: {e}", path.display())))?;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width, height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder
-        .write_header()
-        .map_err(|e| GpuError::Draw(format!("writing {}: {e}", path.display())))?
-        .write_image_data(pixels)
-        .map_err(|e| GpuError::Draw(format!("writing {}: {e}", path.display())))?;
-    Ok(())
+    dimetric_assets::encode_png(path, pixels, width, height)
+        .map_err(|e| GpuError::Draw(format!("writing {}: {e}", path.display())))
 }
 
 /// Read a PNG back as RGBA bytes, for comparing against a golden image.

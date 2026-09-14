@@ -18,7 +18,12 @@ fn allowed() -> BTreeMap<&'static str, Vec<&'static str>> {
         ("dimetric-core", vec![]),
         ("dimetric-scene", vec!["dimetric-core"]),
         ("dimetric-sim", vec!["dimetric-core", "dimetric-scene"]),
-        ("dimetric-render", vec!["dimetric-core", "dimetric-scene"]),
+        // The packer runs at import time and the renderer consumes what it
+        // produced, so assets sits below render rather than beside it.
+        (
+            "dimetric-render",
+            vec!["dimetric-core", "dimetric-scene", "dimetric-assets"],
+        ),
         ("dimetric-audio", vec!["dimetric-core"]),
         ("dimetric-assets", vec!["dimetric-core"]),
         // Input is a simulation type, so the platform layer that sources it
@@ -33,6 +38,9 @@ fn allowed() -> BTreeMap<&'static str, Vec<&'static str>> {
                 // Frame capture is a host concern: it runs the simulation to a
                 // tick and then draws it, so the run loop has to reach both.
                 "dimetric-render",
+                // The project owns its asset catalogue and its mixer.
+                "dimetric-assets",
+                "dimetric-audio",
             ],
         ),
         ("dimetric-editor", vec!["dimetric-core", "dimetric-host"]),
@@ -43,6 +51,8 @@ fn allowed() -> BTreeMap<&'static str, Vec<&'static str>> {
                 "dimetric-scene",
                 "dimetric-sim",
                 "dimetric-render",
+                "dimetric-assets",
+                "dimetric-audio",
                 "dimetric-host",
             ],
         ),
