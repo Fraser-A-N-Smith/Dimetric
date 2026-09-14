@@ -4,10 +4,11 @@
 //! there". Loading the textures a scene needs lives here too, because it is a
 //! project-level question rather than a rendering one.
 //!
-//! What is here is a stopgap in one respect: textures are read straight from
-//! `assets/` as PNGs and packed at startup. The content-hashed import cache,
-//! `.meta` settings and Aseprite clips are M6, and they replace this function's
-//! *input*, not its job.
+//! Textures come from the project's import cache, which is where decoding,
+//! `.meta` settings and packing already happened. Anything a scene references
+//! that the catalogue does not have falls back to reading a PNG straight out of
+//! `assets/`, so a file dropped in a folder mid-session draws before the next
+//! import runs.
 
 use std::path::Path;
 
@@ -37,7 +38,16 @@ pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
     let mut diagnostics = Diagnostics::new();
     let mut sources = vec![placeholder(16), solid(Color::WHITE)];
 
+    let imported = project.imported();
     for name in dimetric_render::extract::required_assets(scene) {
+        // The cache first. It holds Aseprite sheets as well as PNGs, and it
+        // holds them already decoded.
+        if let Some(image) = imported.and_then(|i| cached_image(i, &name)) {
+            let mut image = image.clone();
+            image.name = name;
+            sources.push(image);
+            continue;
+        }
         let path = texture_path(&project.root, &name);
         match load_png(&path) {
             Ok(mut source) => {
@@ -53,6 +63,18 @@ pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
         }
     }
     (Atlas::pack(sources, ATLAS_WIDTH), diagnostics)
+}
+
+/// The pixels an imported asset contributes to the atlas.
+fn cached_image<'a>(
+    imported: &'a dimetric_assets::Imported,
+    name: &str,
+) -> Option<&'a dimetric_assets::Image> {
+    match imported.artifacts.get(name)? {
+        dimetric_assets::Artifact::Image(image) => Some(image),
+        dimetric_assets::Artifact::Animation { sheet, .. } => Some(sheet),
+        _ => None,
+    }
 }
 
 /// Where a texture named `sprites/hero` is expected to live.
@@ -135,6 +157,9 @@ pub fn capture(
     project: &mut Project,
     request: CaptureRequest,
 ) -> Result<CapturedFrame, Diagnostics> {
+    // Import before drawing, so a capture always shows what is on disk rather
+    // than whatever the cache held when the session started.
+    project.import_assets();
     let (scene, mut diagnostics) = project.runtime_scene()?;
     diagnostics.extend(project.load_scripts());
 

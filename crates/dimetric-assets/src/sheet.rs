@@ -79,6 +79,19 @@ pub fn pack(mut images: Vec<Image>, max_width: u32) -> Sheet {
     }
     let height = (y + shelf_height + PADDING).max(1);
 
+    // Shrink to what was actually used. `max_width` is a ceiling, not a target,
+    // and a project with six sprites should not ship a 2048-wide texture. Only
+    // the denominator of the texture coordinates changes, so the texels a
+    // sprite samples are the same ones either way.
+    let width = positions
+        .iter()
+        .zip(images.iter())
+        .map(|((x, _), image)| x + image.width + PADDING)
+        .max()
+        .unwrap_or(1)
+        .min(width)
+        .max(1);
+
     let mut sheet = Image::blank("", width, height);
     let mut placements = BTreeMap::new();
     for (image, (ox, oy)) in images.iter().zip(positions) {

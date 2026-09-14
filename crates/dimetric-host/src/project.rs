@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use dimetric_core::{Code, Diagnostic, Diagnostics, NodeUid, Rng};
 use dimetric_scene::{KindRegistry, Reference, Scene, SceneDoc, SceneSource};
 
+use dimetric_assets::{Catalog, Imported};
+
 use crate::bus::CommandBus;
 use crate::command::Command;
 
@@ -13,6 +15,8 @@ use crate::command::Command;
 pub const SCENE_EXTENSION: &str = "dim";
 /// Extension for the editor's view-state sidecar.
 pub const SIDECAR_EXTENSION: &str = "dim.editor";
+/// Ticks a second a project runs at unless it says otherwise.
+pub const DEFAULT_TICK_RATE: u32 = 60;
 
 /// An open project.
 pub struct Project {
@@ -26,6 +30,12 @@ pub struct Project {
     pub bus: CommandBus,
     /// Loaded scripts, by project-relative path.
     pub scripts: BTreeMap<String, String>,
+    /// Tick rate the project's animation clips are baked against.
+    pub tick_rate: u32,
+    /// The asset catalogue as of the last scan.
+    catalog: Catalog,
+    /// What the last import produced, if one has run.
+    imported: Option<Imported>,
     /// Id generator.
     ///
     /// Seeded rather than drawn from the operating system, so that replaying a
@@ -42,8 +52,57 @@ impl Project {
             open: None,
             bus: CommandBus::new(),
             scripts: BTreeMap::new(),
+            tick_rate: DEFAULT_TICK_RATE,
+            catalog: Catalog::default(),
+            imported: None,
             ids: Rng::new(id_seed, 0x1d1e),
         }
+    }
+
+    /// The asset catalogue, as of the last [`Project::scan_assets`].
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    /// What the last [`Project::import_assets`] produced.
+    pub fn imported(&self) -> Option<&Imported> {
+        self.imported.as_ref()
+    }
+
+    /// Rescan `assets/` and report which assets differ from the last scan.
+    ///
+    /// Cheap enough to call every frame, and it compares content rather than
+    /// modification times: a build step that rewrites a file byte for byte
+    /// should not trigger a reload, and a file restored from a backup should.
+    pub fn scan_assets(&mut self) -> Vec<String> {
+        let fresh = Catalog::scan(&self.root);
+        let changed = fresh.changed_since(&self.catalog);
+        self.catalog = fresh;
+        changed
+    }
+
+    /// Import every asset, caching the result in `.import/`.
+    ///
+    /// The tick rate is baked into animation clips here rather than applied at
+    /// runtime, so a project that changes its tick rate has to reimport — which
+    /// is the trade the design document makes on purpose.
+    pub fn import_assets(&mut self) -> &Imported {
+        if self.catalog.is_empty() {
+            self.scan_assets();
+        }
+        let imported = dimetric_assets::import(&self.catalog, self.tick_rate);
+        let _ = dimetric_assets::cache::write_metas(&self.catalog, &imported);
+        let _ = dimetric_assets::cache::write_cache(&self.root, &imported);
+        self.imported.insert(imported)
+    }
+
+    /// Assets whose cached artifacts are behind their source.
+    pub fn stale_assets(&self) -> Vec<&str> {
+        self.catalog
+            .entries()
+            .filter(|e| e.is_stale())
+            .map(|e| e.name.as_str())
+            .collect()
     }
 
     /// Draw a fresh node id that is not already used by the open scene.
@@ -153,7 +212,20 @@ impl Project {
                         format!("{} is not in the project", full.display()),
                     )]));
                 }
-                Ok(())
+                self.scan_assets();
+                let imported = self.import_assets();
+                let name = dimetric_assets::cache::asset_name(path);
+                let failure = imported
+                    .failures
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map(|(_, why)| why.clone());
+                match failure {
+                    Some(why) => Err(Diagnostics(vec![
+                        Diagnostic::new(Code::ASSET_MISSING, why).with_field("asset", name)
+                    ])),
+                    None => Ok(()),
+                }
             }
             _ => {
                 let registry = self.registry.clone();

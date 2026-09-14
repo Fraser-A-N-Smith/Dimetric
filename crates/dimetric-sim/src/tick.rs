@@ -84,6 +84,18 @@ pub trait ScriptHost {
         script: &str,
         hook: &Hook,
     ) -> Result<(), dimetric_core::Diagnostic>;
+
+    /// Replace a script's source in place.
+    ///
+    /// Hot reload's half of the bargain. Script *state* lives in Rust rather
+    /// than in Lua globals, so swapping the source keeps every variable a node
+    /// had — which is the difference between reloading a script and restarting
+    /// the game.
+    ///
+    /// The default does nothing, for hosts that run no scripts.
+    fn reload(&mut self, _path: &str, _source: &str) -> Result<(), dimetric_core::Diagnostic> {
+        Ok(())
+    }
 }
 
 /// A host that runs nothing. Physics-only simulations use this.
@@ -168,6 +180,14 @@ impl Sim {
     /// Settings.
     pub fn config(&self) -> SimConfig {
         self.config
+    }
+
+    /// The script host, for a caller that needs to reload sources into it.
+    ///
+    /// Only reachable between ticks: `step` takes `&mut self`, so the borrow
+    /// checker refuses a reload part-way through one.
+    pub fn scripts_mut(&mut self) -> &mut dyn ScriptHost {
+        self.scripts.as_mut()
     }
 
     /// Diagnostics raised so far.

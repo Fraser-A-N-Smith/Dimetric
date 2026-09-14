@@ -876,6 +876,13 @@ impl ScriptHost for LuaHost {
 
         result.map(|_| ()).map_err(|e| runtime_error(script, e))
     }
+
+    fn reload(&mut self, path: &str, source: &str) -> Result<(), Diagnostic> {
+        // A fresh environment, so a function the new source deleted is gone
+        // rather than lingering from the old one. Node variables are untouched:
+        // they live in `SimState`, not in here.
+        self.load(path, source)
+    }
 }
 
 fn syntax_error(path: &str, e: mlua::Error) -> Diagnostic {

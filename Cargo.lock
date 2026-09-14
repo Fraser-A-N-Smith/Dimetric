@@ -354,6 +354,7 @@ name = "dimetric-agent"
 version = "0.0.1"
 dependencies = [
  "clap",
+ "dimetric-assets",
  "dimetric-core",
  "dimetric-host",
  "dimetric-render",
@@ -413,6 +414,8 @@ dependencies = [
 name = "dimetric-host"
 version = "0.0.1"
 dependencies = [
+ "blake3",
+ "dimetric-assets",
  "dimetric-core",
  "dimetric-render",
  "dimetric-scene",

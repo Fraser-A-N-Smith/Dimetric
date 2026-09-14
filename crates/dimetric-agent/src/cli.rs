@@ -315,21 +315,51 @@ pub enum TileCmd {
         at: String,
     },
     /// Import an LDtk level, baking it to native chunks.
+    ///
+    /// One way: the scene never references the `.ldtk` again. Reimporting the
+    /// same level updates the layers it made rather than stacking new ones.
     ImportLdtk {
-        /// Path to the `.ldtk` file.
+        /// Path to the `.ldtk` file, project-relative.
         path: String,
+        /// Level to bake. Defaults to the first in the project.
+        #[arg(long)]
+        level: Option<String>,
+        /// Node the layers hang off. Defaults to the scene root.
+        #[arg(long)]
+        into: Option<String>,
+        /// Tileset asset for every layer, overriding what LDtk named.
+        #[arg(long)]
+        tileset: Option<String>,
+        /// Report what would happen without changing anything.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
 /// Asset operations.
 #[derive(Subcommand, Debug)]
 pub enum AssetCmd {
-    /// List the project's source assets.
-    List,
+    /// List the project's source assets and their import state.
+    List {
+        /// Only list assets whose cache is behind their source.
+        #[arg(long)]
+        stale: bool,
+    },
     /// Import one asset.
     Import {
         /// Project-relative path.
         path: String,
+    },
+    /// Import everything whose cache is behind its source.
+    Reimport {
+        /// Import every asset, not only the stale ones.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Describe one asset: its id, its hash, and what it imported to.
+    Info {
+        /// Asset name, as a scene refers to it: `sprites/hero`.
+        name: String,
     },
 }
 
@@ -351,6 +381,12 @@ pub struct RunArgs {
     /// Write the per-tick state hashes here.
     #[arg(long)]
     pub record: Option<String>,
+    /// Reload changed scripts and assets between ticks.
+    ///
+    /// Off by default, and refused while replaying: a run that picks up an
+    /// edited script does not reproduce the recording it came from.
+    #[arg(long)]
+    pub watch: bool,
 }
 
 /// State inspection.

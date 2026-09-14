@@ -11,7 +11,9 @@
 
 pub mod bus;
 pub mod command;
+pub mod ldtk;
 pub mod project;
+pub mod reload;
 pub mod render;
 pub mod replay;
 pub mod run;

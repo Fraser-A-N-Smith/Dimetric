@@ -745,54 +745,260 @@ fn tile_command(project: &mut Project, cmd: TileCmd) -> Result<Output, Diagnosti
                 tile.to_string(),
             ))
         }
-        TileCmd::ImportLdtk { path } => Err(one(
-            Diagnostic::new(
-                Code::NOT_IMPLEMENTED,
-                "LDtk import is not in this build; paint through `dim tile fill` and `dim tile set` for now",
-            )
-            .with_field("path", path)
-            .with_field("milestone", "M6"),
-        )),
+        TileCmd::ImportLdtk {
+            path,
+            level,
+            into,
+            tileset,
+            dry_run,
+        } => import_ldtk(
+            project,
+            &path,
+            level.as_deref(),
+            into.as_deref(),
+            tileset.as_deref(),
+            dry_run,
+        ),
     }
+}
+
+/// Bake an LDtk level into the open scene.
+fn import_ldtk(
+    project: &mut Project,
+    path: &str,
+    level: Option<&str>,
+    into: Option<&str>,
+    tileset: Option<&str>,
+    dry_run: bool,
+) -> Result<Output, Diagnostics> {
+    let full = project.root.join(path);
+    let levels = dimetric_assets::ldtk::read(&full).map_err(|e| {
+        one(Diagnostic::new(Code::ASSET_MISSING, e.to_string())
+            .with_field("path", path.to_string()))
+    })?;
+
+    let chosen = match level {
+        Some(name) => levels.iter().find(|l| l.name == name).ok_or_else(|| {
+            let available: Vec<&str> = levels.iter().map(|l| l.name.as_str()).collect();
+            one(Diagnostic::new(
+                Code::COMMAND_REJECTED,
+                format!(
+                    "{path} has no level {name:?}; it has {}",
+                    available.join(", ")
+                ),
+            )
+            .with_field("level", name.to_string()))
+        })?,
+        None => levels.first().ok_or_else(|| {
+            one(Diagnostic::new(
+                Code::COMMAND_REJECTED,
+                format!("{path} has no levels in it"),
+            ))
+        })?,
+    };
+
+    let parent = match into {
+        Some(node) => uid_of(project, node)?,
+        None => {
+            let doc = project.open.as_ref().expect("scene is open");
+            doc.scene
+                .root()
+                .and_then(|id| doc.scene.get(id))
+                .map(|n| n.uid)
+                .ok_or_else(|| {
+                    one(Diagnostic::new(
+                        Code::COMMAND_REJECTED,
+                        "this scene has no root to hang the layers off",
+                    ))
+                })?
+        }
+    };
+
+    let doc = project.open.as_ref().expect("scene is open");
+    let plan = dimetric_host::ldtk::bake(&doc.scene, chosen, parent, tileset);
+    if plan.diagnostics.has_errors() {
+        return Err(plan.diagnostics);
+    }
+
+    let layers: Vec<&str> = chosen.layers.iter().map(|l| l.name.as_str()).collect();
+    let tiles: usize = chosen.layers.iter().map(|l| l.tiles.len()).sum();
+    let summary = json!({
+        "level": chosen.name,
+        "layers": layers,
+        "created": plan.created,
+        "tiles": tiles,
+        "commands": plan.commands.len(),
+        "applied": !dry_run,
+    });
+
+    if dry_run {
+        return Ok(Output::new(
+            summary,
+            format!(
+                "would bake {} into {} layer(s), creating {}",
+                chosen.name,
+                layers.len(),
+                plan.created.len()
+            ),
+        ));
+    }
+
+    for command in plan.commands {
+        project.apply(command)?;
+    }
+    project.save_scene(None).map_err(one)?;
+    Ok(Output::new(
+        summary,
+        format!(
+            "baked {} tiles from {} into {} layer(s)",
+            tiles,
+            chosen.name,
+            layers.len()
+        ),
+    ))
 }
 
 fn asset_command(project: &mut Project, cmd: AssetCmd) -> Result<Output, Diagnostics> {
     match cmd {
-        AssetCmd::List => {
-            let dir = project.root.join("assets");
-            let mut found = Vec::new();
-            collect_files(&dir, &project.root, &mut found);
-            found.sort();
-            let text = found.join("\n");
-            Ok(Output::new(json!({ "assets": found }), text))
+        AssetCmd::List { stale } => {
+            project.scan_assets();
+            let mut rows = Vec::new();
+            let mut text = String::new();
+            for entry in project.catalog().entries() {
+                if stale && !entry.is_stale() {
+                    continue;
+                }
+                text.push_str(&format!(
+                    "{:<28} {:<9} {} {}\n",
+                    entry.name,
+                    format!("{:?}", entry.kind).to_lowercase(),
+                    entry.settings.id,
+                    if entry.is_stale() { "stale" } else { "" }
+                ));
+                rows.push(json!({
+                    "name": entry.name,
+                    "path": entry.path,
+                    "kind": format!("{:?}", entry.kind).to_lowercase(),
+                    "id": entry.settings.id.to_string(),
+                    "hash": entry.hash,
+                    "stale": entry.is_stale(),
+                }));
+            }
+            Ok(Output::new(
+                json!({ "assets": rows }),
+                text.trim_end().to_string(),
+            ))
         }
         AssetCmd::Import { path } => {
             project.apply(Command::ImportAsset { path: path.clone() })?;
-            Err(one(Diagnostic::new(
-                Code::NOT_IMPLEMENTED,
-                "the import pipeline is not in this build; the file was found but not processed",
-            )
-            .with_field("path", path)
-            .with_field("milestone", "M6")))
+            let name = dimetric_assets::cache::asset_name(&path);
+            Ok(Output::new(
+                json!({ "imported": name, "path": path }),
+                format!("imported {name}"),
+            ))
         }
-    }
-}
+        AssetCmd::Reimport { all } => {
+            project.scan_assets();
+            let before: Vec<String> = if all {
+                project
+                    .catalog()
+                    .entries()
+                    .map(|e| e.name.clone())
+                    .collect()
+            } else {
+                project
+                    .stale_assets()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            };
+            let imported = project.import_assets();
+            let failures: Vec<_> = imported
+                .failures
+                .iter()
+                .map(|(name, why)| json!({ "asset": name, "error": why }))
+                .collect();
+            let sheet = (imported.sheet.width, imported.sheet.height);
+            let text = if before.is_empty() {
+                "everything is up to date".to_string()
+            } else {
+                format!(
+                    "imported {} asset(s) into a {}x{} sheet",
+                    before.len(),
+                    sheet.0,
+                    sheet.1
+                )
+            };
+            Ok(Output::new(
+                json!({
+                    "imported": before,
+                    "failures": failures,
+                    "sheet": { "width": sheet.0, "height": sheet.1 },
+                }),
+                text,
+            ))
+        }
+        AssetCmd::Info { name } => {
+            project.scan_assets();
+            let entry = project.catalog().get(&name).cloned().ok_or_else(|| {
+                one(Diagnostic::new(
+                    Code::ASSET_MISSING,
+                    format!("no asset named {name} in this project"),
+                )
+                .with_field("asset", name.clone()))
+            })?;
+            let imported = project.import_assets();
+            let clips: Vec<_> = imported
+                .clips(&name)
+                .iter()
+                .map(|c| {
+                    json!({
+                        "name": c.name,
+                        "frames": c.frames.len(),
+                        "ticks": c.duration_ticks(),
+                        "looping": c.looping,
+                    })
+                })
+                .collect();
+            let placement = imported
+                .sheet
+                .placements
+                .get(&name)
+                .map(|p| json!({ "x": p.x, "y": p.y, "width": p.width, "height": p.height }));
 
-fn collect_files(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_files(&path, root, out);
-        } else {
-            out.push(
-                path.strip_prefix(root)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .replace('\\', "/"),
+            let mut text = format!(
+                "{}\n  id     {}\n  kind   {}\n  source {}\n  hash   {}\n",
+                entry.name,
+                entry.settings.id,
+                format!("{:?}", entry.kind).to_lowercase(),
+                entry.path,
+                entry.hash
             );
+            if let Some(p) = &placement {
+                text.push_str(&format!(
+                    "  atlas  {}x{} at ({}, {})\n",
+                    p["width"], p["height"], p["x"], p["y"]
+                ));
+            }
+            for clip in &clips {
+                text.push_str(&format!(
+                    "  clip   {} — {} frames, {} ticks\n",
+                    clip["name"], clip["frames"], clip["ticks"]
+                ));
+            }
+            Ok(Output::new(
+                json!({
+                    "name": entry.name,
+                    "id": entry.settings.id.to_string(),
+                    "kind": format!("{:?}", entry.kind).to_lowercase(),
+                    "path": entry.path,
+                    "hash": entry.hash,
+                    "stale": entry.is_stale(),
+                    "atlas": placement,
+                    "clips": clips,
+                }),
+                text.trim_end().to_string(),
+            ))
         }
     }
 }
@@ -847,13 +1053,32 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
     };
     let seed = args.input.as_ref().map(|_| log.seed).unwrap_or(args.seed);
     let (mut sim, diags) = build_sim(project, seed)?;
+    let mut warnings = diags.0;
+
+    let mut reloader = args
+        .watch
+        .then(|| dimetric_host::reload::Reloader::new(dimetric_host::RunMode::Headless, project));
+    let mut reloaded = Vec::new();
 
     let mut hashes = Vec::with_capacity(args.ticks as usize);
     for tick in 0..args.ticks {
+        // Between ticks, never inside one: a tick that picked up a new script
+        // half way through would hash to something nobody could reproduce.
+        if let Some(reloader) = reloader.as_mut() {
+            if reloader.poll(project) > 0 {
+                let (applied, diagnostics) = reloader.apply(project, &mut sim);
+                warnings.extend(diagnostics.0);
+                for script in &applied.scripts {
+                    reloaded.push(json!({ "tick": tick, "script": script }));
+                }
+                for asset in &applied.assets {
+                    reloaded.push(json!({ "tick": tick, "asset": asset }));
+                }
+            }
+        }
         sim.step(log.frame(tick));
         hashes.push(sim.hash());
     }
-    let mut warnings = diags.0;
     warnings.extend(sim.take_diagnostics().0);
 
     if let Some(path) = &args.record {
@@ -880,6 +1105,7 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
             "seed": seed,
             "hash": final_hash.map(|h| h.to_hex()),
             "recorded": args.record,
+            "reloaded": reloaded,
         }),
         format!(
             "ran {} ticks from seed {seed}; final state {}",
