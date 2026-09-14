@@ -1,0 +1,38 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_br_root0"
+
+# Brute. Slow and heavy. Survives an evolution's opening volley.
+#
+# One script across all three variants; what differs is the tag it carries and
+# the overrides an instance applies.
+[[node]]
+id = "n_br_root0"
+kind = "Collider"
+name = "Brute"
+script = "script:scripts/enemy.lua"
+tags = ["enemy", "brute"]
+collision_layer = 2
+collision_mask = 3
+radius = 10.0
+shape = "Circle"
+
+[[node]]
+id = "n_br_hurt0"
+kind = "Area"
+name = "Hurtbox"
+parent = "n_br_root0"          # /Brute
+collision_layer = 2
+collision_mask = 4
+radius = 13.0
+shape = "Circle"
+
+[[node]]
+id = "n_br_body0"
+kind = "Sprite2D"
+name = "Body"
+parent = "n_br_root0"          # /Brute
+z = 5
+texture = "asset:sprites/brute"

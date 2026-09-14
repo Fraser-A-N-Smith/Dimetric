@@ -56,7 +56,7 @@ Replay it and assert on the result:
 
 ```sh
 dim --project examples/sorcerer --scene arena01 \
-    replay --input tests/walk-and-cast.input \
+    replay --input tests/clear-a-room.input \
            --hashes tests/arena01.hashes \
            --assert tests/arena01.probes
 ```
@@ -172,7 +172,7 @@ Dependencies run strictly downward and CI enforces it.
 | M6 | Assets, tiles, audio, animation | done — import pipeline, LDtk baking, mixer and fades, tweens and frame animation; the audio **device** is behind the `kira` feature |
 | M7 | Editor | tree, inspector, viewport, console, assets, play-in-editor and scrubber; the window is behind the `gui` feature |
 | M8 | Agent interface | done — full CLI, generated docs and schemas |
-| M9 | Vertical slice | a worked example, not yet a game |
+| M9 | Vertical slice | one playable room: spells, evolutions, three enemy types, a seeded upgrade; **one room, not a run** |
 | M10 | Hardening | not started |
 
 Commands that exist but are not implemented fail with `DIM0801` naming the
@@ -197,6 +197,30 @@ Two rules hold, and both are tests rather than intentions. Every mutation goes
 through the command bus — a scripted session asserts that anything which changed
 the file produced a command. And opening and closing a scene produces zero diff:
 camera, selection and fold state live in a committed `.dim.editor` sidecar.
+
+## The slice
+
+`examples/sorcerer` is a room of a run-based top-down game, and the reason the
+engine has the shape it does. Cast, clear the room, take one of three upgrades,
+and two base spells held together evolve into a third.
+
+```sh
+dim --project examples/sorcerer --scene arena01 \
+    replay --input tests/clear-a-room.input \
+           --hashes tests/arena01.hashes \
+           --assert tests/arena01.probes
+```
+
+That replay is the interesting part. It asserts the run kills all five enemies,
+is offered `swift/ward/fierce` from the seeded upgrade stream, takes the second,
+and ends holding the **Lance** — the same spell evolution, every time, on every
+machine. Spell definitions are a Lua table on one node, so balance tuning is an
+edit and a reload.
+
+What building it cost the engine is written down in `docs/ENGINE-GAPS.md`: three
+things were broken or missing in ways no game could work around and were fixed,
+and the rest are logged rather than built, because about half of them are
+game-specific and shipping the slice is the only way to learn which half.
 
 ## Assets
 

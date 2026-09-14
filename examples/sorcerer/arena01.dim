@@ -4,6 +4,11 @@ version = 1
 [scene]
 root = "n_root0000"
 
+# ── The arena ─────────────────────────────────────
+#
+# One room of the sorcerer slice. The projectile pool at the bottom is authored
+# rather than spawned: the script API cannot create a node, so every projectile
+# the game will ever fire exists here from the start, parked and invisible.
 [[node]]
 id = "n_root0000"
 kind = "Node2D"
@@ -11,10 +16,18 @@ name = "Arena01"
 script = "script:scripts/arena.lua"
 
 [[node]]
+id = "n_book0001"
+kind = "Node"
+name = "Spellbook"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/spellbook.lua"
+
+[[node]]
 id = "n_floor000"
 kind = "TileLayer"
 name = "Floor"
 parent = "n_root0000"          # /Arena01
+layer = -1
 tileset = "asset:tilesets/dungeon"
 
 [[node]]
@@ -30,12 +43,29 @@ radius = 6.0
 shape = "Circle"
 
 [[node]]
+id = "n_plsprt00"
+kind = "Sprite2D"
+name = "Body"
+parent = "n_player00"          # /Arena01/Player
+z = 10
+texture = "asset:sprites/sorcerer"
+
+# Parented to the player, so it follows without a script. A camera that needed
+# one would be a script that has to run in a fixed order relative to movement.
+[[node]]
+id = "n_camera00"
+kind = "Camera2D"
+name = "View"
+parent = "n_player00"          # /Arena01/Player
+current = true
+
+[[node]]
 id = "n_skel0001"
 kind = "Instance"
 name = "Skeleton_01"
 parent = "n_root0000"          # /Arena01
 scene = "scene:prefabs/skeleton"
-pos = [160.0, 96.0]
+pos = [176.0, 72.0]
 
 [[node]]
 id = "n_skel0002"
@@ -43,9 +73,1953 @@ kind = "Instance"
 name = "Skeleton_02"
 parent = "n_root0000"          # /Arena01
 scene = "scene:prefabs/skeleton"
-pos = [200.0, 140.0]
+pos = [192.0, 120.0]
 
-[[override]]
-instance = "n_skel0002"        # /Arena01/Skeleton_02
-target = "n_sk_root0"
-radius = 9.0
+[[node]]
+id = "n_wrth0001"
+kind = "Instance"
+name = "Wraith_01"
+parent = "n_root0000"          # /Arena01
+scene = "scene:prefabs/wraith"
+pos = [208.0, 48.0]
+
+[[node]]
+id = "n_wrth0002"
+kind = "Instance"
+name = "Wraith_02"
+parent = "n_root0000"          # /Arena01
+scene = "scene:prefabs/wraith"
+pos = [216.0, 144.0]
+
+[[node]]
+id = "n_brut0001"
+kind = "Instance"
+name = "Brute_01"
+parent = "n_root0000"          # /Arena01
+scene = "scene:prefabs/brute"
+pos = [232.0, 96.0]
+
+[[node]]
+id = "n_proj0000"
+kind = "Collider"
+name = "Bolt_00"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps00spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0000"          # /Arena01/Bolt_00
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps00lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0000"          # /Arena01/Bolt_00
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0001"
+kind = "Collider"
+name = "Bolt_01"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps01spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0001"          # /Arena01/Bolt_01
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps01lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0001"          # /Arena01/Bolt_01
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0002"
+kind = "Collider"
+name = "Bolt_02"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps02spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0002"          # /Arena01/Bolt_02
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps02lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0002"          # /Arena01/Bolt_02
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0003"
+kind = "Collider"
+name = "Bolt_03"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps03spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0003"          # /Arena01/Bolt_03
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps03lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0003"          # /Arena01/Bolt_03
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0004"
+kind = "Collider"
+name = "Bolt_04"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps04spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0004"          # /Arena01/Bolt_04
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps04lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0004"          # /Arena01/Bolt_04
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0005"
+kind = "Collider"
+name = "Bolt_05"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps05spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0005"          # /Arena01/Bolt_05
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps05lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0005"          # /Arena01/Bolt_05
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0006"
+kind = "Collider"
+name = "Bolt_06"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps06spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0006"          # /Arena01/Bolt_06
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps06lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0006"          # /Arena01/Bolt_06
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0007"
+kind = "Collider"
+name = "Bolt_07"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps07spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0007"          # /Arena01/Bolt_07
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps07lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0007"          # /Arena01/Bolt_07
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0008"
+kind = "Collider"
+name = "Bolt_08"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps08spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0008"          # /Arena01/Bolt_08
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps08lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0008"          # /Arena01/Bolt_08
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0009"
+kind = "Collider"
+name = "Bolt_09"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps09spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0009"          # /Arena01/Bolt_09
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps09lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0009"          # /Arena01/Bolt_09
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0010"
+kind = "Collider"
+name = "Bolt_10"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0aspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0010"          # /Arena01/Bolt_10
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0alit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0010"          # /Arena01/Bolt_10
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0011"
+kind = "Collider"
+name = "Bolt_11"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0bspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0011"          # /Arena01/Bolt_11
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0blit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0011"          # /Arena01/Bolt_11
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0012"
+kind = "Collider"
+name = "Bolt_12"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0cspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0012"          # /Arena01/Bolt_12
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0clit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0012"          # /Arena01/Bolt_12
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0013"
+kind = "Collider"
+name = "Bolt_13"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0dspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0013"          # /Arena01/Bolt_13
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0dlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0013"          # /Arena01/Bolt_13
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0014"
+kind = "Collider"
+name = "Bolt_14"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0espr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0014"          # /Arena01/Bolt_14
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0elit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0014"          # /Arena01/Bolt_14
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0015"
+kind = "Collider"
+name = "Bolt_15"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0fspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0015"          # /Arena01/Bolt_15
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0flit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0015"          # /Arena01/Bolt_15
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0016"
+kind = "Collider"
+name = "Bolt_16"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0gspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0016"          # /Arena01/Bolt_16
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0glit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0016"          # /Arena01/Bolt_16
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0017"
+kind = "Collider"
+name = "Bolt_17"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0hspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0017"          # /Arena01/Bolt_17
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0hlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0017"          # /Arena01/Bolt_17
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0018"
+kind = "Collider"
+name = "Bolt_18"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0jspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0018"          # /Arena01/Bolt_18
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0jlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0018"          # /Arena01/Bolt_18
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0019"
+kind = "Collider"
+name = "Bolt_19"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0kspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0019"          # /Arena01/Bolt_19
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0klit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0019"          # /Arena01/Bolt_19
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0020"
+kind = "Collider"
+name = "Bolt_20"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0mspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0020"          # /Arena01/Bolt_20
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0mlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0020"          # /Arena01/Bolt_20
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0021"
+kind = "Collider"
+name = "Bolt_21"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0nspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0021"          # /Arena01/Bolt_21
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0nlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0021"          # /Arena01/Bolt_21
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0022"
+kind = "Collider"
+name = "Bolt_22"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0pspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0022"          # /Arena01/Bolt_22
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0plit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0022"          # /Arena01/Bolt_22
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0023"
+kind = "Collider"
+name = "Bolt_23"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0qspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0023"          # /Arena01/Bolt_23
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0qlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0023"          # /Arena01/Bolt_23
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0024"
+kind = "Collider"
+name = "Bolt_24"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0rspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0024"          # /Arena01/Bolt_24
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0rlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0024"          # /Arena01/Bolt_24
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0025"
+kind = "Collider"
+name = "Bolt_25"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0sspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0025"          # /Arena01/Bolt_25
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0slit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0025"          # /Arena01/Bolt_25
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0026"
+kind = "Collider"
+name = "Bolt_26"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0tspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0026"          # /Arena01/Bolt_26
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0tlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0026"          # /Arena01/Bolt_26
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0027"
+kind = "Collider"
+name = "Bolt_27"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0vspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0027"          # /Arena01/Bolt_27
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0vlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0027"          # /Arena01/Bolt_27
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0028"
+kind = "Collider"
+name = "Bolt_28"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0wspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0028"          # /Arena01/Bolt_28
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0wlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0028"          # /Arena01/Bolt_28
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0029"
+kind = "Collider"
+name = "Bolt_29"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0xspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0029"          # /Arena01/Bolt_29
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0xlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0029"          # /Arena01/Bolt_29
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0030"
+kind = "Collider"
+name = "Bolt_30"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0yspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0030"          # /Arena01/Bolt_30
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0ylit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0030"          # /Arena01/Bolt_30
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0031"
+kind = "Collider"
+name = "Bolt_31"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps0zspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0031"          # /Arena01/Bolt_31
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps0zlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0031"          # /Arena01/Bolt_31
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0032"
+kind = "Collider"
+name = "Bolt_32"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps10spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0032"          # /Arena01/Bolt_32
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps10lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0032"          # /Arena01/Bolt_32
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0033"
+kind = "Collider"
+name = "Bolt_33"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps11spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0033"          # /Arena01/Bolt_33
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps11lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0033"          # /Arena01/Bolt_33
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0034"
+kind = "Collider"
+name = "Bolt_34"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps12spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0034"          # /Arena01/Bolt_34
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps12lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0034"          # /Arena01/Bolt_34
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0035"
+kind = "Collider"
+name = "Bolt_35"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps13spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0035"          # /Arena01/Bolt_35
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps13lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0035"          # /Arena01/Bolt_35
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0036"
+kind = "Collider"
+name = "Bolt_36"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps14spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0036"          # /Arena01/Bolt_36
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps14lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0036"          # /Arena01/Bolt_36
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0037"
+kind = "Collider"
+name = "Bolt_37"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps15spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0037"          # /Arena01/Bolt_37
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps15lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0037"          # /Arena01/Bolt_37
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0038"
+kind = "Collider"
+name = "Bolt_38"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps16spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0038"          # /Arena01/Bolt_38
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps16lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0038"          # /Arena01/Bolt_38
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0039"
+kind = "Collider"
+name = "Bolt_39"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps17spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0039"          # /Arena01/Bolt_39
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps17lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0039"          # /Arena01/Bolt_39
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0040"
+kind = "Collider"
+name = "Bolt_40"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps18spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0040"          # /Arena01/Bolt_40
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps18lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0040"          # /Arena01/Bolt_40
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0041"
+kind = "Collider"
+name = "Bolt_41"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps19spr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0041"          # /Arena01/Bolt_41
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps19lit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0041"          # /Arena01/Bolt_41
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0042"
+kind = "Collider"
+name = "Bolt_42"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1aspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0042"          # /Arena01/Bolt_42
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1alit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0042"          # /Arena01/Bolt_42
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0043"
+kind = "Collider"
+name = "Bolt_43"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1bspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0043"          # /Arena01/Bolt_43
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1blit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0043"          # /Arena01/Bolt_43
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0044"
+kind = "Collider"
+name = "Bolt_44"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1cspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0044"          # /Arena01/Bolt_44
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1clit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0044"          # /Arena01/Bolt_44
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0045"
+kind = "Collider"
+name = "Bolt_45"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1dspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0045"          # /Arena01/Bolt_45
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1dlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0045"          # /Arena01/Bolt_45
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0046"
+kind = "Collider"
+name = "Bolt_46"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1espr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0046"          # /Arena01/Bolt_46
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1elit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0046"          # /Arena01/Bolt_46
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0047"
+kind = "Collider"
+name = "Bolt_47"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1fspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0047"          # /Arena01/Bolt_47
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1flit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0047"          # /Arena01/Bolt_47
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0048"
+kind = "Collider"
+name = "Bolt_48"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1gspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0048"          # /Arena01/Bolt_48
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1glit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0048"          # /Arena01/Bolt_48
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0049"
+kind = "Collider"
+name = "Bolt_49"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1hspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0049"          # /Arena01/Bolt_49
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1hlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0049"          # /Arena01/Bolt_49
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0050"
+kind = "Collider"
+name = "Bolt_50"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1jspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0050"          # /Arena01/Bolt_50
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1jlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0050"          # /Arena01/Bolt_50
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0051"
+kind = "Collider"
+name = "Bolt_51"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1kspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0051"          # /Arena01/Bolt_51
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1klit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0051"          # /Arena01/Bolt_51
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0052"
+kind = "Collider"
+name = "Bolt_52"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1mspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0052"          # /Arena01/Bolt_52
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1mlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0052"          # /Arena01/Bolt_52
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0053"
+kind = "Collider"
+name = "Bolt_53"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1nspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0053"          # /Arena01/Bolt_53
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1nlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0053"          # /Arena01/Bolt_53
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0054"
+kind = "Collider"
+name = "Bolt_54"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1pspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0054"          # /Arena01/Bolt_54
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1plit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0054"          # /Arena01/Bolt_54
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0055"
+kind = "Collider"
+name = "Bolt_55"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1qspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0055"          # /Arena01/Bolt_55
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1qlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0055"          # /Arena01/Bolt_55
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0056"
+kind = "Collider"
+name = "Bolt_56"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1rspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0056"          # /Arena01/Bolt_56
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1rlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0056"          # /Arena01/Bolt_56
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0057"
+kind = "Collider"
+name = "Bolt_57"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1sspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0057"          # /Arena01/Bolt_57
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1slit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0057"          # /Arena01/Bolt_57
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0058"
+kind = "Collider"
+name = "Bolt_58"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1tspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0058"          # /Arena01/Bolt_58
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1tlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0058"          # /Arena01/Bolt_58
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0059"
+kind = "Collider"
+name = "Bolt_59"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1vspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0059"          # /Arena01/Bolt_59
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1vlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0059"          # /Arena01/Bolt_59
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0060"
+kind = "Collider"
+name = "Bolt_60"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1wspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0060"          # /Arena01/Bolt_60
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1wlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0060"          # /Arena01/Bolt_60
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0061"
+kind = "Collider"
+name = "Bolt_61"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1xspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0061"          # /Arena01/Bolt_61
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1xlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0061"          # /Arena01/Bolt_61
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0062"
+kind = "Collider"
+name = "Bolt_62"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1yspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0062"          # /Arena01/Bolt_62
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1ylit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0062"          # /Arena01/Bolt_62
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[node]]
+id = "n_proj0063"
+kind = "Collider"
+name = "Bolt_63"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/projectile.lua"
+visible = false
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_ps1zspr0"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_proj0063"          # /Arena01/Bolt_63
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_ps1zlit0"
+kind = "Light2D"
+name = "Light"
+parent = "n_proj0063"          # /Arena01/Bolt_63
+color = "#9fd8ffa0"
+radius = 22.0
+
+[[chunk]]
+layer = "n_floor000"           # /Arena01/Floor
+at = [0, 0]
+data = "24:1 8:0 24:1 8:0 24:1 8:0 4:1 8:3 12:1 8:0 4:1 8:3 12:1 8:0 4:1 8:3 12:1 8:0 4:1 8:3 12:1 8:0 4:1 8:3 12:1 8:0 4:1 8:3 12:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 520:0"

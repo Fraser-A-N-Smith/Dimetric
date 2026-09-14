@@ -152,7 +152,7 @@ fn the_example_project_replays_as_the_readme_says_it_does() {
         .load_scene("arena01")
         .unwrap_or_else(|d| panic!("{d}"));
 
-    let log = InputLog::parse(&read(&dir, "tests/walk-and-cast.input")).expect("input log");
+    let log = InputLog::parse(&read(&dir, "tests/clear-a-room.input")).expect("input log");
     let recorded = HashLog::parse(&read(&dir, "tests/arena01.hashes")).expect("hash log");
     let probes = parse_probes(&read(&dir, "tests/arena01.probes")).expect("probes");
 

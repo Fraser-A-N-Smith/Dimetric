@@ -1128,6 +1128,10 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
                 Some(path) => read_log(project, path)?,
                 None => dimetric_sim::InputLog::new(seed, env!("CARGO_PKG_VERSION"), 1),
             };
+            // A log carries the seed it was recorded against, and that wins:
+            // dumping with a different one runs a different game and quietly
+            // disagrees with `dim run` and `dim replay`, which both prefer it.
+            let seed = if input.is_some() { log.seed } else { seed };
             let (mut sim, diags) = build_sim(project, seed)?;
             for t in 0..tick {
                 sim.step(log.frame(t));

@@ -707,3 +707,116 @@ fn a_nonsense_speed_is_taken_as_normal_rather_than_dividing_by_zero() {
     run(&mut sim, 2);
     assert_eq!(sim.state().anim[&mover()].frame, 1);
 }
+
+// -- Lua tables as engine values ----------------------------------------
+
+/// Run a script on the mover and return its variables.
+fn vars_after(script: &str, ticks: u64) -> dimetric_scene::Value {
+    let mut sim = sim_with(script);
+    run(&mut sim, ticks);
+    let state = sim.state();
+    dimetric_scene::Value::Map(state.vars.get(&mover()).cloned().unwrap_or_default())
+}
+
+#[test]
+fn a_lua_array_comes_back_as_a_list_rather_than_an_empty_map() {
+    // It used to come back as an empty map: `from_lua` only accepted string
+    // keys, so every entry was dropped with no error at all. An ordered list is
+    // how a script keeps a spawn table or an upgrade order reproducible.
+    let vars = vars_after(
+        "function on_tick(self) self.order = { \"bolt\", \"nova\" } end\n",
+        1,
+    );
+    let dimetric_scene::Value::Map(map) = vars else {
+        panic!("vars are a map");
+    };
+    match map.get("order") {
+        Some(dimetric_scene::Value::List(items)) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], dimetric_scene::Value::Str("bolt".to_string()));
+            assert_eq!(items[1], dimetric_scene::Value::Str("nova".to_string()));
+        }
+        other => panic!("expected a list, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_list_survives_a_round_trip_back_into_lua() {
+    let script = "function on_tick(self)\n  if not self.order then self.order = { \"a\", \"b\", \"c\" } end\n  self.len = #self.order\n  self.second = self.order[2]\nend\n";
+    let vars = vars_after(script, 3);
+    let dimetric_scene::Value::Map(map) = vars else {
+        panic!()
+    };
+    assert_eq!(map.get("len"), Some(&dimetric_scene::Value::Int(3)));
+    assert_eq!(
+        map.get("second"),
+        Some(&dimetric_scene::Value::Str("b".to_string()))
+    );
+}
+
+#[test]
+fn a_nested_table_of_tables_survives() {
+    let script = "function on_tick(self)\n  if not self.book then self.book = { bolt = { damage = 12, tags = { \"fire\" } } } end\n  self.damage = self.book.bolt.damage\n  self.tag = self.book.bolt.tags[1]\nend\n";
+    let vars = vars_after(script, 3);
+    let dimetric_scene::Value::Map(map) = vars else {
+        panic!()
+    };
+    assert_eq!(map.get("damage"), Some(&dimetric_scene::Value::Int(12)));
+    assert_eq!(
+        map.get("tag"),
+        Some(&dimetric_scene::Value::Str("fire".to_string()))
+    );
+}
+
+#[test]
+fn a_map_is_stored_in_key_order_whatever_order_lua_iterated_it() {
+    // Two scripts writing the same pairs must hash the same, and Lua's own
+    // iteration order is not something to rely on (I4).
+    let one = vars_after(
+        "function on_tick(self) self.m = { z = 1, a = 2, m = 3 } end\n",
+        1,
+    );
+    let two = vars_after(
+        "function on_tick(self) self.m = { a = 2, m = 3, z = 1 } end\n",
+        1,
+    );
+    assert_eq!(one, two);
+}
+
+#[test]
+fn a_table_that_mixes_array_entries_and_named_keys_is_refused() {
+    // It has no engine value, and dropping half of it quietly is how a spawn
+    // table ends up shorter than the file says it is.
+    let mut sim = sim_with("function on_tick(self) self.bad = { 1, 2, named = 3 } end\n");
+    run(&mut sim, 1);
+    assert!(
+        sim.diagnostics()
+            .to_string()
+            .contains("array entries and named keys"),
+        "{}",
+        sim.diagnostics()
+    );
+}
+
+#[test]
+fn an_array_with_a_gap_in_it_is_refused() {
+    let mut sim = sim_with("function on_tick(self)\n  local t = {}\n  t[1] = \"a\"\n  t[3] = \"c\"\n  self.bad = t\nend\n");
+    run(&mut sim, 1);
+    assert!(
+        sim.diagnostics().to_string().contains("gaps"),
+        "{}",
+        sim.diagnostics()
+    );
+}
+
+#[test]
+fn an_empty_table_is_a_map_rather_than_an_error() {
+    let vars = vars_after("function on_tick(self) self.empty = {} end\n", 1);
+    let dimetric_scene::Value::Map(map) = vars else {
+        panic!()
+    };
+    assert!(matches!(
+        map.get("empty"),
+        Some(dimetric_scene::Value::Map(_))
+    ));
+}

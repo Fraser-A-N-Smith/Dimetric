@@ -436,6 +436,70 @@ fn resolve(state: &SimState, uid: NodeUid) -> mlua::Result<dimetric_core::NodeId
         .ok_or_else(|| mlua::Error::runtime(format!("node {uid} no longer exists")))
 }
 
+/// Convert a Lua table into a list or a map.
+///
+/// Lua has one table type and the engine has two values, so the shape has to be
+/// inferred: a table whose keys are exactly `1..=n` is a list, and anything
+/// else is a map. Sequences matter here beyond tidiness — an ordered list is
+/// how a script keeps a spawn table or an upgrade order reproducible, and a map
+/// iterates in key order, which is not the order anybody wrote (I4).
+///
+/// A table mixing the two is refused rather than silently losing half of it.
+fn table_to_value(t: mlua::Table) -> mlua::Result<Value> {
+    let mut integer_keys = Vec::new();
+    let mut string_keys = Vec::new();
+    for pair in t.clone().pairs::<mlua::Value, mlua::Value>() {
+        let (key, value) = pair?;
+        match key {
+            mlua::Value::Integer(i) => integer_keys.push((i, value)),
+            mlua::Value::String(s) => string_keys.push((s.to_str()?.to_string(), value)),
+            // A table keyed by anything else has no representation in the scene
+            // format, so it cannot be stored and saying so beats dropping it.
+            other => {
+                return Err(mlua::Error::runtime(format!(
+                    "a table key must be a string or an integer, not {}",
+                    other.type_name()
+                )))
+            }
+        }
+    }
+
+    if !integer_keys.is_empty() && !string_keys.is_empty() {
+        return Err(mlua::Error::runtime(
+            "a table mixing array entries and named keys has no engine value; \
+             use one or the other",
+        ));
+    }
+
+    if !integer_keys.is_empty() {
+        integer_keys.sort_by_key(|(i, _)| *i);
+        let contiguous = integer_keys
+            .iter()
+            .enumerate()
+            .all(|(index, (key, _))| *key == index as i64 + 1);
+        if !contiguous {
+            return Err(mlua::Error::runtime(
+                "an array with gaps in it has no engine value; \
+                 a list is 1..n with nothing missing",
+            ));
+        }
+        let mut items = Vec::with_capacity(integer_keys.len());
+        for (_, value) in integer_keys {
+            items.push(from_lua(value)?);
+        }
+        return Ok(Value::List(items));
+    }
+
+    // Sorted, so the same table always produces the same value and the same
+    // state hash whatever order Lua happened to iterate it in.
+    string_keys.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut map = IndexMap::new();
+    for (key, value) in string_keys {
+        map.insert(key, from_lua(value)?);
+    }
+    Ok(Value::Map(map))
+}
+
 /// Convert an engine value into Lua.
 fn to_lua(lua: &Lua, value: &Value) -> mlua::Result<mlua::Value> {
     Ok(match value {
@@ -497,17 +561,7 @@ fn from_lua(value: mlua::Value) -> mlua::Result<Value> {
                 return Err(mlua::Error::runtime("unsupported userdata"));
             }
         }
-        mlua::Value::Table(t) => {
-            let mut map = IndexMap::new();
-            let mut pairs: Vec<(String, mlua::Value)> = t
-                .pairs::<String, mlua::Value>()
-                .collect::<mlua::Result<Vec<_>>>()?;
-            pairs.sort_by(|a, b| a.0.cmp(&b.0));
-            for (k, v) in pairs {
-                map.insert(k, from_lua(v)?);
-            }
-            Value::Map(map)
-        }
+        mlua::Value::Table(t) => table_to_value(t)?,
         other => {
             return Err(mlua::Error::runtime(format!(
                 "cannot store a {} in simulation state",
@@ -764,6 +818,63 @@ impl LuaHost {
         .map_err(err)?;
         tick.set("rate", rate).map_err(err)?;
         env.set("tick", tick).map_err(err)?;
+
+        // input: what the player is doing this tick.
+        //
+        // Read-only, and from `SimState` rather than from a device: inside a
+        // tick there is no way to tell a gamepad from a replay log, which is
+        // most of what makes replay possible (I8).
+        let input = lua.create_table().map_err(err)?;
+        input
+            .set(
+                "move",
+                lua.create_function(|lua, player: Option<u32>| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    Ok(LuaVec2(
+                        state.input.player(player.unwrap_or(0) as usize).move_dir,
+                    ))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "aim",
+                lua.create_function(|lua, player: Option<u32>| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let aim = state.input.player(player.unwrap_or(0) as usize).aim;
+                    Ok(aim.to_degrees_string())
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "aim_vector",
+                lua.create_function(|lua, player: Option<u32>| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let aim = state.input.player(player.unwrap_or(0) as usize).aim;
+                    Ok(LuaVec2(aim.to_unit_vector()))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "held",
+                lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let bit = button_bit(&button)?;
+                    Ok(state.input.player(player.unwrap_or(0) as usize).held(bit))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        env.set("input", input).map_err(err)?;
 
         // tween: cosmetic motion, measured in ticks like everything else.
         let tween = lua.create_table().map_err(err)?;
@@ -1103,5 +1214,25 @@ fn read_property(state: &SimState, id: dimetric_core::NodeId, property: &str) ->
         "scale" => Value::Vec2(node.transform.scale),
         "rot" => Value::Angle(node.transform.rot),
         other => node.get(other)?.clone(),
+    })
+}
+
+/// The bit a button's name refers to.
+///
+/// Named rather than numbered, so a script says `input.held("fire")` and the
+/// engine keeps the bit layout to itself.
+fn button_bit(name: &str) -> mlua::Result<u32> {
+    use crate::input::buttons;
+    Ok(match name {
+        "fire" => buttons::FIRE,
+        "alt" => buttons::ALT,
+        "dash" => buttons::DASH,
+        "use" => buttons::USE,
+        "pause" => buttons::PAUSE,
+        other => {
+            return Err(mlua::Error::runtime(format!(
+                "no button called {other:?}; try fire, alt, dash, use or pause"
+            )))
+        }
     })
 }

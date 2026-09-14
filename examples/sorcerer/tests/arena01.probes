@@ -1,13 +1,25 @@
-# Assertions checked during replay. An agent writes these to verify its own
-# work without having to read a state dump by eye.
+# Assertions checked during the replay, so an agent can verify its own work
+# without reading a state dump by eye.
+#
+# What this run does: walks into the arena, clears all five enemies, is offered
+# three upgrades from the seeded stream, and takes the second — which is `ward`,
+# and holding it alongside `bolt` evolves into the Lance.
 
-# Both skeletons exist and are closing on the player.
-tick 119 /Arena01/Skeleton_01 exists == true
-tick 119 /Arena01/Skeleton_01 pos.x < 100.0
-tick 119 /Arena01/Skeleton_02 pos.x < 160.0
+# Combat happened, and the pool was never exhausted.
+tick 900 /Arena01 var:fired > 60
+tick 900 /Arena01 var:dropped == 0
 
-# Nothing has taken damage yet, so health is untouched.
-tick 119 /Arena01/Skeleton_01 var:health == 40
+# Every enemy died, including the brute, which takes ten bolts.
+tick 950 /Arena01 var:kills == 5
+tick 950 /Arena01 var:enemy_count == 0
 
-# The arena counted its enemies.
-tick 119 /Arena01 var:enemy_count == 2
+# The upgrade was taken and the run moved on.
+tick 1099 /Arena01 var:room == 2
+tick 1099 /Arena01 var:run_complete == true
+
+# And the two spells the run holds evolved into a third. This is the assertion
+# §12 asks for: a replay must reproduce the same spell evolution.
+tick 1099 /Arena01 var:evolved == Lance
+
+# The player survived to the end of the room.
+tick 1099 /Arena01/Player exists == true
