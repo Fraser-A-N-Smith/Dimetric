@@ -299,6 +299,56 @@ impl Project {
         ))
     }
 
+    /// Every prefab under `prefabs/`, resolved and ready to spawn.
+    ///
+    /// Resolved here rather than in the simulation because flattening an
+    /// instance needs the project's other scenes, and a tick has no
+    /// filesystem. A prefab that will not load is reported and left out, so one
+    /// broken file does not stop the run.
+    pub fn templates(&self) -> (dimetric_sim::spawn::Templates, Diagnostics) {
+        let mut templates = dimetric_sim::spawn::Templates::new();
+        let mut diagnostics = Diagnostics::new();
+        let dir = self.root.join("prefabs");
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return (templates, diagnostics);
+        };
+        // Sorted, so what is loaded — and what a duplicate name resolves to —
+        // never depends on directory order.
+        let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        paths.sort();
+
+        let sources = DiskScenes {
+            root: self.root.clone(),
+            registry: self.registry.clone(),
+        };
+        for path in paths {
+            if path.extension().and_then(|e| e.to_str()) != Some(SCENE_EXTENSION) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let display = path.display().to_string();
+            let out = dimetric_scene::parse(&text, &display, &self.registry);
+            let Some(doc) = out.doc else {
+                diagnostics.extend(out.diagnostics);
+                continue;
+            };
+            let (resolved, resolve_diagnostics) =
+                dimetric_scene::resolve(&doc.scene, &sources, &self.registry);
+            diagnostics.extend(resolve_diagnostics);
+            let name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            // Both spellings, so a script can say either the bare name or the
+            // path a scene reference uses.
+            templates.insert(format!("prefabs/{name}"), resolved.clone());
+            templates.insert(name, resolved);
+        }
+        (templates, diagnostics)
+    }
+
     /// Load every `.lua` file under `scripts/`.
     pub fn load_scripts(&mut self) -> Diagnostics {
         let mut diags = Diagnostics::new();

@@ -208,7 +208,8 @@ fn render_markdown(
         "\n## Lua API\n\n\
          Scripts see exactly these globals and nothing else.\n\n\
          | Global | What it gives you |\n|---|---|\n\
-         | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)` |\n\
+         | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)` |\n\
+         | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |\n\
          | `tick` | `count()`, `dt()`, `rate` |\n\
          | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |\n\
          | `vec2` | `vec2(x, y)`, building a fixed-point vector |\n\
@@ -220,6 +221,17 @@ fn render_markdown(
          `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,\n\
          `kind` and `valid`. Indexing a handle reads and writes script variables, except\n\
          for `pos`, `rot` and `visible`, which reach the node's transform.\n\n\
+         ### Spawning\n\n\
+         `scene.spawn` returns the id the node *will* have and creates nothing yet.\n\
+         A node inserted mid-tick would be going into a tree another script may be\n\
+         walking, so spawns are applied at the end of the tick and the node gets\n\
+         `on_ready` on the next one. The id is derived from a counter in the state\n\
+         rather than drawn from the RNG, which is what makes it the same on every\n\
+         machine and the same again after a rollback — and means spawning one fewer\n\
+         projectile does not shift every gameplay roll after it.\n\n\
+         `scene.near` and `scene.nearest` read the broadphase as it stood at the\n\
+         *start* of the tick, so every script sees the same world and what one finds\n\
+         does not depend on whether another has run yet.\n\n\
          ### Tweens and animation\n\n\
          Tweens and animation are simulation state, not presentation. They advance on\n\
          ticks, they are snapshotted, and they are in the state hash — a tween outside\n\

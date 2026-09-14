@@ -99,10 +99,27 @@ pub struct SimState {
     pub tweens: crate::tween::Tweens,
     /// Input for the tick in progress.
     pub input: InputFrame,
+    /// Input for the tick before this one.
+    ///
+    /// State rather than something derived from the log, because a rollback
+    /// restores a snapshot and has to know what a button was doing before the
+    /// tick it lands on — otherwise every edge-triggered action fires again.
+    pub previous_input: InputFrame,
     /// Signals emitted this tick, flushed at the end of it.
     pub signals: Vec<SignalEvent>,
     /// Contacts found this tick.
     pub collisions: Vec<CollisionEvent>,
+    /// The broadphase as it stood at the start of the tick, for scripts to
+    /// query. Not hashed: it is derived from positions that already are.
+    pub query: Option<crate::world::PhysicsWorld>,
+    /// Nodes a script asked to create, applied at a phase boundary.
+    ///
+    /// Deferred for the same reason destroys are: inserting into a tree another
+    /// script may be walking makes what it sees depend on traversal order.
+    pub spawn_queue: Vec<crate::spawn::Spawn>,
+    /// How many spawns have happened, which is what makes their ids
+    /// reproducible without consuming the RNG.
+    pub spawn_count: u64,
     /// Nodes a script asked to destroy, applied at a phase boundary.
     ///
     /// Deferred rather than immediate so a script cannot delete a node another
@@ -124,8 +141,12 @@ impl SimState {
             anim: BTreeMap::new(),
             tweens: BTreeMap::new(),
             input: InputFrame::idle(1),
+            previous_input: InputFrame::idle(1),
             signals: Vec::new(),
             collisions: Vec::new(),
+            query: None,
+            spawn_queue: Vec::new(),
+            spawn_count: 0,
             destroy_queue: Vec::new(),
             readied: Vec::new(),
         }
@@ -205,6 +226,9 @@ impl HashState for SimState {
             h.node_uid(*uid);
             a.hash_state(h);
         }
+
+        self.previous_input.hash_state(h);
+        h.tag("spawns").u64(self.spawn_count);
 
         h.tag("tweens").len(self.tweens.len());
         for (uid, list) in &self.tweens {

@@ -1150,6 +1150,7 @@ dependencies = [
 name = "dimetric-sim"
 version = "0.0.1"
 dependencies = [
+ "blake3",
  "dimetric-assets",
  "dimetric-core",
  "dimetric-scene",

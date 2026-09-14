@@ -795,6 +795,119 @@ impl LuaHost {
                 .map_err(err)?,
             )
             .map_err(err)?;
+        // scene.spawn(prefab, at, parent) -> the id the node will have.
+        //
+        // The node does not exist yet: creating it mid-tick would put it into a
+        // tree another script may be walking. It appears at the end of the
+        // tick and gets `on_ready` on the next one. The id comes back now
+        // because it is derived rather than drawn, so a script can hold it and
+        // look the node up when it arrives.
+        scene
+            .set(
+                "spawn",
+                lua.create_function(
+                    |lua, (prefab, at, parent): (String, Option<LuaVec2>, Option<NodeHandle>)| {
+                        let state = shared(lua)?;
+                        let mut state = state.borrow_mut();
+                        let counter = state.spawn_count;
+                        state.spawn_count += 1;
+                        // Seeded by the prefab's name rather than a template
+                        // that may not be loaded, so the id is decided here and
+                        // a missing prefab is a diagnostic rather than a panic.
+                        let seed = crate::spawn::derive_uid(
+                            NodeUid::parse("n_spawn000").expect("a valid uid"),
+                            counter,
+                        );
+                        let id = crate::spawn::derive_uid(seed, prefab.len() as u64);
+                        state.spawn_queue.push(crate::spawn::Spawn {
+                            template: prefab,
+                            at: at.map(|v| v.0).unwrap_or(Vec2Fx::ZERO),
+                            parent: parent.map(|h| h.0),
+                            id,
+                        });
+                        Ok(id.to_text())
+                    },
+                )
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+
+        // scene.near(at, radius, tag) -> handles within a radius.
+        //
+        // Over the broadphase the simulation already builds, rather than
+        // walking every node: a homing projectile asking "what is near me" per
+        // tick is the difference between a cost in the enemy count and a cost
+        // in the product of both counts.
+        //
+        // Positions are as of the start of the tick, before anything moved.
+        // That is a real semantic rather than an accident: every script sees
+        // the same world, so what one of them finds does not depend on whether
+        // another one has run yet.
+        scene
+            .set(
+                "near",
+                lua.create_function(|lua, (at, radius, tag): (LuaVec2, LuaFx, Option<String>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let found = state.query.as_ref().map(|w| w.within(at.0, radius.0));
+                    let mut handles = Vec::new();
+                    for uid in found.unwrap_or_default() {
+                        if let Some(tag) = &tag {
+                            let matches = state
+                                .scene
+                                .by_uid(uid)
+                                .and_then(|id| state.scene.get(id))
+                                .is_some_and(|n| n.has_tag(tag));
+                            if !matches {
+                                continue;
+                            }
+                        }
+                        handles.push(NodeHandle(uid));
+                    }
+                    lua.create_sequence_from(handles)
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+
+        // scene.nearest(at, radius, tag) -> the closest one, or nothing.
+        scene
+            .set(
+                "nearest",
+                lua.create_function(|lua, (at, radius, tag): (LuaVec2, LuaFx, Option<String>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let Some(world) = state.query.as_ref() else {
+                        return Ok(None);
+                    };
+                    let mut best: Option<(dimetric_core::FxWide, NodeUid)> = None;
+                    for uid in world.within(at.0, radius.0) {
+                        let Some(node) = state.scene.by_uid(uid).and_then(|i| state.scene.get(i))
+                        else {
+                            continue;
+                        };
+                        if let Some(tag) = &tag {
+                            if !node.has_tag(tag) {
+                                continue;
+                            }
+                        }
+                        let d = (node.world().pos - at.0).length_squared();
+                        // Ties broken by id, so "the nearest" is the same
+                        // node on every machine (I4).
+                        let better = match &best {
+                            None => true,
+                            Some((bd, bu)) => (d, uid.body()) < (*bd, bu.body()),
+                        };
+                        if better {
+                            best = Some((d, uid));
+                        }
+                    }
+                    Ok(best.map(|(_, uid)| NodeHandle(uid)))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+
         env.set("scene", scene).map_err(err)?;
 
         // tick.count and tick.dt
@@ -870,6 +983,38 @@ impl LuaHost {
                     let state = state.borrow();
                     let bit = button_bit(&button)?;
                     Ok(state.input.player(player.unwrap_or(0) as usize).held(bit))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "pressed",
+                lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let bit = button_bit(&button)?;
+                    let index = player.unwrap_or(0) as usize;
+                    Ok(state
+                        .input
+                        .player(index)
+                        .pressed(&state.previous_input.player(index), bit))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "released",
+                lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let bit = button_bit(&button)?;
+                    let index = player.unwrap_or(0) as usize;
+                    Ok(state
+                        .previous_input
+                        .player(index)
+                        .pressed(&state.input.player(index), bit))
                 })
                 .map_err(err)?,
             )

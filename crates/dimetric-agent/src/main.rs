@@ -1014,7 +1014,9 @@ fn build_sim(
     // handed no clips animates nothing.
     project.import_assets();
     let clips = project.clips();
+    let (templates, template_diags) = project.templates();
     let (scene, mut diags) = project.runtime_scene()?;
+    diags.extend(template_diags);
     diags.extend(project.load_scripts());
     let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
     for (path, source) in &project.scripts {
@@ -1024,7 +1026,9 @@ fn build_sim(
     }
     let config = dimetric_sim::SimConfig::default();
     Ok((
-        dimetric_sim::Sim::new(scene, seed, Box::new(host), config).with_clips(clips),
+        dimetric_sim::Sim::new(scene, seed, Box::new(host), config)
+            .with_clips(clips)
+            .with_templates(templates),
         diags,
     ))
 }
@@ -1327,7 +1331,9 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
 
     project.import_assets();
     let clips = project.clips();
+    let (templates, template_diags) = project.templates();
     let (scene, mut diags) = project.runtime_scene()?;
+    diags.extend(template_diags);
     diags.extend(project.load_scripts());
     let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
     for (path, source) in &project.scripts {
@@ -1342,6 +1348,7 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
         expected: recorded.as_ref().map(|r| r.hashes.as_slice()),
         probes: &probes,
         clips,
+        templates,
     };
     let report = replay.run(scene, Box::new(host), dimetric_sim::SimConfig::default());
 

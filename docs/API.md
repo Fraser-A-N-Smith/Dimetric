@@ -219,7 +219,8 @@ Scripts see exactly these globals and nothing else.
 
 | Global | What it gives you |
 |---|---|
-| `scene` | `find(path)`, `by_id(id)`, `tagged(tag)` |
+| `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)` |
+| `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
 | `tick` | `count()`, `dt()`, `rate` |
 | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |
 | `vec2` | `vec2(x, y)`, building a fixed-point vector |
@@ -232,6 +233,20 @@ A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,
 `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,
 `kind` and `valid`. Indexing a handle reads and writes script variables, except
 for `pos`, `rot` and `visible`, which reach the node's transform.
+
+### Spawning
+
+`scene.spawn` returns the id the node *will* have and creates nothing yet.
+A node inserted mid-tick would be going into a tree another script may be
+walking, so spawns are applied at the end of the tick and the node gets
+`on_ready` on the next one. The id is derived from a counter in the state
+rather than drawn from the RNG, which is what makes it the same on every
+machine and the same again after a rollback — and means spawning one fewer
+projectile does not shift every gameplay roll after it.
+
+`scene.near` and `scene.nearest` read the broadphase as it stood at the
+*start* of the tick, so every script sees the same world and what one finds
+does not depend on whether another has run yet.
 
 ### Tweens and animation
 

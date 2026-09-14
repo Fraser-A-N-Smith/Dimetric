@@ -301,6 +301,57 @@ impl PhysicsWorld {
         out
     }
 
+    /// What a sensor at `pos` is overlapping, in id order.
+    ///
+    /// A sensor reports and does not resolve, so unlike [`PhysicsWorld::move_body`]
+    /// this never moves anything — it answers "what am I touching here".
+    pub fn overlaps(&self, index: usize, pos: Vec2Fx) -> Vec<ContactEvent> {
+        let body = &self.bodies[index];
+        let mut out = Vec::new();
+        for other_index in self.candidates(pos, body.shape.bounds_half()) {
+            if other_index == index {
+                continue;
+            }
+            let other = &self.bodies[other_index];
+            if !body.interacts_with(other) {
+                continue;
+            }
+            if let Some(contact) = overlap(&body.shape, pos, &other.shape, other.pos) {
+                out.push(ContactEvent {
+                    a: body.uid,
+                    b: other.uid,
+                    normal: contact.normal,
+                    // Always a trigger: a sensor blocks nothing by definition.
+                    trigger: true,
+                });
+            }
+        }
+        // Sorted, so what a sensor reports never depends on cell iteration
+        // order or on how the bodies happened to be laid out in memory (I4).
+        out.sort_by_key(|c| c.b.body().to_string());
+        out
+    }
+
+    /// Every body whose centre is within `radius` of `at`, in id order.
+    ///
+    /// Centres rather than shapes, because "what is near me" is a question
+    /// about where things are, and a caller that wants overlap has
+    /// [`PhysicsWorld::overlaps`].
+    pub fn within(&self, at: Vec2Fx, radius: Fx) -> Vec<NodeUid> {
+        let half = Vec2Fx::new(radius, radius);
+        let limit = radius.wide() * radius.wide();
+        let mut out: Vec<NodeUid> = self
+            .candidates(at, half)
+            .into_iter()
+            .filter(|i| (self.bodies[*i].pos - at).length_squared() <= limit)
+            .map(|i| self.bodies[i].uid)
+            .collect();
+        // Sorted, so a script sees the same order everywhere (I4).
+        out.sort_by_key(|u| u.body().to_string());
+        out.dedup();
+        out
+    }
+
     /// Every body whose shape contains `point`, in id order.
     pub fn query_point(&self, point: Vec2Fx) -> Vec<NodeUid> {
         let mut out: Vec<NodeUid> = self
