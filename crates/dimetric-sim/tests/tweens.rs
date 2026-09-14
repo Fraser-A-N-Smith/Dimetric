@@ -611,3 +611,99 @@ playing = false
     run(&mut sim, 20);
     assert_eq!(sim.state().anim[&mover()].frame, 0);
 }
+
+/// A scene with one `AnimatedSprite2D`, optionally at a non-default speed.
+fn animated_scene(extra: &str) -> dimetric_scene::Scene {
+    let text = format!(
+        r##"format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Room"
+
+[[node]]
+id = "n_mover001"
+kind = "AnimatedSprite2D"
+name = "Mover"
+parent = "n_root0000"
+frames = "asset:sprites/hero"
+animation = "walk"
+{extra}
+"##
+    );
+    let registry = KindRegistry::with_builtins();
+    let out = dimetric_scene::parse(&text, "scene.dim", &registry);
+    assert!(!out.diagnostics.has_errors(), "{}", out.diagnostics);
+    out.doc.unwrap().scene
+}
+
+fn animated_sim(extra: &str) -> Sim {
+    Sim::new(
+        animated_scene(extra),
+        1,
+        Box::new(dimetric_sim::NoScripts),
+        SimConfig::default(),
+    )
+    .with_clips(clips(walk_clip()))
+}
+
+#[test]
+fn playback_speed_is_an_integer_ratio_that_is_actually_applied() {
+    // The schema declares `speed_numerator` and `speed_denominator`. A declared
+    // property that does nothing is worse than no property.
+    let mut normal = animated_sim("");
+    let mut double = animated_sim("speed_numerator = 2");
+    let mut half = animated_sim("speed_denominator = 2");
+
+    // Each frame is authored at two ticks, so after two ticks normal play is
+    // one frame in, double play is two, and half play has not moved.
+    run(&mut normal, 2);
+    run(&mut double, 2);
+    run(&mut half, 2);
+    assert_eq!(normal.state().anim[&mover()].frame, 1);
+    assert_eq!(double.state().anim[&mover()].frame, 2);
+    assert_eq!(half.state().anim[&mover()].frame, 0);
+}
+
+#[test]
+fn double_speed_gets_through_a_clip_in_half_the_ticks() {
+    // Three frames at two ticks each: six ticks a cycle, three at double speed.
+    let ticks_to_loop = |extra: &str| {
+        let mut sim = animated_sim(extra);
+        for tick in 1..=20 {
+            run(&mut sim, 1);
+            // Back at frame 0 having been past it.
+            if tick > 1 && sim.state().anim[&mover()].frame == 0 {
+                return tick;
+            }
+        }
+        panic!("the clip never looped");
+    };
+    assert_eq!(ticks_to_loop(""), 6);
+    assert_eq!(ticks_to_loop("speed_numerator = 2"), 3);
+}
+
+#[test]
+fn a_speed_that_would_round_a_frame_to_nothing_still_holds_it_a_tick() {
+    // A zero-length frame advances infinitely fast and hangs the walker.
+    assert_eq!(
+        dimetric_sim::anim::Speed {
+            numerator: 1000,
+            denominator: 1
+        }
+        .hold(2),
+        1
+    );
+}
+
+#[test]
+fn a_nonsense_speed_is_taken_as_normal_rather_than_dividing_by_zero() {
+    let mut sim = animated_sim("speed_numerator = 0\nspeed_denominator = 0");
+    run(&mut sim, 2);
+    assert_eq!(sim.state().anim[&mover()].frame, 1);
+}

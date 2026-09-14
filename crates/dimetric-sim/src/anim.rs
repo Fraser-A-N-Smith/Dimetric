@@ -70,6 +70,20 @@ pub fn advance(
             wanted
         };
         let playing = node.get("playing").and_then(Value::as_bool).unwrap_or(true);
+        // An integer ratio rather than a float, because frame advance is
+        // gameplay and has to land on the same tick everywhere.
+        let speed = Speed {
+            numerator: node
+                .get("speed_numerator")
+                .and_then(Value::as_int)
+                .unwrap_or(1)
+                .max(1) as u32,
+            denominator: node
+                .get("speed_denominator")
+                .and_then(Value::as_int)
+                .unwrap_or(1)
+                .max(1) as u32,
+        };
 
         let state = anim.entry(uid).or_insert_with(|| AnimState {
             clip: wanted.clone(),
@@ -88,7 +102,11 @@ pub fn advance(
         }
         state.playing = playing;
 
-        if let Some(event) = step(state, clips.get(&sheet).map(Vec::as_slice).unwrap_or(&[])) {
+        if let Some(event) = step(
+            state,
+            clips.get(&sheet).map(Vec::as_slice).unwrap_or(&[]),
+            speed,
+        ) {
             events.push((uid, event));
         }
 
@@ -115,7 +133,7 @@ pub fn advance(
             continue;
         };
         let all: Vec<Clip> = clips.values().flatten().cloned().collect();
-        if let Some(event) = step(state, &all) {
+        if let Some(event) = step(state, &all, Speed::NORMAL) {
             events.push((uid, event));
         }
     }
@@ -123,9 +141,37 @@ pub fn advance(
     events
 }
 
+/// How fast a node plays its clips, as a ratio.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Speed {
+    /// Multiply the rate by this.
+    pub numerator: u32,
+    /// Divide the rate by this.
+    pub denominator: u32,
+}
+
+impl Speed {
+    /// One to one.
+    pub const NORMAL: Speed = Speed {
+        numerator: 1,
+        denominator: 1,
+    };
+
+    /// How long a frame authored for `ticks` is held at this speed.
+    ///
+    /// Integer arithmetic, and never zero: a frame no ticks long advances
+    /// infinitely fast and hangs the walker. Doubling the speed halves the
+    /// duration, which is why the numerator divides here.
+    pub fn hold(self, ticks: u32) -> u32 {
+        let numerator = self.numerator.max(1) as u64;
+        let denominator = self.denominator.max(1) as u64;
+        (((ticks as u64) * denominator).div_ceil(numerator)).max(1) as u32
+    }
+}
+
 /// Move one animation on by a tick. Returns an event if the new frame carries
 /// one.
-fn step(state: &mut AnimState, clips: &[Clip]) -> Option<String> {
+fn step(state: &mut AnimState, clips: &[Clip], speed: Speed) -> Option<String> {
     if !state.playing || state.finished {
         return None;
     }
@@ -138,7 +184,7 @@ fn step(state: &mut AnimState, clips: &[Clip]) -> Option<String> {
 
     state.ticks_in_frame = state.ticks_in_frame.saturating_add(1);
     let current = state.frame.min(clip.frames.len() as u32 - 1) as usize;
-    if state.ticks_in_frame < clip.frames[current].ticks {
+    if state.ticks_in_frame < speed.hold(clip.frames[current].ticks) {
         return None;
     }
 
