@@ -880,29 +880,20 @@ impl LuaHost {
                     let Some(world) = state.query.as_ref() else {
                         return Ok(None);
                     };
-                    let mut best: Option<(dimetric_core::FxWide, NodeUid)> = None;
-                    for uid in world.within(at.0, radius.0) {
-                        let Some(node) = state.scene.by_uid(uid).and_then(|i| state.scene.get(i))
-                        else {
-                            continue;
-                        };
-                        if let Some(tag) = &tag {
-                            if !node.has_tag(tag) {
-                                continue;
-                            }
-                        }
-                        let d = (node.world().pos - at.0).length_squared();
-                        // Ties broken by id, so "the nearest" is the same
-                        // node on every machine (I4).
-                        let better = match &best {
-                            None => true,
-                            Some((bd, bu)) => (d, uid.body()) < (*bd, bu.body()),
-                        };
-                        if better {
-                            best = Some((d, uid));
-                        }
-                    }
-                    Ok(best.map(|(_, uid)| NodeHandle(uid)))
+                    // The filter runs inside the scan, so a tagged query never
+                    // builds a list of everything nearby and then throws most
+                    // of it away — which is what a few hundred homing
+                    // projectiles asking every tick made expensive.
+                    let filter = tag.as_deref().map(crate::world::tag_bit).unwrap_or(0);
+                    let found = world.nearest(at.0, radius.0, filter, |uid| match &tag {
+                        None => true,
+                        Some(tag) => state
+                            .scene
+                            .by_uid(uid)
+                            .and_then(|id| state.scene.get(id))
+                            .is_some_and(|n| n.has_tag(tag)),
+                    });
+                    Ok(found.map(NodeHandle))
                 })
                 .map_err(err)?,
             )

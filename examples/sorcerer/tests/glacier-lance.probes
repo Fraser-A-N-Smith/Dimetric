@@ -1,0 +1,17 @@
+# The agent acceptance test §12 asks for: a new spell, verified by its author
+# without reading a state dump by eye.
+#
+# `Glacier Lance` is bolt + frost, added to scripts/spellbook.lua with a sprite
+# imported alongside it. This asserts the spell exists, fires, and kills.
+
+# The evolution is registered and the trial found it.
+tick 10 /Arena01 var:spell_name == Glacier Lance
+tick 10 /Arena01 var:missing != true
+
+# It fires.
+tick 60 /Arena01 var:fired > 0
+
+# And it damages what it hits: a skeleton has 40 health and the Lance does 38,
+# so two hits kill it.
+tick 120 /Arena01 var:target_health < 40
+tick 199 /Arena01 var:target_alive == false

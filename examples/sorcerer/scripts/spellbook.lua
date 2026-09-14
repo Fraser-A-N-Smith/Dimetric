@@ -57,6 +57,18 @@ local BASE = {
     orbit = 26,
     tint = "#8fffc4",
   },
+  frost = {
+    name = "Frost",
+    shape = "spread",
+    count = 4,
+    spread = 9,
+    damage = 9,
+    speed = 110,
+    life = 44,
+    radius = 3,
+    cooldown = 20,
+    tint = "#9ff0ff",
+  },
   summon = {
     name = "Summon",
     shape = "seek",
@@ -189,6 +201,16 @@ local EVOLUTIONS = {
     orbit = 16,
     tint = "#d4ffb8",
   },
+  ["bolt+frost"] = {
+    name = "Glacier Lance",
+    shape = "single",
+    damage = 38,
+    speed = 190,
+    life = 64,
+    radius = 5,
+    cooldown = 24,
+    tint = "#dff4ff",
+  },
   ["nova+summon"] = {
     name = "Detonating Swarm",
     shape = "ring",
@@ -206,7 +228,7 @@ local EVOLUTIONS = {
 -- The order upgrades are offered in. A list rather than the table's own key
 -- order, because iterating a Lua table is unordered and an unordered upgrade
 -- roll is a replay that diverges (invariant I4).
-local OFFER_ORDER = { "bolt", "nova", "chain", "ward", "summon" }
+local OFFER_ORDER = { "bolt", "nova", "chain", "ward", "summon", "frost" }
 local MODIFIER_ORDER = { "fierce", "swift", "wide", "lasting", "heavy" }
 
 function on_ready(self)

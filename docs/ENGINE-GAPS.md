@@ -8,10 +8,11 @@ to learn which half.
 Each entry says what the game wanted, what it did instead, and — the part worth
 arguing about — whether it belongs in a reusable engine.
 
-## Fixed during the slice
+## Fixed
 
-Three were not missing features but existing ones that were wrong or absent in a
-way no game could work around. They were fixed rather than logged.
+The first pass at the slice logged these; the second pass built them, and the
+slice was rewritten on top. Everything transient is now spawned — a room is a
+wave rather than a file, and a run is five of them.
 
 **A Lua array could not be stored.** `self.order = { "bolt", "nova" }` came back
 as an empty map: the conversion only accepted string keys, so every entry was
@@ -30,37 +31,26 @@ to tell a gamepad from a replay log (I8).
 seed an input log carries; `dump` used its own default, so it quietly simulated
 a different game. Two hours went into a "determinism bug" that was this.
 
-## Open: probably belongs in the engine
 
-**No way to create a node from a script.** The slice wants projectiles, and
-there is `destroy` and no spawn. Worked around by authoring a pool of 64
-projectiles in the scene and taking from a free list — which is what a game at
-this sprite density would do anyway, so the workaround is not a bad outcome. But
-"the engine can destroy but not create" is an asymmetry a second game would hit
-in its first hour. Ids would have to come from the seeded stream to stay
-reproducible, which is the design question worth answering before building it.
+**A script can now create a node.** `scene.spawn(prefab, at, parent)` returns
+the id the node *will* have and creates nothing yet: a node inserted mid-tick
+goes into a tree another script may be walking. It appears at the end of the
+tick and gets `on_ready` on the next one. The id is derived from a counter in
+the state rather than drawn from the RNG, so it is the same on every machine,
+the same again after a rollback, and spawning one fewer projectile does not
+shift every gameplay roll after it. The pool of 64 authored projectiles is gone.
 
-**A moving trigger volume has no representation.** An `Area` is never swept, so
-a projectile authored as one sits where it spawned with a velocity it cannot
-use. Worked around by making projectiles `Collider`s, which are swept and
-report contacts; they slide off an enemy for the one tick before they park.
-Cost the longest debugging session of the slice, because a bolt that spawns and
-does not move looks like a scripting bug and is not.
+**A sensor moves.** An `Area` was skipped by the sweep entirely. Areas are now
+moved where they were told and report what they passed through rather than
+being resolved out of it, which is what a projectile wants.
 
-**No per-instance authored data.** §12 asks for enemy variants as instances with
-property overrides. An override reaches a node's *properties*, and a project
-cannot declare a property of its own on a node kind — so the numbers that make a
-wraith a wraith have nowhere to live. Worked around with a tag per variant and a
-table in the enemy script, which means the stats are in Lua rather than in the
-scene, where a designer would look for them. This is the gap most likely to
-annoy somebody who is not the person who wrote the engine.
+**Buttons have edges.** `input.pressed` and `input.released`, over a
+`previous_input` that is part of the state — a rollback that re-derived it from
+the log would fire every edge again on the tick it landed on.
 
-**No edge-triggered input.** `PlayerInput::pressed` exists in Rust and is not
-exposed; only `held` is. You clear a room with the fire button down, so an
-upgrade offer read from a held button is taken the instant it appears and the
-player never sees it. Worked around in four lines — remember last tick's state
-and compare — which every script that reads a button will now repeat. Cheap to
-fix, cheap to work around, and worth fixing on volume alone.
+**Scripts can ask what is nearby.** `scene.near` and `scene.nearest` read the
+broadphase the simulation already builds. See the performance section below:
+the first version of this was most of a frame budget on its own.
 
 ## Open: probably game-specific
 
@@ -70,24 +60,17 @@ publishes them as node variables, which any script can read. Slightly odd, works
 fine, and adding a module loader means deciding what a module's identity is when
 a script is hot-reloaded — a real design cost for something one node solves.
 
-**No spatial query from a script.** Homing projectiles want the nearest enemy
-and get it by walking every node tagged `enemy`, which is linear per projectile
-and quadratic overall. The engine *has* a spatial hash; it is built for the
-sweep and thrown away. Exposing a query would be a genuine engine feature, but
-the slice runs fine at its density and a game that needed it at scale might want
-something more specific than "nearest".
-
 **No way for one script to call a function on another.** Damage is written into
 the target's own variables (`other.pending_damage = ...`) and read on its next
 tick. That is arguably better than a direct call — it keeps the ordering
 explicit and survives the target being destroyed mid-frame — so this is probably
 not a gap at all.
 
-**No scene loading from a script.** A run is a graph of rooms and the slice is
-one room, because a script cannot load the next scene. The room graph would be
-driven from outside the simulation, which is likely correct: loading a scene
-mid-tick would mean the tick was not a pure function of the state it started
-from (I8).
+**No scene loading from a script.** Still true, and it turned out not to
+matter: a room is a wave the arena spawns, not a file it loads, so a run of five
+rooms lives in one scene. Loading a scene mid-tick would mean the tick was not a
+pure function of the state it started from (I8), so this is probably right as
+it stands.
 
 **No walls.** The arena has no bounds, so the player can walk out of it. A
 tilemap collision layer exists; the fixture simply does not use one. Not an
@@ -99,3 +82,43 @@ Fixed-point exactness caught a mistake that would otherwise have been a
 heisenbug: an input log with `0.4` in it is refused (`DIM0703`) because 0.4 is
 not exactly representable. The instinct is to call that pedantic. It is the
 reason a recorded run reproduces.
+
+## Performance, measured
+
+§12 asks for hundreds of projectiles against dozens of enemies. `examples/sorcerer/stress.dim`
+is that, as a scene rather than a claim: 400 live projectiles, 40 enemies, about
+1,300 nodes, every one of the projectiles homing.
+
+The first measurement was **139 ms a tick** — eight times a frame budget. Almost
+all of it was `scene.nearest`: without homing the same scene cost 9.7 ms.
+
+Three things were wrong with it, and they came off in order:
+
+| Change | ms/tick |
+|---|---|
+| As first written | 139 |
+| `within` sorts by id bytes rather than allocating a `String` per result | 71 |
+| `nearest` scans for a minimum instead of building a sorted list and taking its head | 29 |
+| Bodies carry a bloom filter over their tags, so a tagged query skips most candidates on an integer test | 20 |
+
+Seven times faster, and still above a 60Hz budget at that density — the slice
+itself peaks around 35 live projectiles and costs well under a millisecond. What
+is left is the two broadphase builds a tick and the per-candidate confirmation
+after a bloom hit. A per-tag index would take the next chunk; it is not built,
+because the game does not need it yet and the stress scene now exists to tell
+us when it does.
+
+The lesson is the one the stress scene was for. `sort_by_key(|u| u.body().to_string())`
+looks like nothing. At four hundred calls a tick it was half the frame.
+
+## Still open, and known
+
+**An agent adding a spell changes the run.** The upgrade roll samples a list, so
+appending to it shifts every later choice — the fixture had to be re-recorded
+after the acceptance test added `frost`. That is correct behaviour rather than a
+bug, and it is worth knowing before wondering why a replay stopped reproducing.
+
+**A probe against a variable that does not exist passes a `!=` check.**
+`var:missing != true` reads `<not found>`, which is not `true`, so it passes and
+looks like it verified something. A probe that cannot find its field should
+probably say so rather than comparing the absence.

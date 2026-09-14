@@ -12,7 +12,7 @@ root = "n_root0000"
 id = "n_root0000"
 kind = "Node2D"
 name = "Arena01"
-script = "script:scripts/arena.lua"
+script = "script:scripts/trial.lua"
 
 [[node]]
 id = "n_book0001"
@@ -57,8 +57,3 @@ kind = "Camera2D"
 name = "View"
 parent = "n_player00"          # /Arena01/Player
 current = true
-
-[[chunk]]
-layer = "n_floor000"           # /Arena01/Floor
-at = [0, 0]
-data = "24:1 8:0 24:1 8:0 24:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 520:0"

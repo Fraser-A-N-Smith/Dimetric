@@ -1,0 +1,35 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_bolt_rt0"
+
+# A spell projectile. An `Area`, because it should pass through what it hits
+# and report the contact rather than being pushed out of it.
+[[node]]
+id = "n_bolt_rt0"
+kind = "Area"
+name = "Bolt"
+script = "script:scripts/projectile.lua"
+tags = ["projectile"]
+collision_layer = 4
+collision_mask = 2
+radius = 3.0
+shape = "Circle"
+
+[[node]]
+id = "n_bolt_spr"
+kind = "Sprite2D"
+name = "Glow"
+parent = "n_bolt_rt0"          # /Bolt
+z = 20
+blend = "Additive"
+texture = "asset:sprites/bolt"
+
+[[node]]
+id = "n_bolt_lit"
+kind = "Light2D"
+name = "Light"
+parent = "n_bolt_rt0"          # /Bolt
+color = "#9fd8ffa0"
+radius = 22.0

@@ -45,6 +45,27 @@ pub struct Body {
     pub layer: u32,
     /// Bitmask of layers this body tests against.
     pub mask: u32,
+    /// A bloom filter over the node's tags.
+    ///
+    /// One bit per tag, hashed into sixty-four. A miss is exact — the bit is
+    /// definitely absent — and a hit needs confirming. That is enough to skip
+    /// most of the work: a tagged query over a scene full of projectiles spends
+    /// its time on candidates that cannot possibly match, and an integer test
+    /// beats two map lookups and a string compare several hundred thousand
+    /// times a tick.
+    pub tags: u64,
+}
+
+/// The bit a tag sets in [`Body::tags`].
+pub fn tag_bit(tag: &str) -> u64 {
+    // FNV-1a, because it is short, stable across builds and platforms, and the
+    // exact spread does not matter for a filter that is confirmed on a hit.
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in tag.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    1u64 << (hash % 64)
 }
 
 impl Body {
@@ -118,6 +139,7 @@ impl PhysicsWorld {
                 is_area,
                 layer: prop_int(node, "collision_layer", 1) as u32,
                 mask: prop_int(node, "collision_mask", 1) as u32,
+                tags: node.tags.iter().fold(0, |bits, t| bits | tag_bit(t)),
             });
         }
         world.reindex();
@@ -332,6 +354,56 @@ impl PhysicsWorld {
         out
     }
 
+    /// The body nearest `at` within `radius` that `accept` allows.
+    ///
+    /// Scans the candidate cells and keeps a running minimum, rather than
+    /// building the sorted list [`PhysicsWorld::within`] returns and then
+    /// taking its head. That matters more than it sounds: a few hundred homing
+    /// projectiles each asking for their nearest enemy is the hot path of a
+    /// bullet-heavy game, and the allocation per call was most of its cost.
+    ///
+    /// Ties break on the id, so "the nearest" is the same body everywhere (I4).
+    pub fn nearest(
+        &self,
+        at: Vec2Fx,
+        radius: Fx,
+        tag_filter: u64,
+        accept: impl Fn(NodeUid) -> bool,
+    ) -> Option<NodeUid> {
+        let half = Vec2Fx::new(radius, radius);
+        let limit = radius.wide() * radius.wide();
+        let min = cell_of(at - half);
+        let max = cell_of(at + half);
+
+        let mut best: Option<(dimetric_core::FxWide, NodeUid)> = None;
+        for y in min.1..=max.1 {
+            for x in min.0..=max.0 {
+                let Some(bucket) = self.grid.get(&(x, y)) else {
+                    continue;
+                };
+                for index in bucket {
+                    let body = &self.bodies[*index];
+                    // The cheap tests first: a bit that is absent is absent.
+                    if tag_filter != 0 && body.tags & tag_filter == 0 {
+                        continue;
+                    }
+                    let distance = (body.pos - at).length_squared();
+                    if distance > limit || !accept(body.uid) {
+                        continue;
+                    }
+                    let better = match &best {
+                        None => true,
+                        Some((d, uid)) => (distance, body.uid.body()) < (*d, uid.body()),
+                    };
+                    if better {
+                        best = Some((distance, body.uid));
+                    }
+                }
+            }
+        }
+        best.map(|(_, uid)| uid)
+    }
+
     /// Every body whose centre is within `radius` of `at`, in id order.
     ///
     /// Centres rather than shapes, because "what is near me" is a question
@@ -346,8 +418,10 @@ impl PhysicsWorld {
             .filter(|i| (self.bodies[*i].pos - at).length_squared() <= limit)
             .map(|i| self.bodies[i].uid)
             .collect();
-        // Sorted, so a script sees the same order everywhere (I4).
-        out.sort_by_key(|u| u.body().to_string());
+        // Sorted, so a script sees the same order everywhere (I4). By the body
+        // bytes rather than an owned string: this runs per query per tick, and
+        // allocating to compare was most of what it cost.
+        out.sort_by(|a, b| a.body().cmp(b.body()));
         out.dedup();
         out
     }

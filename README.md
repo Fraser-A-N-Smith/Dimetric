@@ -56,7 +56,7 @@ Replay it and assert on the result:
 
 ```sh
 dim --project examples/sorcerer --scene arena01 \
-    replay --input tests/clear-a-room.input \
+    replay --input tests/full-run.input \
            --hashes tests/arena01.hashes \
            --assert tests/arena01.probes
 ```
@@ -172,7 +172,7 @@ Dependencies run strictly downward and CI enforces it.
 | M6 | Assets, tiles, audio, animation | done — import pipeline, LDtk baking, mixer and fades, tweens and frame animation; the audio **device** is behind the `kira` feature |
 | M7 | Editor | tree, inspector, viewport, console, assets, play-in-editor and scrubber; the window is behind the `gui` feature |
 | M8 | Agent interface | done — full CLI, generated docs and schemas |
-| M9 | Vertical slice | one playable room: spells, evolutions, three enemy types, a seeded upgrade; **one room, not a run** |
+| M9 | Vertical slice | a five-room run, spells and evolutions, the agent acceptance test passing; density measured and improved 7x |
 | M10 | Hardening | not started |
 
 Commands that exist but are not implemented fail with `DIM0801` naming the
@@ -200,27 +200,28 @@ camera, selection and fold state live in a committed `.dim.editor` sidecar.
 
 ## The slice
 
-`examples/sorcerer` is a room of a run-based top-down game, and the reason the
-engine has the shape it does. Cast, clear the room, take one of three upgrades,
-and two base spells held together evolve into a third.
+`examples/sorcerer` is a run of a top-down game, and the reason the engine has
+the shape it does. Five rooms, each a wave the arena spawns; clear one, take one
+of three upgrades, and two base spells held together evolve into a third.
 
 ```sh
 dim --project examples/sorcerer --scene arena01 \
-    replay --input tests/clear-a-room.input \
+    replay --input tests/full-run.input \
            --hashes tests/arena01.hashes \
            --assert tests/arena01.probes
 ```
 
-That replay is the interesting part. It asserts the run kills all five enemies,
-is offered `swift/ward/fierce` from the seeded upgrade stream, takes the second,
-and ends holding the **Lance** — the same spell evolution, every time, on every
-machine. Spell definitions are a Lua table on one node, so balance tuning is an
-edit and a reload.
+That replay is the interesting part. It asserts the run clears all five waves,
+kills twenty enemies, and ends holding the **Forking Arc** — the same spell
+evolution, every time, on every machine. Spell definitions are a Lua table on
+one node, so balance tuning is an edit and a reload.
 
-What building it cost the engine is written down in `docs/ENGINE-GAPS.md`: three
-things were broken or missing in ways no game could work around and were fixed,
-and the rest are logged rather than built, because about half of them are
-game-specific and shipping the slice is the only way to learn which half.
+`stress.dim` is not a game: four hundred live projectiles against forty enemies,
+which is the density §12 asks the engine to survive. It found that
+`scene.nearest` cost 139 ms a tick; it now costs 20. What that cost and what was
+wrong with it is in `docs/ENGINE-GAPS.md`, along with everything else the slice
+found — the four gaps that turned out to belong in the engine, the ones that did
+not, and the two still open.
 
 ## Assets
 

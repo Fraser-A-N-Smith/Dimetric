@@ -48,8 +48,19 @@ pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
         },
     ];
 
+    // The authored scene's textures, and every prefab's: anything a script can
+    // spawn can appear, and the atlas is built once. A scene that spawns its
+    // projectiles mentions none of their art, so building from the scene alone
+    // draws a screen full of placeholders.
+    let mut required = dimetric_render::extract::required_assets(scene);
+    for template in project.templates().0.values() {
+        required.extend(dimetric_render::extract::required_assets(template));
+    }
+    required.sort();
+    required.dedup();
+
     let imported = project.imported();
-    for name in dimetric_render::extract::required_assets(scene) {
+    for name in required {
         // The cache first. It holds animation strips as well as stills, and it
         // holds them already decoded — and it knows how many frames a strip
         // has, which is what lets the renderer slice one.
@@ -191,8 +202,14 @@ pub fn capture(
 
     // With the project's clips, so an animated sprite shows the frame it would
     // be on rather than the one it started on.
+    let (templates, template_diagnostics) = project.templates();
+    diagnostics.extend(template_diagnostics);
+    // With the project's clips and prefabs, so a capture shows what the game
+    // would actually be doing at that tick rather than a version of it that
+    // cannot spawn anything.
     let mut sim = Sim::new(scene, request.seed, Box::new(host), SimConfig::default())
-        .with_clips(project.clips());
+        .with_clips(project.clips())
+        .with_templates(templates);
     let log = request
         .input
         .unwrap_or_else(|| InputLog::new(request.seed, env!("CARGO_PKG_VERSION"), 1));

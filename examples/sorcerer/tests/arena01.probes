@@ -1,25 +1,28 @@
 # Assertions checked during the replay, so an agent can verify its own work
 # without reading a state dump by eye.
 #
-# What this run does: walks into the arena, clears all five enemies, is offered
-# three upgrades from the seeded stream, and takes the second — which is `ward`,
-# and holding it alongside `bolt` evolves into the Lance.
+# What this run does: five rooms, each a wave the arena spawns. Clear one, take
+# one of three upgrades from the seeded stream, and the next wave arrives. Two
+# base spells held together evolve into a third.
 
-# Combat happened, and the pool was never exhausted.
-tick 900 /Arena01 var:fired > 60
-tick 900 /Arena01 var:dropped == 0
+# The run reached the last room and finished it.
+tick 2599 /Arena01 var:room == 5
+tick 2599 /Arena01 var:run_complete == true
 
-# Every enemy died, including the brute, which takes ten bolts.
-tick 950 /Arena01 var:kills == 5
-tick 950 /Arena01 var:enemy_count == 0
+# Every enemy across all five waves died: two, three, four, four and seven.
+tick 2599 /Arena01 var:kills == 20
+tick 2599 /Arena01 var:enemy_count == 0
 
-# The upgrade was taken and the run moved on.
-tick 1099 /Arena01 var:room == 2
-tick 1099 /Arena01 var:run_complete == true
+# Spells are spawned nodes rather than a pool, and there were a lot of them.
+tick 2599 /Arena01 var:fired > 400
 
-# And the two spells the run holds evolved into a third. This is the assertion
-# §12 asks for: a replay must reproduce the same spell evolution.
-tick 1099 /Arena01 var:evolved == Lance
+# The upgrades the seeded stream offered combined into an evolution. This is
+# §12's requirement: a replay must reproduce the same spell evolution.
+tick 2599 /Arena01 var:evolved == Forking Arc
 
-# The player survived to the end of the room.
-tick 1099 /Arena01/Player exists == true
+# Waves arrive one room at a time rather than all at once.
+tick 900 /Arena01 var:enemy_count > 0
+tick 900 /Arena01 var:room < 5
+
+# The player survived the run.
+tick 2599 /Arena01/Player exists == true

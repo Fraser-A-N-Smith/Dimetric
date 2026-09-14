@@ -1,0 +1,36 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_strroot0"
+
+# ── Stress ────────────────────────────────────────
+#
+# Not a game: the density §12 asks the engine to survive. Hundreds of
+# projectiles against dozens of enemies, every tick, so the spatial hash and the
+# Lua boundary are measured rather than assumed.
+#
+#     dim --project examples/sorcerer --scene stress run --headless --ticks 600
+[[node]]
+id = "n_strroot0"
+kind = "Node2D"
+name = "Stress"
+script = "script:scripts/stress.lua"
+
+[[node]]
+id = "n_strbook0"
+kind = "Node"
+name = "Spellbook"
+parent = "n_strroot0"          # /Stress
+script = "script:scripts/spellbook.lua"
+
+[[node]]
+id = "n_strplay0"
+kind = "Collider"
+name = "Player"
+parent = "n_strroot0"          # /Stress
+pos = [160.0, 96.0]
+tags = ["player"]
+collision_mask = 3
+radius = 6.0
+shape = "Circle"
