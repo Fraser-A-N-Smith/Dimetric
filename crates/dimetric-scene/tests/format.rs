@@ -654,3 +654,148 @@ fn a_node_carries_its_defaults_whether_or_not_the_file_spells_them_out() {
         Some(&Value::Color(dimetric_scene::Color::WHITE))
     );
 }
+
+// -- formatting in place ------------------------------------------------
+//
+// `dim scene fmt` canonicalises the parsed document rather than rendering a
+// new one, because §6.1 picked TOML partly so that comments survive. A
+// formatter that deletes the notes an author wrote is not a formatter.
+
+/// Format a scene the way `dim scene fmt` does.
+fn fmt(src: &str) -> String {
+    let (doc, diags) = load(src);
+    assert!(!diags.has_errors(), "fixture must load: {diags}");
+    let mut doc = doc.unwrap();
+    let scene = std::mem::take(&mut doc.scene);
+    dimetric_scene::write::format_in_place(&mut doc.doc, &scene, &registry(), None);
+    doc.to_text()
+}
+
+#[test]
+fn formatting_keeps_the_comments_the_author_wrote() {
+    let messy = ARENA.replace(
+        "[[node]]\nid = \"n_m9v2ht5w\"",
+        "# Lit from above so the floor tiles read.\n# Do not move: the walk test lands here.\n\
+         [[node]]\nid = \"n_m9v2ht5w\"",
+    );
+    let out = fmt(&messy);
+    assert!(out.contains("# ── Environment"), "section comment survives");
+    assert!(out.contains("# Lit from above so the floor tiles read."));
+    assert!(out.contains("# Do not move: the walk test lands here."));
+    // And the comment stayed with the node it was written above.
+    let block = out.split("[[node]]").find(|b| b.contains("n_m9v2ht5w"));
+    let preceding = out
+        .split("[[node]]")
+        .take_while(|b| !b.contains("n_m9v2ht5w"))
+        .last()
+        .unwrap();
+    assert!(block.is_some());
+    assert!(
+        preceding.contains("# Do not move"),
+        "the comment block should sit directly above its node:\n{out}"
+    );
+}
+
+#[test]
+fn formatting_keeps_a_trailing_comment_on_a_value() {
+    let messy = ARENA.replace(
+        "radius = 72.0",
+        "radius = 72.0  # tuned against the brazier sprite",
+    );
+    let out = fmt(&messy);
+    assert!(
+        out.contains("radius = 72.0  # tuned against the brazier sprite"),
+        "{out}"
+    );
+}
+
+#[test]
+fn formatting_in_place_is_idempotent() {
+    let messy = ARENA.replace(
+        "[[node]]\nid = \"n_p4rr01ez\"\nkind = \"Light2D\"\nname = \"Glow\"",
+        "# A glow.\n[[node]]\nname = \"Glow\"\nkind = \"Light2D\"\nid = \"n_p4rr01ez\"",
+    );
+    let once = fmt(&messy);
+    let twice = fmt(&once);
+    assert_eq!(once, twice, "formatting must settle:\n{once}");
+}
+
+#[test]
+fn a_file_without_comments_formats_to_the_same_text_either_way() {
+    // The two writers must agree, or `fmt` and a fresh render would fight.
+    let (doc, _) = load(ARENA);
+    let scene = doc.unwrap().scene;
+    let rendered = dimetric_scene::write::to_canonical_text(&scene, &registry(), None);
+    assert_eq!(fmt(&rendered), rendered);
+}
+
+#[test]
+fn formatting_sorts_keys_and_drops_defaults_without_touching_comments() {
+    let messy = ARENA.replace(
+        "kind = \"Sprite2D\"\nname = \"Brazier\"\nparent = \"n_root0000\"          # /Arena01\npos = [96.0, 48.0]",
+        "pos = [96.0, 48.0]\nvisible = true\nname = \"Brazier\"\nparent = \"n_root0000\"\nkind = \"Sprite2D\"",
+    );
+    let out = fmt(&messy);
+    let brazier = out
+        .split("[[node]]")
+        .find(|b| b.contains("n_m9v2ht5w"))
+        .unwrap();
+    let keys: Vec<&str> = brazier
+        .lines()
+        .filter_map(|l| {
+            l.split(" =")
+                .next()
+                .filter(|k| !k.starts_with('#') && !k.is_empty())
+        })
+        .collect();
+    // Reserved keys first in their fixed order, then kind properties alphabetically.
+    assert_eq!(
+        keys,
+        ["id", "kind", "name", "parent", "pos", "z", "texture"]
+    );
+    assert!(!out.contains("visible = true"), "defaults are dropped");
+    assert!(out.contains("# ── Environment"));
+}
+
+#[test]
+fn formatting_moves_a_block_that_is_in_the_wrong_place() {
+    // Nodes come before chunks whatever order the file had them in, and the
+    // comment above a block travels with it.
+    let chunk =
+        "# Ground floor.\n[[chunk]]\nlayer = \"n_k3xq7a2p\"\nat = [0, 0]\ndata = \"1024:0\"\n";
+    let out = fmt(&ARENA.replace("# ── Environment", &format!("{chunk}\n# ── Environment")));
+
+    let chunk_at = out.find("[[chunk]]").expect("chunk survives");
+    let last_node = out.rfind("[[node]]").expect("nodes survive");
+    assert!(chunk_at > last_node, "chunks belong after nodes:\n{out}");
+    assert!(
+        out[..chunk_at].ends_with("# Ground floor.\n"),
+        "the comment moves with its block:\n{out}"
+    );
+}
+
+#[test]
+fn formatting_rewrites_a_stale_path_comment() {
+    let stale = ARENA.replace("# /Arena01/Brazier", "# /Arena01/SomethingElse");
+    let out = fmt(&stale);
+    assert!(
+        out.contains("parent = \"n_m9v2ht5w\"          # /Arena01/Brazier"),
+        "{out}"
+    );
+    assert!(!out.contains("SomethingElse"));
+}
+
+#[test]
+fn formatting_in_place_does_not_change_the_state_hash() {
+    let messy = ARENA.replace("radius = 72.0", "visible = true\nradius = 72.0  # keep");
+    let (before_doc, _) = load(&messy);
+    let mut before = dimetric_core::StateHasher::new();
+    before_doc.unwrap().scene.hash_state(&mut before);
+
+    let (after_doc, diags) = load(&fmt(&messy));
+    assert!(!diags.has_errors(), "formatted output must parse: {diags}");
+    let mut after = dimetric_core::StateHasher::new();
+    after_doc.unwrap().scene.hash_state(&mut after);
+
+    assert_eq!(before.finish(), after.finish());
+}

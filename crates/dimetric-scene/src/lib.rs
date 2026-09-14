@@ -5,9 +5,11 @@
 //! A [`SceneDoc`] holds both the parsed [`Scene`] and the `toml_edit` document
 //! it came from. Ordinary edits patch the document, so comments, key order and
 //! whitespace survive and load-then-save is byte-identical (invariant I2).
-//! [`write::to_canonical_text`] renders a scene from scratch in canonical form,
-//! and that is what `dim scene fmt` does — a deliberate, reviewable step, not
-//! something firing on every save.
+//! [`write::format_in_place`] canonicalises that document — key order, block
+//! order, defaults — without rewriting the parts of it nobody asked about, so
+//! comments survive formatting too. That is what `dim scene fmt` does: a
+//! deliberate, reviewable step, not something firing on every save.
+//! [`write::to_canonical_text`] renders a scene that has no document behind it.
 //!
 //! # The format in one paragraph
 //!

@@ -101,7 +101,8 @@ Three things about the format are worth knowing:
 - **Loading and saving an unedited scene reproduces it byte for byte**, comments
   included. Edits patch the parsed document rather than re-rendering it, so
   formatting is an explicit step (`dim scene fmt`) and not something that fires
-  on every save and buries the real change.
+  on every save and buries the real change. Formatting patches that same
+  document, so your comments survive it.
 - **Unknown properties are a hard error.** `raduis = 72.0` is caught on load,
   and the message names the property you probably meant.
 - **Numbers are read from the literal text, not from a float.** `0.1` is not

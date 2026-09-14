@@ -3,6 +3,11 @@
 //! This module defines one rendering of a scene, the way `rustfmt` defines one
 //! rendering of Rust. `dim scene fmt` applies it and CI checks it.
 //!
+//! There are two ways in. [`format_in_place`] canonicalises a document that was
+//! parsed from a file, moving tables rather than rewriting them so comments
+//! travel with the node they were written above; this is the one the command
+//! uses. [`to_canonical_text`] renders a scene with no source document.
+//!
 //! Ordinary engine edits do **not** go through here. They rewrite a value in
 //! the `toml_edit` document the scene was parsed from, which leaves comments,
 //! key order and whitespace exactly as the author left them. Formatting is a
@@ -12,9 +17,10 @@
 use std::collections::BTreeMap;
 
 use dimetric_core::{NodeId, NodeUid};
+use toml_edit::{DocumentMut, Item, Table};
 
 use crate::chunk::{encode_rle, ChunkData};
-use crate::node::ParentRef;
+use crate::node::{Node, ParentRef};
 use crate::schema::KindRegistry;
 use crate::tree::Scene;
 use crate::value::{Reference, Value};
@@ -334,4 +340,464 @@ fn bare_or_quoted(key: &str) -> String {
 /// sort keys without re-rendering a whole file.
 pub fn reserved_key_order() -> &'static [&'static str] {
     RESERVED_ORDER
+}
+
+// ---------------------------------------------------------------------------
+// Formatting in place
+// ---------------------------------------------------------------------------
+
+/// Rewrite a parsed document into canonical form, keeping its comments.
+///
+/// [`to_canonical_text`] renders a scene that has no source document. This is
+/// what `dim scene fmt` uses, and the difference matters: regenerating a file
+/// from the model throws away every comment in it, and §6.1 lists comment
+/// preservation as one of the four reasons this format is TOML in the first
+/// place. A formatter that silently deletes a designer's notes is worse than no
+/// formatter.
+///
+/// Tables are reordered by moving them, not by rewriting them, so the comment
+/// block above a node travels with that node. Within a table, keys are sorted,
+/// values are re-rendered canonically, and defaults are dropped — but a
+/// trailing comment on a line is kept unless it is a path comment, which is
+/// derived and therefore regenerated.
+pub fn format_in_place(
+    doc: &mut DocumentMut,
+    scene: &Scene,
+    registry: &KindRegistry,
+    resolve_source: Option<&SourceResolver<'_>>,
+) {
+    format_prologue(doc);
+    format_nodes(doc, scene, registry);
+    reorder_blocks(doc, "override", |t| override_sort_key(t, scene));
+    reorder_blocks(doc, "connect", connection_sort_key);
+    reorder_blocks(doc, "chunk", chunk_sort_key);
+    order_blocks(doc);
+    regenerate_reference_comments(doc, scene, resolve_source);
+}
+
+/// Put the header keys in order and the `[scene]` table right after them.
+fn format_prologue(doc: &mut DocumentMut) {
+    doc.as_table_mut().sort_values_by(|a, _, b, _| {
+        fn rank(key: &str) -> (usize, String) {
+            match key {
+                "format" => (0, String::new()),
+                "version" => (1, String::new()),
+                other => (2, other.to_string()),
+            }
+        }
+        rank(a.get()).cmp(&rank(b.get()))
+    });
+    if let Some(table) = doc.get_mut("scene").and_then(Item::as_table_mut) {
+        table.decor_mut().set_prefix("\n");
+    }
+}
+
+/// Lay the blocks out in canonical order.
+///
+/// `toml_edit` emits tables by their recorded position, which is where they sat
+/// in the file it parsed. Reordering the tables within a block is not enough on
+/// its own: a file with its chunks above its nodes would keep them there.
+fn order_blocks(doc: &mut DocumentMut) {
+    let mut next = 0;
+    if let Some(table) = doc.get_mut("scene").and_then(Item::as_table_mut) {
+        table.set_position(next);
+        next += 1;
+    }
+    for block in ["node", "override", "connect", "chunk"] {
+        let Some(tables) = doc.get_mut(block).and_then(Item::as_array_of_tables_mut) else {
+            continue;
+        };
+        for table in tables.iter_mut() {
+            table.set_position(next);
+            next += 1;
+        }
+    }
+}
+
+/// Reorder `[[node]]` tables into depth-first order and canonicalise each.
+fn format_nodes(doc: &mut DocumentMut, scene: &Scene, registry: &KindRegistry) {
+    let Some(existing) = doc.get("node").and_then(Item::as_array_of_tables) else {
+        return;
+    };
+    // Index the tables that are there by the id they carry.
+    let mut by_id: BTreeMap<String, Table> = BTreeMap::new();
+    for table in existing.iter() {
+        if let Some(id) = string_field(table, "id") {
+            by_id.insert(id, table.clone());
+        }
+    }
+
+    let mut ordered = toml_edit::ArrayOfTables::new();
+    for id in scene.walk() {
+        let Some(node) = scene.get(id) else { continue };
+        let key = node.uid.to_text();
+        let mut table = by_id.remove(&key).unwrap_or_default();
+        canonicalise_node(&mut table, node, scene, registry);
+        ordered.push(table);
+    }
+    // Anything the model does not have is dropped: the model is the authority
+    // on what the scene contains, and a table with no node behind it could not
+    // have loaded.
+    doc["node"] = Item::ArrayOfTables(ordered);
+    normalise_block_spacing(doc, "node");
+}
+
+/// Sort one node table's keys, re-render its values, and drop its defaults.
+fn canonicalise_node(table: &mut Table, node: &Node, scene: &Scene, registry: &KindRegistry) {
+    let schema = registry.get(&node.kind);
+
+    set_field(table, "id", &quote(&node.uid.to_text()));
+    set_field(table, "kind", &quote(&node.kind));
+    set_field(table, "name", &quote(&node.name));
+
+    match node.parent().and_then(|p| scene.get(p)) {
+        Some(parent) => {
+            let text = match node.inner_parent {
+                Some(inner) => format!("{}/{}", parent.uid.to_text(), inner.to_text()),
+                None => parent.uid.to_text(),
+            };
+            set_field(table, "parent", &quote(&text));
+        }
+        None => {
+            table.remove("parent");
+        }
+    }
+    optional_field(
+        table,
+        "scene",
+        node.scene.as_ref().map(|r| quote(&r.to_text())),
+    );
+    optional_field(
+        table,
+        "script",
+        node.script.as_ref().map(|r| quote(&r.to_text())),
+    );
+
+    // Reserved fields equal to their default are left out entirely, so adding a
+    // property to a kind does not rewrite every scene that already exists.
+    let t = node.transform;
+    optional_field(
+        table,
+        "pos",
+        (t.pos != dimetric_core::Vec2Fx::ZERO).then(|| render(&Value::Vec2(t.pos))),
+    );
+    optional_field(
+        table,
+        "rot",
+        (t.rot != dimetric_core::Angle::ZERO).then(|| render(&Value::Angle(t.rot))),
+    );
+    optional_field(
+        table,
+        "scale",
+        (t.scale != dimetric_core::Vec2Fx::ONE).then(|| render(&Value::Vec2(t.scale))),
+    );
+    optional_field(
+        table,
+        "visible",
+        (!node.visible).then(|| "false".to_string()),
+    );
+    optional_field(table, "z", (node.z != 0).then(|| node.z.to_string()));
+    optional_field(
+        table,
+        "layer",
+        (node.layer != 0).then(|| node.layer.to_string()),
+    );
+    optional_field(
+        table,
+        "tags",
+        (!node.tags.is_empty()).then(|| {
+            let items: Vec<String> = node.tags.iter().map(|t| quote(t)).collect();
+            format!("[{}]", items.join(", "))
+        }),
+    );
+
+    // Kind properties: alphabetical, defaults omitted.
+    let mut keys: Vec<&String> = node.props.keys().collect();
+    keys.sort();
+    let expected: std::collections::BTreeSet<&str> = keys.iter().map(|k| k.as_str()).collect();
+    let stale: Vec<String> = table
+        .iter()
+        .map(|(k, _)| k.to_string())
+        .filter(|k| !crate::schema::is_reserved(k) && !expected.contains(k.as_str()))
+        .collect();
+    for key in stale {
+        table.remove(&key);
+    }
+    for key in keys {
+        let value = &node.props[key];
+        let is_default = schema
+            .and_then(|s| s.property(key))
+            .and_then(|p| p.default.as_ref())
+            .is_some_and(|d| d == value);
+        if is_default {
+            table.remove(key);
+        } else {
+            set_field(table, key, &render(value));
+        }
+    }
+
+    table.sort_values_by(|a, _, b, _| key_rank(a.get()).cmp(&key_rank(b.get())));
+}
+
+/// Where a key sorts within a node table.
+fn key_rank(key: &str) -> (usize, String) {
+    match RESERVED_ORDER.iter().position(|r| *r == key) {
+        Some(i) => (i, String::new()),
+        None => (usize::MAX, key.to_string()),
+    }
+}
+
+/// Set a key to a rendered literal, keeping any trailing comment on the line.
+///
+/// The comment is the author's; the value is the engine's. Replacing the whole
+/// item would take both.
+fn set_field(table: &mut Table, key: &str, rendered: &str) {
+    let suffix = trailing_comment(table, key);
+    table[key] = parse_item(rendered);
+    if let Some(value) = table[key].as_value_mut() {
+        value.decor_mut().set_prefix(" ");
+        value.decor_mut().set_suffix(suffix.unwrap_or_default());
+    }
+}
+
+/// Set a key when the value is present, remove it when it is not.
+fn optional_field(table: &mut Table, key: &str, rendered: Option<String>) {
+    match rendered {
+        Some(text) => set_field(table, key, &text),
+        None => {
+            table.remove(key);
+        }
+    }
+}
+
+/// The trailing comment on a key's line, if it has one that is not a path
+/// comment.
+///
+/// Path comments are derived from ids and regenerated on every format, so
+/// keeping the old one would leave a stale note next to a correct id — which is
+/// exactly the signal a stale comment is supposed to give.
+fn trailing_comment(table: &Table, key: &str) -> Option<String> {
+    let raw = table
+        .get(key)?
+        .as_value()?
+        .decor()
+        .suffix()?
+        .as_str()?
+        .to_string();
+    let comment = raw.trim();
+    if comment.is_empty() || comment.starts_with("# /") || comment.starts_with("# .") {
+        return None;
+    }
+    Some(format!("  {comment}"))
+}
+
+/// Parse a rendered literal back into an item.
+fn parse_item(rendered: &str) -> Item {
+    let text = format!("x = {rendered}");
+    let parsed: DocumentMut = text.parse().expect("canonical rendering is valid TOML");
+    parsed["x"].clone()
+}
+
+fn string_field(table: &Table, key: &str) -> Option<String> {
+    table
+        .get(key)
+        .and_then(Item::as_value)
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+/// Reorder an array-of-tables block by a sort key, keeping each table intact.
+fn reorder_blocks<K: Ord>(doc: &mut DocumentMut, block: &str, key: impl Fn(&Table) -> K) {
+    let Some(existing) = doc.get(block).and_then(Item::as_array_of_tables) else {
+        return;
+    };
+    let mut tables: Vec<Table> = existing.iter().cloned().collect();
+    tables.sort_by_key(&key);
+    let mut ordered = toml_edit::ArrayOfTables::new();
+    for table in tables {
+        ordered.push(table);
+    }
+    doc[block] = Item::ArrayOfTables(ordered);
+    normalise_block_spacing(doc, block);
+}
+
+/// Overrides group by instance, in node order, then by target.
+fn override_sort_key(table: &Table, scene: &Scene) -> (usize, String) {
+    let instance = string_field(table, "instance").unwrap_or_default();
+    let position = scene
+        .walk()
+        .iter()
+        .position(|id| scene.get(*id).is_some_and(|n| n.uid.to_text() == instance))
+        .unwrap_or(usize::MAX);
+    (position, string_field(table, "target").unwrap_or_default())
+}
+
+/// Connections sort by emitter, then signal, then receiver, then method.
+fn connection_sort_key(table: &Table) -> (String, String, String, String) {
+    (
+        string_field(table, "from").unwrap_or_default(),
+        string_field(table, "signal").unwrap_or_default(),
+        string_field(table, "to").unwrap_or_default(),
+        string_field(table, "method").unwrap_or_default(),
+    )
+}
+
+/// Chunks sort by layer, then by coordinate.
+fn chunk_sort_key(table: &Table) -> (String, i64, i64) {
+    let at = table
+        .get("at")
+        .and_then(Item::as_value)
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            let mut it = a.iter().filter_map(|v| v.as_integer());
+            (it.next().unwrap_or(0), it.next().unwrap_or(0))
+        })
+        .unwrap_or((0, 0));
+    (string_field(table, "layer").unwrap_or_default(), at.1, at.0)
+}
+
+/// Put exactly one blank line before each table in a block, keeping comments.
+///
+/// The prefix of a table header holds whatever sits between the previous item
+/// and this one, which is where a comment block above a node lives. Comments
+/// are kept and the blank lines around them are normalised, so formatting
+/// settles instead of drifting.
+fn normalise_block_spacing(doc: &mut DocumentMut, block: &str) {
+    let Some(tables) = doc.get_mut(block).and_then(Item::as_array_of_tables_mut) else {
+        return;
+    };
+    for table in tables.iter_mut() {
+        let existing = table
+            .decor()
+            .prefix()
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string();
+        let comments: Vec<&str> = existing
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with('#'))
+            .collect();
+        let mut prefix = String::from("\n");
+        for comment in comments {
+            prefix.push_str(comment);
+            prefix.push('\n');
+        }
+        table.decor_mut().set_prefix(prefix);
+    }
+}
+
+/// Rewrite the path comment beside every id reference.
+///
+/// The id is authoritative and the comment is derived, so it is regenerated on
+/// every format. A stale one is then a reliable sign that a file was hand-edited
+/// and never formatted.
+fn regenerate_reference_comments(
+    doc: &mut DocumentMut,
+    scene: &Scene,
+    resolve_source: Option<&SourceResolver<'_>>,
+) {
+    let path_of = |uid: &str| -> Option<String> {
+        let parsed = NodeUid::parse(uid).ok()?;
+        scene.by_uid(parsed).and_then(|id| scene.path_of(id))
+    };
+
+    if let Some(tables) = doc.get_mut("node").and_then(Item::as_array_of_tables_mut) {
+        for table in tables.iter_mut() {
+            // A composite `<instance>/<inner>` parent names a node inside a
+            // prefab, so only the instance half can be resolved here.
+            let parent = string_field(table, "parent");
+            if let Some(parent) = parent {
+                let outer = parent.split('/').next().unwrap_or(&parent).to_string();
+                comment_on(table, "parent", path_of(&outer));
+            }
+        }
+    }
+
+    if let Some(tables) = doc
+        .get_mut("connect")
+        .and_then(Item::as_array_of_tables_mut)
+    {
+        for table in tables.iter_mut() {
+            for key in ["from", "to"] {
+                let target = string_field(table, key);
+                comment_on(table, key, target.and_then(|t| path_of(&t)));
+            }
+        }
+    }
+
+    if let Some(tables) = doc.get_mut("chunk").and_then(Item::as_array_of_tables_mut) {
+        for table in tables.iter_mut() {
+            let layer = string_field(table, "layer");
+            comment_on(table, "layer", layer.and_then(|l| path_of(&l)));
+        }
+    }
+
+    if let Some(tables) = doc
+        .get_mut("override")
+        .and_then(Item::as_array_of_tables_mut)
+    {
+        for table in tables.iter_mut() {
+            let instance = string_field(table, "instance");
+            let instance_path = instance.as_deref().and_then(path_of);
+            comment_on(table, "instance", instance_path);
+
+            // The target lives in the source scene, so resolving it needs the
+            // prefab loaded. Without a resolver the comment is left off rather
+            // than guessed at.
+            let target = string_field(table, "target");
+            let source = instance
+                .as_deref()
+                .and_then(|i| NodeUid::parse(i).ok())
+                .and_then(|uid| scene.by_uid(uid))
+                .and_then(|id| scene.get(id))
+                .and_then(|n| n.scene.clone());
+            let resolved = match (source, target.as_deref(), resolve_source) {
+                (Some(source), Some(target), Some(resolve)) => NodeUid::parse(target)
+                    .ok()
+                    .and_then(|uid| resolve(&source, uid)),
+                _ => None,
+            };
+            comment_on(table, "target", resolved);
+        }
+    }
+}
+
+/// Attach or remove the regenerated path comment on one key.
+fn comment_on(table: &mut Table, key: &str, path: Option<String>) {
+    let Some(item) = table.get_mut(key) else {
+        return;
+    };
+    let Some(value) = item.as_value_mut() else {
+        return;
+    };
+    match path {
+        Some(path) => {
+            // `Value::to_string` includes the decor, so the old comment has to
+            // come off before the new one can be measured against the column.
+            let mut bare = value.clone();
+            bare.decor_mut().set_prefix("");
+            bare.decor_mut().set_suffix("");
+            let width = format!("{key} = {}", bare.to_string().trim())
+                .chars()
+                .count();
+            let pad = COMMENT_COLUMN.saturating_sub(width).max(1);
+            value
+                .decor_mut()
+                .set_suffix(format!("{:pad$}# {path}", "", pad = pad));
+        }
+        None => {
+            // Leave a non-path comment alone; clear a stale path one.
+            let existing = value
+                .decor()
+                .suffix()
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if existing.starts_with("# /") || existing.starts_with("# .") {
+                value.decor_mut().set_suffix("");
+            }
+        }
+    }
 }

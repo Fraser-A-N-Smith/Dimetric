@@ -176,8 +176,18 @@ fn scene_command(project: &mut Project, cmd: SceneCmd) -> Result<Output, Diagnos
             node_json(project, uid)
         }
         SceneCmd::Fmt { check } => {
-            let canonical =
-                dimetric_scene::write::to_canonical_text(&doc.scene, &project.registry, None);
+            // Canonicalise the parsed document in place rather than rendering a
+            // fresh one: a table carries its own comments, so moving it moves
+            // them too. Regenerating the text would format the file by deleting
+            // everything the author wrote in it.
+            let mut formatted = doc.doc.clone();
+            dimetric_scene::write::format_in_place(
+                &mut formatted,
+                &doc.scene,
+                &project.registry,
+                None,
+            );
+            let canonical = formatted.to_string();
             let current = doc.to_text();
             if check {
                 let canonical_already = current == canonical;

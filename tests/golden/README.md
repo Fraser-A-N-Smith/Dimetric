@@ -44,10 +44,7 @@ The thresholds in `crates/dimetric-host/tests/golden.rs` are provisional. Once
 CI has reported what three platforms actually produce, tighten them to what the
 evidence supports.
 
-## A caveat about these files
+## Comments in the scenes
 
-`dim scene fmt` does not preserve hand-written comments — it regenerates the
-file from the parsed model. That is why the explanation above lives here rather
-than in the scenes, and it is a bug: §6.1 of the design document lists comment
-preservation as one of the four reasons TOML was chosen. Until it is fixed,
-anything you want to say about a scene has to live outside it.
+`dim scene fmt` keeps hand-written comments, so a note about a fixture can sit
+next to the node it is about. This file is for what applies to all of them.
