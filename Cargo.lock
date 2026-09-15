@@ -1119,6 +1119,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "dimetric-player"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "dimetric-assets",
+ "dimetric-core",
+ "dimetric-host",
+ "dimetric-platform",
+ "dimetric-render",
+ "dimetric-scene",
+ "dimetric-sim",
+ "pollster",
+ "wgpu 30.0.1",
+ "winit",
+]
+
+[[package]]
 name = "dimetric-render"
 version = "0.0.1"
 dependencies = [

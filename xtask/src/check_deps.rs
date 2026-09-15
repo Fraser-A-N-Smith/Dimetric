@@ -3,7 +3,7 @@
 //! Dependencies run strictly downward:
 //!
 //! ```text
-//! core <- scene <- {sim, render, audio, assets} <- host <- {editor, agent}
+//! core <- scene <- {sim, render, audio, assets} <- host <- {editor, agent, player}
 //! ```
 //!
 //! with `platform` beside them. An upward edge is how a layered engine becomes
@@ -62,6 +62,21 @@ fn allowed() -> BTreeMap<&'static str, Vec<&'static str>> {
                 "dimetric-render",
                 "dimetric-assets",
                 "dimetric-host",
+            ],
+        ),
+        // The player is the other client at the top of the stack: it opens a
+        // project, runs the simulation and draws it, and owns the window that
+        // does none of those.
+        (
+            "dimetric-player",
+            vec![
+                "dimetric-core",
+                "dimetric-scene",
+                "dimetric-sim",
+                "dimetric-render",
+                "dimetric-assets",
+                "dimetric-host",
+                "dimetric-platform",
             ],
         ),
         (

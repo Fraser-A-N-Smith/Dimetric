@@ -154,6 +154,41 @@ jobs:
       - name: Drive the window headlessly
         run: cargo test -p dimetric-editor --features gui
 
+  # The game runtime. Same shape as the editor's job: off by default, built and
+  # then actually run here — under Xvfb on a software adapter, for three hundred
+  # ticks, recording its input log. A player that compiles and opens a black
+  # window would pass a build check.
+  player-gui:
+    name: Player window
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the windowing development headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcb-shape0-dev libxcb-xfixes0-dev mesa-vulkan-drivers xvfb
+
+      - name: Build
+        run: cargo build -p dimetric-player --features gui
+
+      - name: Clippy
+        run: cargo clippy -p dimetric-player --features gui --all-targets -- -D warnings
+
+      - name: Play the example for three hundred ticks
+        run: |
+          xvfb-run -a -s "-screen 0 1440x810x24" \
+            cargo run -p dimetric-player --features gui -- \
+              examples/sorcerer --scene arena01.dim --ticks 300 --seed 42 \
+              --record played.input
+
+      # The claim the player rests on: a session someone played is an input log
+      # like any other.
+      - name: Replay what it recorded
+        run: cargo run -p dimetric-agent -- --project examples/sorcerer --scene arena01.dim replay --input played.input
+
   # M0 — the de-risking spike. Its own job because it is its own workspace and
   # pulls in wgpu and winit, which nothing in the engine should build.
   #

@@ -1,0 +1,34 @@
+[package]
+name = "dimetric-player"
+description = "The game runtime: a fixed tick, the input a person gives it, and a window to draw in."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+# The window. Off by default for the same reason the editor's is: building the
+# engine should not build winit.
+gui = ["dep:winit", "dep:wgpu", "dep:pollster", "dep:clap"]
+
+[[bin]]
+name = "dim-play"
+path = "src/bin/dim-play.rs"
+required-features = ["gui"]
+
+[dependencies]
+dimetric-core.workspace = true
+dimetric-scene.workspace = true
+dimetric-sim.workspace = true
+dimetric-render.workspace = true
+dimetric-assets.workspace = true
+dimetric-host.workspace = true
+dimetric-platform.workspace = true
+
+winit = { version = "0.30", optional = true }
+wgpu = { version = "30", optional = true }
+pollster = { version = "0.4", optional = true }
+clap = { workspace = true, optional = true }
