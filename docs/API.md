@@ -99,6 +99,22 @@ A solid body. Blocks movement and reports contacts.
 | `one_way` | `bool` | `false` | Blocks only motion opposing the local +Y axis. |
 | `pushable` | `bool` | `false` | Receives the simple impulse response instead of only blocking. |
 
+### `Control`
+
+A rectangle in UI space, positioned by anchors and offsets. Draws nothing itself.
+
+| Property | Type | Default | Notes |
+|---|---|---|---|
+| `anchor_left` | `scalar` | `0.0` | Left edge as a fraction of the parent's width. |
+| `anchor_top` | `scalar` | `0.0` | Top edge as a fraction of the parent's height. |
+| `anchor_right` | `scalar` | `0.0` | Right edge as a fraction of the parent's width. |
+| `anchor_bottom` | `scalar` | `0.0` | Bottom edge as a fraction of the parent's height. |
+| `offset_left` | `scalar` | `0.0` | Pixels from the left anchor. |
+| `offset_top` | `scalar` | `0.0` | Pixels from the top anchor. |
+| `offset_right` | `scalar` | `0.0` | Pixels from the right anchor. |
+| `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
+| `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
+
 ### `Instance`
 
 An instance of another scene, with sparse property overrides. The source is named by the reserved `scene` key.
@@ -141,6 +157,23 @@ No properties beyond the reserved keys.
 A node with a transform. The base for anything that exists somewhere.
 
 No properties beyond the reserved keys.
+
+### `Panel`
+
+A control filled with a colour.
+
+| Property | Type | Default | Notes |
+|---|---|---|---|
+| `anchor_left` | `scalar` | `0.0` | Left edge as a fraction of the parent's width. |
+| `anchor_top` | `scalar` | `0.0` | Top edge as a fraction of the parent's height. |
+| `anchor_right` | `scalar` | `0.0` | Right edge as a fraction of the parent's width. |
+| `anchor_bottom` | `scalar` | `0.0` | Bottom edge as a fraction of the parent's height. |
+| `offset_left` | `scalar` | `0.0` | Pixels from the left anchor. |
+| `offset_top` | `scalar` | `0.0` | Pixels from the top anchor. |
+| `offset_right` | `scalar` | `0.0` | Pixels from the right anchor. |
+| `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
+| `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
+| `modulate` | `color` | `"#000000a0"` | Fill colour. |
 
 ### `Sound`
 

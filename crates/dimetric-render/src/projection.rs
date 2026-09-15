@@ -176,6 +176,34 @@ impl Camera {
         [2.0 * self.zoom / width, -2.0 * self.zoom / height]
     }
 
+    /// The projection UI draws through: canvas pixels straight to clip space.
+    ///
+    /// No camera in it at all, which is the point — a health bar does not
+    /// scroll when the player walks. The canvas is a fixed virtual resolution
+    /// the project declares, and the composite scales it to the window, so
+    /// nothing here depends on how big anybody's monitor is.
+    pub fn canvas_projection(canvas: dimetric_scene::ui::Canvas) -> [[f32; 4]; 4] {
+        // I3-exempt: render boundary.
+        let (w, h) = (canvas.width.max(1) as f32, canvas.height.max(1) as f32);
+        // x: 0..w becomes -1..1. y: 0..h becomes 1..-1, because canvas space
+        // runs downward and clip space runs up.
+        [
+            [2.0 / w, 0.0, 0.0, 0.0],
+            [0.0, -2.0 / h, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [-1.0, 1.0, 0.0, 1.0],
+        ]
+    }
+
+    /// Clip-space units per canvas pixel of quad size.
+    pub fn canvas_pixel_scale(canvas: dimetric_scene::ui::Canvas) -> [f32; 2] {
+        // I3-exempt: render boundary.
+        [
+            2.0 / canvas.width.max(1) as f32,
+            -2.0 / canvas.height.max(1) as f32,
+        ]
+    }
+
     /// Interpolate between two simulation states for display.
     ///
     /// Essential for a 60 Hz simulation on a 144 Hz display, and strictly a

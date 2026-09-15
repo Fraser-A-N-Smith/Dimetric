@@ -101,6 +101,14 @@ pub struct Renderer {
     composite_pipeline: wgpu::RenderPipeline,
 
     camera_buffer: wgpu::Buffer,
+    /// The UI's own camera: canvas pixels straight to clip space, no view in
+    /// it. A second buffer rather than rewriting the first between passes,
+    /// because both are in flight in the same command encoder.
+    ui_camera_buffer: wgpu::Buffer,
+    ui_bind_group: wgpu::BindGroup,
+    ui_instances: wgpu::Buffer,
+    ui_capacity: usize,
+    ui: wgpu::Texture,
     sprite_bind_group: wgpu::BindGroup,
     light_bind_group: wgpu::BindGroup,
     composite_bind_group: wgpu::BindGroup,
@@ -199,7 +207,16 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
+        let ui_camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ui camera"),
+            size: std::mem::size_of::<CameraUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let (world, light) = internal_targets(&device, settings.internal_resolution);
+        let ui = ui_target(&device, settings.internal_resolution);
+        let ui_instances = instance_buffer::<SpriteInstance>(&device, 256, "ui");
 
         let sprite_layout = sprite_bind_group_layout(&device);
         let sprite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -209,6 +226,28 @@ impl Renderer {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&atlas_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        // The same layout and the same pipelines as sprites; only the camera
+        // differs. UI quads are sprites that happen to be measured in canvas
+        // pixels.
+        let ui_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ui bindings"),
+            layout: &sprite_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ui_camera_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -237,6 +276,7 @@ impl Renderer {
             &composite_layout,
             &world,
             &light,
+            &ui,
             &sampler,
             &composite_buffer,
         );
@@ -297,6 +337,11 @@ impl Renderer {
             light_pipeline,
             composite_pipeline,
             camera_buffer,
+            ui_camera_buffer,
+            ui_bind_group,
+            ui_instances,
+            ui_capacity: 256,
+            ui,
             sprite_bind_group,
             light_bind_group,
             composite_bind_group,
@@ -370,7 +415,20 @@ impl Renderer {
             }),
         );
 
+        self.queue.write_buffer(
+            &self.ui_camera_buffer,
+            0,
+            bytemuck::bytes_of(&CameraUniform {
+                view_proj: crate::projection::Camera::canvas_projection(frame.canvas),
+                pixel_scale: {
+                    let [x, y] = crate::projection::Camera::canvas_pixel_scale(frame.canvas);
+                    [x, y, 0.0, 0.0]
+                },
+            }),
+        );
+
         self.upload_sprites(frame);
+        self.upload_ui(frame);
         if lighting {
             self.upload_lights(frame);
         }
@@ -391,6 +449,8 @@ impl Renderer {
         if lighting {
             self.light_pass(&mut encoder, &light_view, frame);
         }
+        let ui_view = self.ui.create_view(&wgpu::TextureViewDescriptor::default());
+        self.ui_pass(&mut encoder, &ui_view, frame);
         self.composite_pass(&mut encoder, target);
 
         self.queue.submit([encoder.finish()]);
@@ -424,6 +484,48 @@ impl Renderer {
 
         // One instanced draw per batch, in the order the sort decided.
         for batch in &frame.batches {
+            let pipeline = match batch.blend {
+                Blend::Alpha => &self.sprite_pipelines[0],
+                Blend::Additive => &self.sprite_pipelines[1],
+                Blend::Multiply => &self.sprite_pipelines[2],
+            };
+            pass.set_pipeline(pipeline);
+            let start = batch.start as u32;
+            pass.draw(0..4, start..start + batch.count as u32);
+        }
+    }
+
+    /// Draw the UI layer, through the canvas projection and unlit.
+    ///
+    /// The same pipelines the world uses, bound to a different camera. A UI
+    /// quad is a sprite whose coordinates happen to be canvas pixels, so
+    /// giving it a pipeline of its own would be two copies of one shader.
+    fn ui_pass(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, frame: &Frame) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("ui"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    // Cleared transparent every frame: the composite blends
+                    // this over the lit world, so anywhere the UI did not draw
+                    // has to let the world through.
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        if frame.ui.is_empty() {
+            return;
+        }
+        pass.set_bind_group(0, &self.ui_bind_group, &[]);
+        pass.set_vertex_buffer(0, self.ui_instances.slice(..));
+        for batch in &frame.ui_batches {
             let pipeline = match batch.blend {
                 Blend::Alpha => &self.sprite_pipelines[0],
                 Blend::Additive => &self.sprite_pipelines[1],
@@ -499,30 +601,21 @@ impl Renderer {
         pass.draw(0..3, 0..1);
     }
 
+    fn upload_ui(&mut self, frame: &Frame) {
+        let instances: Vec<SpriteInstance> = frame.ui.iter().map(sprite_instance).collect();
+        if instances.len() > self.ui_capacity {
+            self.ui_capacity = instances.len().next_power_of_two();
+            self.ui_instances =
+                instance_buffer::<SpriteInstance>(&self.device, self.ui_capacity, "ui");
+        }
+        if !instances.is_empty() {
+            self.queue
+                .write_buffer(&self.ui_instances, 0, bytemuck::cast_slice(&instances));
+        }
+    }
+
     fn upload_sprites(&mut self, frame: &Frame) {
-        let instances: Vec<SpriteInstance> = frame
-            .sprites
-            .iter()
-            .map(|item| {
-                // Sine and cosine from the engine's committed tables, not the
-                // platform's: what is drawn has to match what the simulation
-                // decided, and libm does not agree with itself across systems.
-                let (sin, cos) = item.rotation.sin_cos();
-                SpriteInstance {
-                    center: item.pos.to_f32_pair().into(),
-                    size: item.size.to_f32_pair().into(),
-                    rotation: [cos.to_f32(), sin.to_f32()],
-                    uv_min: [item.uv[0], item.uv[1]],
-                    uv_max: [item.uv[2], item.uv[3]],
-                    color: to_linear(Color::rgba(
-                        item.modulate[0],
-                        item.modulate[1],
-                        item.modulate[2],
-                        item.modulate[3],
-                    )),
-                }
-            })
-            .collect();
+        let instances: Vec<SpriteInstance> = frame.sprites.iter().map(sprite_instance).collect();
         if instances.len() > self.sprite_capacity {
             self.sprite_capacity = instances.len().next_power_of_two();
             self.sprite_instances =
@@ -625,6 +718,25 @@ fn internal_targets(device: &wgpu::Device, size: (u32, u32)) -> (wgpu::Texture, 
         })
     };
     (make("world"), make("light"))
+}
+
+/// The UI layer, drawn at the same internal resolution as the world so the
+/// composite scales both by the same whole number.
+fn ui_target(device: &wgpu::Device, size: (u32, u32)) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("ui"),
+        size: wgpu::Extent3d {
+            width: size.0.max(1),
+            height: size.1.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    })
 }
 
 fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &Atlas) -> wgpu::Texture {
@@ -739,6 +851,7 @@ fn composite_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 count: None,
             },
             texture(2),
+            texture(4),
             wgpu::BindGroupLayoutEntry {
                 binding: 3,
                 visibility: wgpu::ShaderStages::FRAGMENT,
@@ -758,11 +871,13 @@ fn composite_bindings(
     layout: &wgpu::BindGroupLayout,
     world: &wgpu::Texture,
     light: &wgpu::Texture,
+    ui: &wgpu::Texture,
     sampler: &wgpu::Sampler,
     settings: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     let world_view = world.create_view(&wgpu::TextureViewDescriptor::default());
     let light_view = light.create_view(&wgpu::TextureViewDescriptor::default());
+    let ui_view = ui.create_view(&wgpu::TextureViewDescriptor::default());
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("composite bindings"),
         layout,
@@ -780,11 +895,36 @@ fn composite_bindings(
                 resource: wgpu::BindingResource::TextureView(&light_view),
             },
             wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&ui_view),
+            },
+            wgpu::BindGroupEntry {
                 binding: 3,
                 resource: settings.as_entire_binding(),
             },
         ],
     })
+}
+
+/// One draw item as the shader wants it.
+fn sprite_instance(item: &crate::batch::DrawItem) -> SpriteInstance {
+    // Sine and cosine from the engine's committed tables, not the platform's:
+    // what is drawn has to match what the simulation decided, and libm does not
+    // agree with itself across systems.
+    let (sin, cos) = item.rotation.sin_cos();
+    SpriteInstance {
+        center: item.pos.to_f32_pair().into(),
+        size: item.size.to_f32_pair().into(),
+        rotation: [cos.to_f32(), sin.to_f32()],
+        uv_min: [item.uv[0], item.uv[1]],
+        uv_max: [item.uv[2], item.uv[3]],
+        color: to_linear(Color::rgba(
+            item.modulate[0],
+            item.modulate[1],
+            item.modulate[2],
+            item.modulate[3],
+        )),
+    }
 }
 
 fn blend_state(blend: Blend) -> wgpu::BlendState {

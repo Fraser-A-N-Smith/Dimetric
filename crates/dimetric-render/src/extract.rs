@@ -12,8 +12,10 @@
 
 use std::collections::BTreeMap;
 
+use dimetric_core::Rect;
 use dimetric_core::{Angle, Fx, NodeUid, Vec2Fx};
 use dimetric_scene::chunk::{CHUNK_SIZE, EMPTY_TILE};
+use dimetric_scene::ui::Canvas;
 use dimetric_scene::{Color, Scene, Value};
 
 use crate::atlas::{Atlas, PLACEHOLDER_NAME};
@@ -46,6 +48,16 @@ pub struct Frame {
     pub batches: Vec<Batch>,
     /// Lights, in a defined order.
     pub lights: Vec<LightItem>,
+    /// UI quads, in canvas pixels rather than world units.
+    ///
+    /// A separate list because UI is drawn through a different projection and
+    /// is never lit: a health bar does not get darker when the player walks
+    /// into a shadow.
+    pub ui: Vec<DrawItem>,
+    /// Batches over `ui`.
+    pub ui_batches: Vec<Batch>,
+    /// The canvas the UI was laid out against.
+    pub canvas: Canvas,
     /// The view this frame was extracted for.
     pub camera: Camera,
 }
@@ -75,6 +87,17 @@ pub fn extract(
     camera: &Camera,
     interpolation: Option<Interpolation<'_>>,
 ) -> Frame {
+    extract_with_canvas(scene, atlas, camera, interpolation, Canvas::default())
+}
+
+/// Extract, laying UI out against a given canvas.
+pub fn extract_with_canvas(
+    scene: &Scene,
+    atlas: &Atlas,
+    camera: &Camera,
+    interpolation: Option<Interpolation<'_>>,
+    canvas: Canvas,
+) -> Frame {
     let mut sprites = Vec::new();
     let mut lights = Vec::new();
 
@@ -86,6 +109,15 @@ pub fn extract(
         .map(|i| Fx::from_f64_lossy(i.alpha.clamp(0.0, 1.0) as f64))
         .unwrap_or(Fx::ZERO);
     let previous = interpolation.as_ref().map(|i| i.previous);
+
+    // UI is laid out against the canvas, never the window: see
+    // `dimetric_scene::ui`. The layout is a pure function of the tree and that
+    // constant, which is what lets the simulation compute the same rectangles
+    // when it needs to decide what a click hit.
+    //
+    // Computed before the world walk rather than after, because it is what
+    // tells that walk which labels belong to the UI and are not its business.
+    let ui_layout = dimetric_scene::ui::layout(scene, canvas);
 
     // Depth-first, so the order sprites are produced in depends on the tree and
     // not on allocation. The sort key decides draw order, but a stable
@@ -108,7 +140,13 @@ pub fn extract(
                 }
             }
             "TileLayer" => tiles(scene, node, pos, camera, atlas, &mut sprites),
-            "Label" => label(node, pos, camera, atlas, &mut sprites),
+            // A label inside the UI tree is drawn by the UI pass, in canvas
+            // pixels. Drawing it here as well would put the same text on
+            // screen twice, once in the wrong place.
+            "Label" if !node.parent().is_some_and(|p| ui_layout.contains_key(&p)) => {
+                let depth = camera.projection.depth_of(pos);
+                label(node, pos, depth, atlas, &mut sprites);
+            }
             "Light2D" => {
                 if let Some(light) = light(node, pos) {
                     lights.push(light);
@@ -117,6 +155,33 @@ pub fn extract(
             _ => {}
         }
     }
+
+    let mut ui = Vec::new();
+    for id in scene.walk() {
+        let Some(node) = scene.get(id) else { continue };
+        let Some(rect) = ui_layout.get(&id) else {
+            continue;
+        };
+        if !visible(scene, id) {
+            continue;
+        }
+        if node.kind == "Panel" {
+            panel(node, *rect, atlas, &mut ui);
+        }
+    }
+    // A label parented into the UI tree draws in canvas pixels, from its
+    // parent control's top-left corner.
+    for id in scene.walk() {
+        let Some(node) = scene.get(id) else { continue };
+        if node.base != "Label" || !visible(scene, id) {
+            continue;
+        }
+        let Some(parent) = node.parent().and_then(|p| ui_layout.get(&p)) else {
+            continue;
+        };
+        label(node, parent.pos, Fx::ZERO, atlas, &mut ui);
+    }
+    let ui_batches = crate::batch::build(&mut ui);
 
     let batches = crate::batch::build(&mut sprites);
     // Sorted by position and then by colour so the light list is reproducible;
@@ -135,8 +200,48 @@ pub fn extract(
         sprites,
         batches,
         lights,
+        ui,
+        ui_batches,
+        canvas,
         camera: *camera,
     }
+}
+
+/// A `Panel` fills its rectangle with a colour.
+fn panel(node: &dimetric_scene::Node, rect: Rect, atlas: &Atlas, out: &mut Vec<DrawItem>) {
+    if rect.size.x <= Fx::ZERO || rect.size.y <= Fx::ZERO {
+        return;
+    }
+    // The atlas carries a one-pixel white square for exactly this: a solid
+    // fill is a sprite whose texture is a single opaque texel, which keeps
+    // panels in the same batch as everything else instead of needing a
+    // pipeline that draws untextured quads.
+    let Some(region) = atlas.region(crate::atlas::SOLID_NAME) else {
+        return;
+    };
+    let modulate = node
+        .get("modulate")
+        .and_then(Value::as_color)
+        .unwrap_or(Color::WHITE);
+    out.push(DrawItem {
+        // Depth zero for every panel: UI is ordered by the tree, not by where
+        // it sits in a world it is not in.
+        key: SortKey::new(
+            node.layer,
+            Fx::ZERO,
+            crate::batch::batch_group(0, 0, Blend::Alpha),
+            node.uid,
+        ),
+        atlas: 0,
+        blend: Blend::Alpha,
+        shader: 0,
+        pos: rect.center(),
+        size: rect.size,
+        rotation: Angle::ZERO,
+        uv: region.uv,
+        modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
+        node: node.uid,
+    });
 }
 
 /// A node is drawn only if it and every ancestor is visible.
@@ -272,7 +377,7 @@ fn sprite(
 fn label(
     node: &dimetric_scene::Node,
     pos: Vec2Fx,
-    camera: &Camera,
+    depth: Fx,
     atlas: &Atlas,
     out: &mut Vec<DrawItem>,
 ) {
@@ -309,7 +414,6 @@ fn label(
         .unwrap_or(Color::WHITE);
 
     let origin = pos + offset;
-    let depth = camera.projection.depth_of(origin);
     let laid = crate::text::layout(font, text, align);
 
     for placed in laid.glyphs {

@@ -235,6 +235,75 @@
       ]
     },
     {
+      "doc": "A rectangle in UI space, positioned by anchors and offsets. Draws nothing itself.",
+      "kind": "Control",
+      "properties": [
+        {
+          "default": "0.0",
+          "doc": "Left edge as a fraction of the parent's width.",
+          "name": "anchor_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Top edge as a fraction of the parent's height.",
+          "name": "anchor_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Right edge as a fraction of the parent's width.",
+          "name": "anchor_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Bottom edge as a fraction of the parent's height.",
+          "name": "anchor_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the left anchor.",
+          "name": "offset_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the top anchor.",
+          "name": "offset_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the right anchor.",
+          "name": "offset_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the bottom anchor.",
+          "name": "offset_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "true",
+          "doc": "Whether a pointer over this control hits it. False makes it scenery.",
+          "name": "catches_input",
+          "required": false,
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "doc": "An instance of another scene, with sparse property overrides. The source is named by the reserved `scene` key.",
       "kind": "Instance",
       "properties": []
@@ -337,6 +406,82 @@
       "doc": "A node with a transform. The base for anything that exists somewhere.",
       "kind": "Node2D",
       "properties": []
+    },
+    {
+      "doc": "A control filled with a colour.",
+      "kind": "Panel",
+      "properties": [
+        {
+          "default": "0.0",
+          "doc": "Left edge as a fraction of the parent's width.",
+          "name": "anchor_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Top edge as a fraction of the parent's height.",
+          "name": "anchor_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Right edge as a fraction of the parent's width.",
+          "name": "anchor_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Bottom edge as a fraction of the parent's height.",
+          "name": "anchor_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the left anchor.",
+          "name": "offset_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the top anchor.",
+          "name": "offset_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the right anchor.",
+          "name": "offset_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the bottom anchor.",
+          "name": "offset_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "true",
+          "doc": "Whether a pointer over this control hits it. False makes it scenery.",
+          "name": "catches_input",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "\"#000000a0\"",
+          "doc": "Fill colour.",
+          "name": "modulate",
+          "required": false,
+          "type": "color"
+        }
+      ]
     },
     {
       "doc": "A sound attached to a node. Presentation only — never hashed, never snapshotted.",

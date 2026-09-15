@@ -240,6 +240,94 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
         area,
     ));
 
+    // -- UI ---------------------------------------------------------------
+    //
+    // A control is laid out against a fixed canvas rather than the window; see
+    // `crate::ui` for why that is not an arbitrary choice.
+    let control_props = |extra: Vec<PropertySchema>| {
+        let mut props = vec![
+            prop(
+                "anchor_left",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Left edge as a fraction of the parent's width.",
+            ),
+            prop(
+                "anchor_top",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Top edge as a fraction of the parent's height.",
+            ),
+            prop(
+                "anchor_right",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Right edge as a fraction of the parent's width.",
+            ),
+            prop(
+                "anchor_bottom",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Bottom edge as a fraction of the parent's height.",
+            ),
+            prop(
+                "offset_left",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Pixels from the left anchor.",
+            ),
+            prop(
+                "offset_top",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Pixels from the top anchor.",
+            ),
+            prop(
+                "offset_right",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Pixels from the right anchor.",
+            ),
+            prop(
+                "offset_bottom",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Pixels from the bottom anchor.",
+            ),
+            prop(
+                "catches_input",
+                PropertyType::Bool,
+                boolean(true),
+                "Whether a pointer over this control hits it. False makes it scenery.",
+            ),
+        ];
+        props.extend(extra);
+        props
+    };
+
+    kinds.push(NodeKindSchema::new(
+        "Control",
+        "A rectangle in UI space, positioned by anchors and offsets. Draws nothing itself.",
+        control_props(vec![]),
+    ));
+
+    // Behaves as a `Control`, so layout, hit testing and anything else that
+    // asks what a node *is* handle it without knowing the name — the same
+    // machinery a project's own kinds use when they extend a built-in.
+    kinds.push(
+        NodeKindSchema::new(
+            "Panel",
+            "A control filled with a colour.",
+            control_props(vec![prop(
+                "modulate",
+                PropertyType::Color,
+                color("#000000a0"),
+                "Fill colour.",
+            )]),
+        )
+        .based_on("Control"),
+    );
+
     kinds.push(NodeKindSchema::new(
         "Label",
         "A run of text drawn from a baked font.",

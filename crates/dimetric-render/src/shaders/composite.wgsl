@@ -20,6 +20,8 @@ struct Settings {
 @group(0) @binding(1) var world_sampler: sampler;
 @group(0) @binding(2) var light_texture: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> settings: Settings;
+// The UI layer, drawn through the canvas projection into its own target.
+@group(0) @binding(4) var ui_texture: texture_2d<f32>;
 
 struct VertexOut {
     @builtin(position) clip_position: vec4<f32>,
@@ -54,5 +56,10 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let light = textureSample(light_texture, world_sampler, in.uv);
         lit = world.rgb * (settings.ambient.rgb + light.rgb);
     }
-    return vec4<f32>(lit, 1.0);
+    // UI last and unlit. A health bar does not get darker when the player
+    // walks into a shadow, so it is blended over the finished picture rather
+    // than drawn into the world and multiplied by the light buffer.
+    let ui = textureSample(ui_texture, world_sampler, in.uv);
+    let out = lit * (1.0 - ui.a) + ui.rgb;
+    return vec4<f32>(out, 1.0);
 }

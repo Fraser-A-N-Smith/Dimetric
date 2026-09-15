@@ -524,7 +524,16 @@ fn label_atlas() -> Atlas {
     let (font, page) = block_font();
     let mut fonts = std::collections::BTreeMap::new();
     fonts.insert("fonts/block".to_string(), font);
-    Atlas::pack(vec![page], 64).with_fonts(fonts)
+    // The solid white texel too: a panel is a sprite sampling one opaque
+    // pixel, so an atlas without it draws no UI at all.
+    Atlas::pack(
+        vec![
+            page,
+            dimetric_render::atlas::solid(dimetric_scene::Color::WHITE),
+        ],
+        64,
+    )
+    .with_fonts(fonts)
 }
 
 fn label_scene(text: &str, align: &str) -> dimetric_scene::Scene {
@@ -646,5 +655,160 @@ fn text_reaches_the_target() {
     assert!(
         changed >= 32,
         "two 4x4 glyphs should change about 32 pixels, found {changed}"
+    );
+}
+
+// -- UI -------------------------------------------------------------------
+
+fn ui_scene(body: &str) -> dimetric_scene::Scene {
+    let text = format!(
+        "format = \"dimetric\"\nversion = 1\n\n[scene]\nroot = \"n_root0000\"\n\n\
+         [[node]]\nid = \"n_root0000\"\nkind = \"Node2D\"\nname = \"Root\"\n\n{body}"
+    );
+    let out = dimetric_scene::parse(
+        &text,
+        "t.dim",
+        &dimetric_scene::KindRegistry::with_builtins(),
+    );
+    assert!(!out.diagnostics.has_errors(), "{}", out.diagnostics);
+    out.doc.unwrap().scene
+}
+
+const CORNER_PANEL: &str = r##"
+[[node]]
+id = "n_panel000"
+kind = "Panel"
+name = "Panel"
+parent = "n_root0000"
+offset_right = 32.0
+offset_bottom = 16.0
+modulate = "#ff0000ff"
+"##;
+
+#[test]
+fn a_panel_is_extracted_into_the_ui_layer_and_not_the_world() {
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let frame = extract(&ui_scene(CORNER_PANEL), &atlas, &camera, None);
+
+    assert_eq!(frame.ui.len(), 1, "the panel should be a UI quad");
+    assert!(
+        frame.sprites.is_empty(),
+        "and nothing should have gone into the world layer"
+    );
+    // Canvas pixels, so the rect is where the scene said and not where a
+    // camera happens to be looking.
+    assert_eq!(frame.ui[0].size, dimetric_core::Vec2Fx::from_ints(32, 16));
+    assert_eq!(frame.ui[0].pos, dimetric_core::Vec2Fx::from_ints(16, 8));
+}
+
+#[test]
+fn ui_does_not_move_when_the_camera_does() {
+    // The property that makes it UI. A health bar that scrolled with the world
+    // would be a sprite with extra steps.
+    let atlas = label_atlas();
+    let scene = ui_scene(CORNER_PANEL);
+
+    let mut near = Camera::new((64, 64));
+    near.center = dimetric_core::Vec2Fx::from_ints(0, 0);
+    let mut far = Camera::new((64, 64));
+    far.center = dimetric_core::Vec2Fx::from_ints(500, -300);
+
+    let a = extract(&scene, &atlas, &near, None);
+    let b = extract(&scene, &atlas, &far, None);
+    assert_eq!(a.ui[0].pos, b.ui[0].pos);
+}
+
+#[test]
+fn a_label_inside_a_control_draws_in_canvas_space_exactly_once() {
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let frame = extract(
+        &ui_scene(
+            r#"
+[[node]]
+id = "n_panel000"
+kind = "Panel"
+name = "Panel"
+parent = "n_root0000"
+offset_left = 20.0
+offset_top = 10.0
+offset_right = 90.0
+offset_bottom = 40.0
+
+[[node]]
+id = "n_text0000"
+kind = "Label"
+name = "Text"
+parent = "n_panel000"
+font = "asset:fonts/block"
+text = "AB"
+"#,
+        ),
+        &atlas,
+        &camera,
+        None,
+    );
+
+    // One panel quad plus one quad per glyph, all in the UI layer.
+    assert_eq!(frame.ui.len(), 3);
+    assert!(
+        frame.sprites.is_empty(),
+        "a label in the UI tree must not also be drawn in the world"
+    );
+    // Laid out from the panel's top-left corner.
+    let first_glyph = frame
+        .ui
+        .iter()
+        .find(|i| i.size.x == dimetric_core::Fx::from_int(4))
+        .unwrap();
+    assert_eq!(first_glyph.pos.x, dimetric_core::Fx::from_int(22));
+}
+
+#[test]
+fn a_label_outside_the_ui_tree_still_draws_in_the_world() {
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let frame = extract(&label_scene("AB", "Left"), &atlas, &camera, None);
+    assert_eq!(frame.sprites.len(), 2);
+    assert!(frame.ui.is_empty());
+}
+
+#[test]
+fn ui_reaches_the_target_above_the_world_and_unlit() {
+    let atlas = label_atlas();
+    let Some(mut renderer) = renderer(&atlas, settings()) else {
+        return;
+    };
+    let capture = Capture::new(&renderer, (64, 64));
+    let camera = Camera::new((64, 64));
+
+    let blank = capture
+        .render(
+            &mut renderer,
+            &extract(&ui_scene(""), &atlas, &camera, None),
+        )
+        .expect("render");
+    let panelled = capture
+        .render(
+            &mut renderer,
+            &extract(&ui_scene(CORNER_PANEL), &atlas, &camera, None),
+        )
+        .expect("render");
+
+    let changed = blank
+        .chunks(4)
+        .zip(panelled.chunks(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(changed > 0, "the panel drew nothing");
+
+    // Opaque red, and red it must stay: the composite multiplies the world by
+    // the light buffer, and a UI that went through that would dim in a dark
+    // room. The panel is at the canvas top-left, so sample near the origin.
+    let px = at(&panelled, 64, 2, 2);
+    assert!(
+        px[0] > 200 && px[1] < 60 && px[2] < 60,
+        "expected opaque red, found {px:?}"
     );
 }

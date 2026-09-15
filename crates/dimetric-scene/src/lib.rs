@@ -30,6 +30,7 @@ pub mod parse;
 pub mod project_kinds;
 pub mod schema;
 pub mod tree;
+pub mod ui;
 pub mod value;
 pub mod write;
 
