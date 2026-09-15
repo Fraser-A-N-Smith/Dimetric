@@ -672,6 +672,21 @@ fn fmt(src: &str) -> String {
 }
 
 #[test]
+fn formatting_keeps_a_comment_written_above_the_scene_block() {
+    // The one place a header comment naturally goes, and the one place it used
+    // to be deleted: `[scene]`'s prefix was overwritten with a bare newline.
+    let noted = ARENA.replace(
+        "[scene]",
+        "# What this room is for, and what not to break in it.\n[scene]",
+    );
+    let out = fmt(&noted);
+    assert!(
+        out.contains("# What this room is for, and what not to break in it."),
+        "the scene's own header comment was dropped:\n{out}"
+    );
+}
+
+#[test]
 fn formatting_keeps_the_comments_the_author_wrote() {
     let messy = ARENA.replace(
         "[[node]]\nid = \"n_m9v2ht5w\"",

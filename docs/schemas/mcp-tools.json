@@ -266,16 +266,28 @@
             "description": "Emit JSON instead of text",
             "type": "boolean"
           },
+          "out": {
+            "description": "Where to stage it. Defaults to `build/<target>` under the project",
+            "type": "string"
+          },
           "project": {
             "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "runtime": {
+            "description": "A `dim-play` built for this target, to ship beside the game",
             "type": "string"
           },
           "scene": {
             "description": "Scene to operate on, relative to the project root",
             "type": "string"
           },
+          "seed": {
+            "description": "Seed the packaged game starts from",
+            "type": "string"
+          },
           "target": {
-            "description": "Target platform",
+            "description": "Target platform: `linux`, `macos`, `windows`, or a Rust target triple",
             "type": "string"
           }
         },
@@ -349,6 +361,42 @@
         "type": "object"
       },
       "name": "frame_capture"
+    },
+    {
+      "description": "Write a new project to start from",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Name for the root node and the README. Defaults to the directory's name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Directory to create. Must be empty or absent",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "new"
     },
     {
       "description": "Clear one property, restoring its default",

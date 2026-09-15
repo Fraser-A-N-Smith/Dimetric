@@ -388,8 +388,27 @@ fn format_prologue(doc: &mut DocumentMut) {
         rank(a.get()).cmp(&rank(b.get()))
     });
     if let Some(table) = doc.get_mut("scene").and_then(Item::as_table_mut) {
-        table.decor_mut().set_prefix("\n");
+        // Whatever the author wrote above `[scene]` is theirs. Setting the
+        // prefix to a bare newline — which is what this used to do — deleted a
+        // scene's own header comment on the first format, quietly.
+        let prefix = kept_comments(table.decor().prefix().and_then(|p| p.as_str()));
+        table.decor_mut().set_prefix(prefix);
     }
+}
+
+/// A block's prefix, keeping the comment lines in it and nothing else.
+///
+/// One blank line, then the comments, then the block. The blank line is the
+/// canonical separator; the comments are the author's.
+fn kept_comments(prefix: Option<&str>) -> String {
+    let mut out = String::from("\n");
+    for line in prefix.unwrap_or("").lines().map(str::trim) {
+        if line.starts_with('#') {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// Lay the blocks out in canonical order.
@@ -696,22 +715,7 @@ fn normalise_block_spacing(doc: &mut DocumentMut, block: &str) {
         return;
     };
     for table in tables.iter_mut() {
-        let existing = table
-            .decor()
-            .prefix()
-            .and_then(|p| p.as_str())
-            .unwrap_or("")
-            .to_string();
-        let comments: Vec<&str> = existing
-            .lines()
-            .map(str::trim)
-            .filter(|line| line.starts_with('#'))
-            .collect();
-        let mut prefix = String::from("\n");
-        for comment in comments {
-            prefix.push_str(comment);
-            prefix.push('\n');
-        }
+        let prefix = kept_comments(table.decor().prefix().and_then(|p| p.as_str()));
         table.decor_mut().set_prefix(prefix);
     }
 }

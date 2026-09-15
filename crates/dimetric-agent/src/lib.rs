@@ -29,6 +29,11 @@ pub fn run(cli: Cli) -> Result<Output, Diagnostics> {
         return api(cmd, cli.project.as_deref());
     }
 
+    // Creating a project cannot require one to already be open.
+    if let Top::New(args) = &cli.command {
+        return new_command(args);
+    }
+
     // The server opens whatever project each call names, so it must not need
     // one to start — an agent connects first and decides what to work on after.
     if let Top::Mcp = &cli.command {
@@ -65,8 +70,8 @@ pub fn run(cli: Cli) -> Result<Output, Diagnostics> {
         Top::State(cmd) => state_command(&mut project, cmd)?,
         Top::Frame(cmd) => frame_command(&mut project, cmd)?,
         Top::Replay(args) => replay_command(&mut project, args)?,
-        Top::Build(args) => build_command(args)?,
-        Top::Api(_) | Top::Mcp => unreachable!("handled above"),
+        Top::Build(args) => build_command(&mut project, &scene_path, args)?,
+        Top::Api(_) | Top::Mcp | Top::New(_) => unreachable!("handled above"),
     };
     out.warnings.extend(load_diags.0);
     Ok(out)
@@ -1386,13 +1391,96 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     Ok(out)
 }
 
-fn build_command(args: BuildArgs) -> Result<Output, Diagnostics> {
-    Err(one(Diagnostic::new(
-        Code::NOT_IMPLEMENTED,
-        "packaging is not in this build",
-    )
-    .with_field("target", args.target)
-    .with_field("milestone", "M10")))
+fn build_command(
+    project: &mut Project,
+    scene: &str,
+    args: BuildArgs,
+) -> Result<Output, Diagnostics> {
+    use dimetric_host::package;
+
+    let platform = package::platform(&args.target).ok_or_else(|| {
+        let known: Vec<&str> = package::PLATFORMS.iter().map(|p| p.name).collect();
+        one(Diagnostic::new(
+            Code::BAD_ARGUMENT,
+            format!(
+                "no target called {:?}; this build packages for {}",
+                args.target,
+                known.join(", ")
+            ),
+        )
+        .with_field("target", args.target.clone()))
+    })?;
+
+    // The scene the CLI already opened, so a project that does not load is
+    // refused before anything is copied rather than packaged broken.
+    let scene = if scene.ends_with(".dim") {
+        scene.to_string()
+    } else {
+        format!("{scene}.dim")
+    };
+
+    let staged = package::stage(
+        project,
+        package::PackageRequest {
+            platform,
+            scene: scene.clone(),
+            seed: args.seed,
+            out: args.out.as_ref().map(std::path::PathBuf::from),
+            runtime: args.runtime.as_ref().map(std::path::PathBuf::from),
+        },
+    )?;
+
+    let text = format!(
+        "staged {} files ({:.1} MB) for {} in {}",
+        staged.files.len(),
+        staged.bytes as f64 / 1_048_576.0,
+        platform.name,
+        staged.out.display()
+    );
+    let mut out = Output::new(
+        json!({
+            "target": platform.name,
+            "triple": platform.triple,
+            "out": staged.out.display().to_string(),
+            "scene": scene,
+            "seed": args.seed,
+            "files": staged.files,
+            "bytes": staged.bytes,
+            "runtime": staged.runtime.as_ref().map(|p| p.display().to_string()),
+        }),
+        text,
+    );
+    out.warnings.extend(staged.diagnostics.0);
+    Ok(out)
+}
+
+/// Write a new project to start from.
+fn new_command(args: &NewArgs) -> Result<Output, Diagnostics> {
+    let path = std::path::PathBuf::from(&args.path);
+    let name = match &args.name {
+        Some(name) => name.clone(),
+        None => path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Game")
+            .to_string(),
+    };
+    let created = dimetric_host::template::create(&path, &name)?;
+    let text = format!(
+        "wrote {} files to {}\n\n  dim --project {} run --headless --ticks 60\n  dim-play {}",
+        created.files.len(),
+        created.root.display(),
+        created.root.display(),
+        created.root.display(),
+    );
+    Ok(Output::new(
+        json!({
+            "root": created.root.display().to_string(),
+            "name": name,
+            "files": created.files,
+        }),
+        text,
+    ))
 }
 
 // -- generated reference ------------------------------------------------

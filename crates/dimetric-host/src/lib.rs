@@ -12,11 +12,13 @@
 pub mod bus;
 pub mod command;
 pub mod ldtk;
+pub mod package;
 pub mod project;
 pub mod reload;
 pub mod render;
 pub mod replay;
 pub mod run;
+pub mod template;
 
 pub use bus::CommandBus;
 pub use command::{apply, Applied, Command};

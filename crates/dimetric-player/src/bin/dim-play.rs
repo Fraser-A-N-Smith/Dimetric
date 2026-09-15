@@ -21,8 +21,9 @@ use winit::window::{Window, WindowId};
 #[derive(Parser, Debug)]
 #[command(name = "dim-play", version, about = "Play a Dimetric project")]
 struct Args {
-    /// Project directory.
-    project: String,
+    /// Project directory. Defaults to the one beside the executable, which is
+    /// where `dim build` puts a packaged game.
+    project: Option<String>,
     /// Scene to open, relative to the project root. Defaults to the first one.
     #[arg(long)]
     scene: Option<String>,
@@ -55,15 +56,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let window_size = parse_size(&args.window)?;
 
-    let mut project = Project::open(&args.project, 0);
-    let scene = match &args.scene {
-        Some(scene) => scene.clone(),
-        None => first_scene(&args.project)?,
+    let root = match &args.project {
+        Some(root) => std::path::PathBuf::from(root),
+        None => beside_the_executable()?,
     };
+    // A packaged game carries a manifest saying what it is; a project being
+    // developed does not, and falls back to the first scene it has.
+    let manifest = std::fs::read_to_string(root.join(dimetric_host::package::MANIFEST)).ok();
+    let scene = match (&args.scene, &manifest) {
+        (Some(scene), _) => scene.clone(),
+        (None, Some(manifest)) => dimetric_host::package::boot_scene(manifest)
+            .ok_or_else(|| "the game's manifest names no scene".to_string())?,
+        (None, None) => first_scene(&root)?,
+    };
+    // An explicit --seed wins; otherwise the manifest's, otherwise zero.
+    let seed = match (args.seed, &manifest) {
+        (0, Some(manifest)) => dimetric_host::package::boot_seed(manifest).unwrap_or(0),
+        (seed, _) => seed,
+    };
+
+    let mut project = Project::open(&root, 0);
     let session = Session::open(
         &mut project,
         SessionConfig {
-            seed: args.seed,
+            seed,
             scene,
             record: args.record.clone(),
             settings,
@@ -344,10 +360,18 @@ fn parse_size(text: &str) -> Result<(u32, u32), String> {
     ))
 }
 
+/// Where a packaged game keeps its files: beside the executable.
+fn beside_the_executable() -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("cannot find myself: {e}"))?;
+    exe.parent()
+        .map(std::path::Path::to_path_buf)
+        .ok_or_else(|| "cannot find myself".to_string())
+}
+
 /// The first `.dim` in the project root, so a one-scene project needs no flag.
-fn first_scene(root: &str) -> Result<String, String> {
+fn first_scene(root: &std::path::Path) -> Result<String, String> {
     let mut candidates: Vec<String> = std::fs::read_dir(root)
-        .map_err(|e| format!("cannot read {root}: {e}"))?
+        .map_err(|e| format!("cannot read {}: {e}", root.display()))?
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().to_string())
         .filter(|n| n.ends_with(".dim"))
@@ -356,5 +380,5 @@ fn first_scene(root: &str) -> Result<String, String> {
     candidates
         .into_iter()
         .next()
-        .ok_or_else(|| format!("no .dim scene in {root}; pass --scene"))
+        .ok_or_else(|| format!("no .dim scene in {}; pass --scene", root.display()))
 }
