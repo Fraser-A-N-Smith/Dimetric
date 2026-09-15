@@ -121,7 +121,14 @@ fn source_kinds_are_recognised_by_extension() {
         SourceKind::of(Path::new("a/b.ASE")),
         Some(SourceKind::Aseprite)
     );
-    assert_eq!(SourceKind::of(Path::new("a/b.ogg")), Some(SourceKind::Ogg));
+    assert_eq!(
+        SourceKind::of(Path::new("a/b.ogg")),
+        Some(SourceKind::Audio)
+    );
+    assert_eq!(
+        SourceKind::of(Path::new("a/b.wav")),
+        Some(SourceKind::Audio)
+    );
     assert_eq!(
         SourceKind::of(Path::new("a/b.ldtk")),
         Some(SourceKind::Ldtk)

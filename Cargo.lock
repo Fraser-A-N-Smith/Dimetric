@@ -1099,6 +1099,7 @@ version = "0.0.1"
 dependencies = [
  "blake3",
  "dimetric-assets",
+ "dimetric-audio",
  "dimetric-core",
  "dimetric-render",
  "dimetric-scene",
@@ -1116,6 +1117,24 @@ version = "0.0.1"
 dependencies = [
  "dimetric-core",
  "dimetric-sim",
+]
+
+[[package]]
+name = "dimetric-player"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "dimetric-assets",
+ "dimetric-audio",
+ "dimetric-core",
+ "dimetric-host",
+ "dimetric-platform",
+ "dimetric-render",
+ "dimetric-scene",
+ "dimetric-sim",
+ "pollster",
+ "wgpu 30.0.1",
+ "winit",
 ]
 
 [[package]]
@@ -1150,6 +1169,7 @@ dependencies = [
 name = "dimetric-sim"
 version = "0.0.1"
 dependencies = [
+ "blake3",
  "dimetric-assets",
  "dimetric-core",
  "dimetric-scene",

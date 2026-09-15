@@ -1,13 +1,28 @@
-# Assertions checked during replay. An agent writes these to verify its own
-# work without having to read a state dump by eye.
+# Assertions checked during the replay, so an agent can verify its own work
+# without reading a state dump by eye.
+#
+# What this run does: five rooms, each a wave the arena spawns. Clear one, take
+# one of three upgrades from the seeded stream, and the next wave arrives. Two
+# base spells held together evolve into a third.
 
-# Both skeletons exist and are closing on the player.
-tick 119 /Arena01/Skeleton_01 exists == true
-tick 119 /Arena01/Skeleton_01 pos.x < 100.0
-tick 119 /Arena01/Skeleton_02 pos.x < 160.0
+# The run reached the last room and finished it.
+tick 2599 /Arena01 var:room == 5
+tick 2599 /Arena01 var:run_complete == true
 
-# Nothing has taken damage yet, so health is untouched.
-tick 119 /Arena01/Skeleton_01 var:health == 40
+# Every enemy across all five waves died: two, three, four, four and seven.
+tick 2599 /Arena01 var:kills == 20
+tick 2599 /Arena01 var:enemy_count == 0
 
-# The arena counted its enemies.
-tick 119 /Arena01 var:enemy_count == 2
+# Spells are spawned nodes rather than a pool, and there were a lot of them.
+tick 2599 /Arena01 var:fired > 400
+
+# The upgrades the seeded stream offered combined into an evolution. This is
+# §12's requirement: a replay must reproduce the same spell evolution.
+tick 2599 /Arena01 var:evolved == Forking Arc
+
+# Waves arrive one room at a time rather than all at once.
+tick 900 /Arena01 var:enemy_count > 0
+tick 900 /Arena01 var:room < 5
+
+# The player survived the run.
+tick 2599 /Arena01/Player exists == true

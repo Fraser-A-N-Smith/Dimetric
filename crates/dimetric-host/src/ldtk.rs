@@ -51,7 +51,7 @@ pub fn bake(scene: &Scene, level: &Level, parent: NodeUid, tileset: Option<&str>
         let existing = scene.by_uid(uid).and_then(|id| scene.get(id));
 
         match existing {
-            Some(node) if node.kind != "TileLayer" => {
+            Some(node) if node.base != "TileLayer" => {
                 diagnostics.push(
                     Diagnostic::new(
                         Code::COMMAND_REJECTED,

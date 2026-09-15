@@ -372,6 +372,9 @@ pub struct Replay<'a> {
     /// A replay of a project with animation has to carry the clips: frame
     /// advance is simulation state, so a run without them is a different run.
     pub clips: dimetric_sim::anim::Clips,
+    /// Prefabs a script may spawn. A replay of a game that spawns has to carry
+    /// them: what gets created is simulation state.
+    pub templates: dimetric_sim::spawn::Templates,
 }
 
 impl Replay<'_> {
@@ -382,8 +385,9 @@ impl Replay<'_> {
         scripts: Box<dyn ScriptHost>,
         config: SimConfig,
     ) -> ReplayReport {
-        let mut sim =
-            Sim::new(scene, self.log.seed, scripts, config).with_clips(self.clips.clone());
+        let mut sim = Sim::new(scene, self.log.seed, scripts, config)
+            .with_clips(self.clips.clone())
+            .with_templates(self.templates.clone());
         let ticks = self.ticks.unwrap_or(self.log.frames.len() as u64);
         let mut hashes = Vec::with_capacity(ticks as usize);
         let mut divergence = None;
@@ -414,10 +418,20 @@ impl Replay<'_> {
 
             let state = sim.state();
             for probe in self.probes.iter().filter(|p| p.tick == tick) {
-                let found = read_field(&state, &probe.path, &probe.field)
-                    .unwrap_or_else(|| "<not found>".into());
+                // A field that is not there fails, whatever the operator says.
+                // Comparing the absence as text means `var:missing != true`
+                // passes — "<not found>" is not "true" — and an assertion that
+                // passes because it could not find what it was asserting about
+                // is worse than one that fails.
+                let (found, passed) = match read_field(&state, &probe.path, &probe.field) {
+                    Some(found) => {
+                        let passed = evaluate(probe, &found);
+                        (found, passed)
+                    }
+                    None => ("<not found>".to_string(), false),
+                };
                 probes.push(ProbeResult {
-                    passed: evaluate(probe, &found),
+                    passed,
                     found,
                     probe: probe.clone(),
                 });

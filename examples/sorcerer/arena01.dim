@@ -4,6 +4,10 @@ version = 1
 [scene]
 root = "n_root0000"
 
+# ── The arena ─────────────────────────────────────
+#
+# One room of the sorcerer slice. Nothing transient is authored here: enemies
+# arrive as waves and spells as projectiles, both spawned by the arena script.
 [[node]]
 id = "n_root0000"
 kind = "Node2D"
@@ -11,10 +15,18 @@ name = "Arena01"
 script = "script:scripts/arena.lua"
 
 [[node]]
+id = "n_book0001"
+kind = "Node"
+name = "Spellbook"
+parent = "n_root0000"          # /Arena01
+script = "script:scripts/spellbook.lua"
+
+[[node]]
 id = "n_floor000"
 kind = "TileLayer"
 name = "Floor"
 parent = "n_root0000"          # /Arena01
+layer = -1
 tileset = "asset:tilesets/dungeon"
 
 [[node]]
@@ -30,22 +42,23 @@ radius = 6.0
 shape = "Circle"
 
 [[node]]
-id = "n_skel0001"
-kind = "Instance"
-name = "Skeleton_01"
-parent = "n_root0000"          # /Arena01
-scene = "scene:prefabs/skeleton"
-pos = [160.0, 96.0]
+id = "n_plsprt00"
+kind = "Sprite2D"
+name = "Body"
+parent = "n_player00"          # /Arena01/Player
+z = 10
+texture = "asset:sprites/sorcerer"
 
+# Parented to the player, so it follows without a script. A camera that needed
+# one would be a script that has to run in a fixed order relative to movement.
 [[node]]
-id = "n_skel0002"
-kind = "Instance"
-name = "Skeleton_02"
-parent = "n_root0000"          # /Arena01
-scene = "scene:prefabs/skeleton"
-pos = [200.0, 140.0]
+id = "n_camera00"
+kind = "Camera2D"
+name = "View"
+parent = "n_player00"          # /Arena01/Player
+current = true
 
-[[override]]
-instance = "n_skel0002"        # /Arena01/Skeleton_02
-target = "n_sk_root0"
-radius = 9.0
+[[chunk]]
+layer = "n_floor000"           # /Arena01/Floor
+at = [0, 0]
+data = "24:1 8:0 24:1 8:0 24:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 4:1 10:3 10:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 8:0 24:1 520:0"

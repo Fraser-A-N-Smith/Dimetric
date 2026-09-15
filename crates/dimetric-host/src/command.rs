@@ -239,6 +239,11 @@ pub fn apply(
                 None => None,
             };
             let mut node = Node::new(*id, kind.clone(), name.clone());
+            // A project kind behaves as whatever it extends, and the registry
+            // is the only thing that knows which.
+            if let Some(schema) = registry.get(kind) {
+                node.base = schema.base.clone();
+            }
             node.props = props.clone();
             doc.scene.insert(node, parent_id)?;
             write_node_table(doc, registry, *id, kind, name, *parent, props);

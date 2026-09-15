@@ -213,13 +213,68 @@ message. Codes are never reused for a different meaning.
 | `DIM0801` | error | The command exists but this build does not implement it yet |
 | `DIM0802` | error | A command-line argument could not be parsed |
 
+## MCP tools
+
+`dim mcp` serves the CLI over the Model Context Protocol. The tools are read
+from the CLI itself, so this list is what the binary answers `tools/list` with.
+`project`, `scene`, `json` and `id_seed` are global and omitted from the
+arguments column.
+
+| Tool | Arguments | What it does |
+|---|---|---|
+| `api_codes` | — | Print every diagnostic code |
+| `api_commands` | — | Print the command set |
+| `api_kinds` | — | Print every registered node kind and its properties |
+| `api_schema` | — | Print the JSON schema for the command set |
+| `api_tools` | — | Print the MCP tool list, which is this CLI seen from the other side |
+| `asset_import` | `path`* | Import one asset |
+| `asset_info` | `name`* | Describe one asset: its id, its hash, and what it imported to |
+| `asset_list` | `stale` | List the project's source assets and their import state |
+| `asset_reimport` | `all` | Import everything whose cache is behind its source |
+| `build` | `out`, `runtime`, `seed`, `target`* | Package the project for a platform |
+| `frame_capture` | `ambient`, `height`, `input`, `internal`, `no_integer_upscale`, `png`*, `seed`, `tick`, `width` | Render one frame to a PNG |
+| `new` | `name`, `path`* | Write a new project to start from |
+| `node_clear` | `key`*, `path`* | Clear one property, restoring its default |
+| `node_create` | `id`, `kind`*, `name`*, `parent`*, `set` | Add a node |
+| `node_delete` | `path`* | Remove a node and its subtree |
+| `node_get` | `path`* | Print one node's properties |
+| `node_rename` | `name`*, `path`* | Rename a node |
+| `node_reparent` | `parent`*, `path`* | Move a node under a new parent |
+| `node_set` | `key`*, `path`*, `value`* | Set one property |
+| `override_clear` | `instance`*, `key`*, `target`* | Clear one override |
+| `override_list` | `instance`* | List the overrides on an instance |
+| `override_set` | `instance`*, `key`*, `target`*, `value`* | Set one override |
+| `prefab_instance` | `id`, `name`*, `parent`*, `pos`, `source`* | Add an instance of another scene |
+| `replay` | `assert`, `hashes`, `input`*, `ticks` | Replay a recorded run and check it |
+| `run` | `headless`, `input`, `record`, `seed`, `ticks`, `watch` | Run the simulation headlessly |
+| `scene_check` | — | Report the scene's validation diagnostics |
+| `scene_fmt` | `check` | Rewrite the scene in canonical form |
+| `scene_query` | `path`* | Look up one node by path |
+| `scene_resolve` | — | Resolve every prefab instance and print the runtime tree |
+| `scene_tree` | — | Print the node tree |
+| `script_check` | `path`* | Check a script without writing it |
+| `script_list` | — | List the project's scripts |
+| `script_write` | `path`*, `source` | Write a script file, reporting syntax errors structurally |
+| `signal_connect` | `from`*, `method`*, `signal`*, `to`* | Connect a signal to a method |
+| `signal_disconnect` | `from`*, `method`*, `signal`*, `to`* | Remove a connection |
+| `signal_list` | — | List the scene's connections |
+| `state_dump` | `input`, `seed`, `tick` | Run to a tick and dump the state there |
+| `state_hash` | `seed`, `tick` | Print the state hash at a tick |
+| `tile_fill` | `layer`*, `rect`*, `tile`* | Fill a rectangle |
+| `tile_get` | `at`*, `layer`* | Read one tile |
+| `tile_import_ldtk` | `dry_run`, `into`, `level`, `path`*, `tileset` | Import an LDtk level, baking it to native chunks |
+| `tile_set` | `at`*, `layer`*, `tile`* | Set one tile |
+
+An argument marked `*` is required.
+
 ## Lua API
 
 Scripts see exactly these globals and nothing else.
 
 | Global | What it gives you |
 |---|---|
-| `scene` | `find(path)`, `by_id(id)`, `tagged(tag)` |
+| `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)` |
+| `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
 | `tick` | `count()`, `dt()`, `rate` |
 | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |
 | `vec2` | `vec2(x, y)`, building a fixed-point vector |
@@ -230,8 +285,23 @@ Scripts see exactly these globals and nothing else.
 
 A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,
 `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,
-`kind` and `valid`. Indexing a handle reads and writes script variables, except
-for `pos`, `rot` and `visible`, which reach the node's transform.
+`kind`, `valid`, and — on a `Sound` node — `play` and `stop`. Indexing a handle
+reads and writes script variables, except for `pos`, `rot` and `visible`, which
+reach the node's transform.
+
+### Spawning
+
+`scene.spawn` returns the id the node *will* have and creates nothing yet.
+A node inserted mid-tick would be going into a tree another script may be
+walking, so spawns are applied at the end of the tick and the node gets
+`on_ready` on the next one. The id is derived from a counter in the state
+rather than drawn from the RNG, which is what makes it the same on every
+machine and the same again after a rollback — and means spawning one fewer
+projectile does not shift every gameplay roll after it.
+
+`scene.near` and `scene.nearest` read the broadphase as it stood at the
+*start* of the tick, so every script sees the same world and what one finds
+does not depend on whether another has run yet.
 
 ### Tweens and animation
 
@@ -247,6 +317,20 @@ Animation clips come from the importer with their frame durations already in
 ticks. `on_anim_event(self, name)` fires when playback reaches a frame that
 carries an event, which is how a hitbox opens on the swing frame rather than
 on a timer someone has to keep in sync by hand.
+
+### Sound
+
+`node:play()` on a `Sound` node asks for its clip; `node:stop()` stops what
+that node started. The script says *when* and the node's properties say what,
+on which bus, how loud and how far the pitch wanders — so an instance override
+can change a sound and a designer can find it.
+
+The simulation never plays anything. It appends to a list that is cleared at
+the start of every tick and **is not hashed**, and whoever is listening reads
+it. If a trigger consumed a random number or wrote hashed state, muting a game
+would change how it plays and a run recorded with audio on would diverge from
+one played with it off. `dim run` reports how many sounds a headless run asked
+for.
 
 ### The rule that matters
 

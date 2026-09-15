@@ -144,6 +144,13 @@ impl PropertySchema {
 pub struct NodeKindSchema {
     /// The `kind` string in the file.
     pub kind: String,
+    /// The built-in kind this one behaves as.
+    ///
+    /// A built-in is its own base. A project kind that extends one carries the
+    /// built-in's name here, which is how the engine knows that an `Enemy`
+    /// collides: the simulation and the renderer ask what a node *is*, and a
+    /// name the engine has never heard of would otherwise simply be skipped.
+    pub base: String,
     /// One line for generated documentation.
     pub doc: String,
     /// Properties, in declaration order. Canonical form sorts them
@@ -156,9 +163,16 @@ impl NodeKindSchema {
     pub fn new(kind: &str, doc: &str, properties: Vec<PropertySchema>) -> NodeKindSchema {
         NodeKindSchema {
             kind: kind.to_string(),
+            base: kind.to_string(),
             doc: doc.to_string(),
             properties,
         }
+    }
+
+    /// The same kind, behaving as `base`.
+    pub fn based_on(mut self, base: &str) -> NodeKindSchema {
+        self.base = base.to_string();
+        self
     }
 
     /// Find a property schema by key.

@@ -1,0 +1,40 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_wr_root0"
+
+# Wraith. Fast and fragile: it reaches you first and dies to one bolt.
+#
+# One script across all three variants; what differs is the numbers below,
+# which are properties of this project's Enemy kind rather than a table in Lua.
+[[node]]
+id = "n_wr_root0"
+kind = "Enemy"
+name = "Wraith"
+script = "script:scripts/enemy.lua"
+tags = ["enemy", "wraith"]
+collision_layer = 2
+collision_mask = 3
+max_health = 22
+radius = 6.0
+shape = "Circle"
+speed = 62.0
+touch_damage = 6
+
+[[node]]
+id = "n_wr_hurt0"
+kind = "Area"
+name = "Hurtbox"
+parent = "n_wr_root0"          # /Wraith
+collision_layer = 2
+collision_mask = 4
+shape = "Circle"
+
+[[node]]
+id = "n_wr_body0"
+kind = "Sprite2D"
+name = "Body"
+parent = "n_wr_root0"          # /Wraith
+z = 5
+texture = "asset:sprites/wraith"

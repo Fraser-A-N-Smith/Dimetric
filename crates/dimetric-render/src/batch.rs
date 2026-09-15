@@ -57,6 +57,16 @@ pub struct DrawItem {
     pub node: NodeUid,
 }
 
+/// What the batcher splits on, packed for the sort key.
+///
+/// The batcher merges adjacent items that agree on atlas, blend and shader, so
+/// the sort has to put items that agree on all three next to each other. This
+/// packing is the one place that correspondence is written down; if a fourth
+/// thing ever splits a batch, it goes here and the sort follows for free.
+pub fn batch_group(atlas: u16, shader: u16, blend: Blend) -> u16 {
+    (atlas << 8) | ((shader & 0xf) << 4) | (blend as u16 & 0xf)
+}
+
 /// A contiguous run of draw items that can be issued as one instanced draw.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Batch {

@@ -101,7 +101,7 @@ pub fn extract(
         };
         let pos = interpolated(node.uid, world.pos, previous, alpha);
 
-        match node.kind.as_str() {
+        match node.base.as_str() {
             "Sprite2D" | "AnimatedSprite2D" => {
                 if let Some(item) = sprite(node, pos, world.rot, camera, atlas) {
                     sprites.push(item);
@@ -242,7 +242,12 @@ fn sprite(
         .unwrap_or(Color::WHITE);
 
     Some(DrawItem {
-        key: SortKey::new(node.layer, camera.projection.depth_of(center), 0, node.uid),
+        key: SortKey::new(
+            node.layer,
+            camera.projection.depth_of(center),
+            crate::batch::batch_group(0, 0, blend),
+            node.uid,
+        ),
         atlas: 0,
         blend,
         shader: 0,
@@ -319,7 +324,12 @@ fn tiles(
 
             let center = origin + Vec2Fx::from_ints(tile_x * cell[0], tile_y * cell[1]) + half;
             out.push(DrawItem {
-                key: SortKey::new(node.layer, camera.projection.depth_of(center), 0, node.uid),
+                key: SortKey::new(
+                    node.layer,
+                    camera.projection.depth_of(center),
+                    crate::batch::batch_group(0, 0, Blend::Alpha),
+                    node.uid,
+                ),
                 atlas: 0,
                 blend: Blend::Alpha,
                 shader: 0,

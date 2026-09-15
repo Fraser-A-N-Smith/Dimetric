@@ -43,7 +43,7 @@ pub fn advance(
     let mut events = Vec::new();
     for id in scene.walk() {
         let Some(node) = scene.get(id) else { continue };
-        if node.kind != "AnimatedSprite2D" {
+        if node.base != "AnimatedSprite2D" {
             continue;
         }
         let uid = node.uid;
@@ -125,7 +125,7 @@ pub fn advance(
             scene
                 .by_uid(*uid)
                 .and_then(|id| scene.get(id))
-                .is_none_or(|n| n.kind != "AnimatedSprite2D")
+                .is_none_or(|n| n.base != "AnimatedSprite2D")
         })
         .collect();
     for uid in scripted {

@@ -1,0 +1,1529 @@
+{
+  "tools": [
+    {
+      "description": "Print every diagnostic code",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "api_codes"
+    },
+    {
+      "description": "Print the command set",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "api_commands"
+    },
+    {
+      "description": "Print every registered node kind and its properties",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "api_kinds"
+    },
+    {
+      "description": "Print the JSON schema for the command set",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "api_schema"
+    },
+    {
+      "description": "Print the MCP tool list, which is this CLI seen from the other side",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "api_tools"
+    },
+    {
+      "description": "Import one asset",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Project-relative path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "asset_import"
+    },
+    {
+      "description": "Describe one asset: its id, its hash, and what it imported to",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Asset name, as a scene refers to it: `sprites/hero`",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "asset_info"
+    },
+    {
+      "description": "List the project's source assets and their import state",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "stale": {
+            "description": "Only list assets whose cache is behind their source",
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "asset_list"
+    },
+    {
+      "description": "Import everything whose cache is behind its source",
+      "inputSchema": {
+        "properties": {
+          "all": {
+            "description": "Import every asset, not only the stale ones",
+            "type": "boolean"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "asset_reimport"
+    },
+    {
+      "description": "Package the project for a platform",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "out": {
+            "description": "Where to stage it. Defaults to `build/<target>` under the project",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "runtime": {
+            "description": "A `dim-play` built for this target, to ship beside the game",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "seed": {
+            "description": "Seed the packaged game starts from",
+            "type": "string"
+          },
+          "target": {
+            "description": "Target platform: `linux`, `macos`, `windows`, or a Rust target triple",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "type": "object"
+      },
+      "name": "build"
+    },
+    {
+      "description": "Render one frame to a PNG",
+      "inputSchema": {
+        "properties": {
+          "ambient": {
+            "description": "Ambient light as `#rrggbbaa`. Anything but white enables the light pass; white means lights would add nothing and it is skipped",
+            "type": "string"
+          },
+          "height": {
+            "description": "Output height in pixels",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "input": {
+            "description": "Input log to drive the run up to the tick",
+            "type": "string"
+          },
+          "internal": {
+            "description": "Resolution the world is drawn at before upscaling, as `WxH`",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "no_integer_upscale": {
+            "description": "Scale by whole numbers only. On by default, for pixel art",
+            "type": "boolean"
+          },
+          "png": {
+            "description": "Output path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "seed": {
+            "description": "Run seed",
+            "type": "string"
+          },
+          "tick": {
+            "description": "Tick to render",
+            "type": "string"
+          },
+          "width": {
+            "description": "Output width in pixels",
+            "type": "string"
+          }
+        },
+        "required": [
+          "png"
+        ],
+        "type": "object"
+      },
+      "name": "frame_capture"
+    },
+    {
+      "description": "Write a new project to start from",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Name for the root node and the README. Defaults to the directory's name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Directory to create. Must be empty or absent",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "new"
+    },
+    {
+      "description": "Clear one property, restoring its default",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "key": {
+            "description": "Property key",
+            "type": "string"
+          },
+          "path": {
+            "description": "Scene path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "key"
+        ],
+        "type": "object"
+      },
+      "name": "node_clear"
+    },
+    {
+      "description": "Add a node",
+      "inputSchema": {
+        "properties": {
+          "id": {
+            "description": "Node id to use. Generated when absent",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "Registered node kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name, unique among its siblings",
+            "type": "string"
+          },
+          "parent": {
+            "description": "Parent's scene path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "set": {
+            "description": "Property assignments, as `key=value` with TOML value syntax",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "parent"
+        ],
+        "type": "object"
+      },
+      "name": "node_create"
+    },
+    {
+      "description": "Remove a node and its subtree",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Scene path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "node_delete"
+    },
+    {
+      "description": "Print one node's properties",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Scene path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "node_get"
+    },
+    {
+      "description": "Rename a node",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "New name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Scene path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "node_rename"
+    },
+    {
+      "description": "Move a node under a new parent",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "parent": {
+            "description": "Scene path of the new parent",
+            "type": "string"
+          },
+          "path": {
+            "description": "Scene path of the node to move",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "parent"
+        ],
+        "type": "object"
+      },
+      "name": "node_reparent"
+    },
+    {
+      "description": "Set one property",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "key": {
+            "description": "Property key",
+            "type": "string"
+          },
+          "path": {
+            "description": "Scene path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "value": {
+            "description": "Value, in TOML syntax",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "key",
+          "value"
+        ],
+        "type": "object"
+      },
+      "name": "node_set"
+    },
+    {
+      "description": "Clear one override",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "instance": {
+            "description": "Scene path of the instance node",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "key": {
+            "description": "Property key",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "target": {
+            "description": "Node id in the source scene",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance",
+          "target",
+          "key"
+        ],
+        "type": "object"
+      },
+      "name": "override_clear"
+    },
+    {
+      "description": "List the overrides on an instance",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "instance": {
+            "description": "Scene path of the instance node",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance"
+        ],
+        "type": "object"
+      },
+      "name": "override_list"
+    },
+    {
+      "description": "Set one override",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "instance": {
+            "description": "Scene path of the instance node",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "key": {
+            "description": "Property key",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "target": {
+            "description": "Node id in the source scene",
+            "type": "string"
+          },
+          "value": {
+            "description": "Value, in TOML syntax",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance",
+          "target",
+          "key",
+          "value"
+        ],
+        "type": "object"
+      },
+      "name": "override_set"
+    },
+    {
+      "description": "Add an instance of another scene",
+      "inputSchema": {
+        "properties": {
+          "id": {
+            "description": "Node id to use. Generated when absent",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Name for the instance",
+            "type": "string"
+          },
+          "parent": {
+            "description": "Parent's scene path",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position, as `x,y`",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "source": {
+            "description": "Source scene, such as `prefabs/skeleton`",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "parent",
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "prefab_instance"
+    },
+    {
+      "description": "Replay a recorded run and check it",
+      "inputSchema": {
+        "properties": {
+          "assert": {
+            "description": "Probe file to evaluate",
+            "type": "string"
+          },
+          "hashes": {
+            "description": "Recorded hashes to compare against",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "input": {
+            "description": "Input log to replay",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "ticks": {
+            "description": "Ticks to run. Defaults to the log's length",
+            "type": "string"
+          }
+        },
+        "required": [
+          "input"
+        ],
+        "type": "object"
+      },
+      "name": "replay"
+    },
+    {
+      "description": "Run the simulation headlessly",
+      "inputSchema": {
+        "properties": {
+          "headless": {
+            "description": "Run without a window. The only mode this build supports",
+            "type": "boolean"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "input": {
+            "description": "Input log to drive the run",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "record": {
+            "description": "Write the per-tick state hashes here",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "seed": {
+            "description": "Run seed",
+            "type": "string"
+          },
+          "ticks": {
+            "description": "Ticks to simulate",
+            "type": "string"
+          },
+          "watch": {
+            "description": "Reload changed scripts and assets between ticks",
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "run"
+    },
+    {
+      "description": "Report the scene's validation diagnostics",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "scene_check"
+    },
+    {
+      "description": "Rewrite the scene in canonical form",
+      "inputSchema": {
+        "properties": {
+          "check": {
+            "description": "Report whether the file is already canonical instead of writing it",
+            "type": "boolean"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "scene_fmt"
+    },
+    {
+      "description": "Look up one node by path",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Scene path, such as `/Arena01/Player`",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "scene_query"
+    },
+    {
+      "description": "Resolve every prefab instance and print the runtime tree",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "scene_resolve"
+    },
+    {
+      "description": "Print the node tree",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "scene_tree"
+    },
+    {
+      "description": "Check a script without writing it",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Project-relative path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "script_check"
+    },
+    {
+      "description": "List the project's scripts",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "script_list"
+    },
+    {
+      "description": "Write a script file, reporting syntax errors structurally",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Project-relative path, such as `scripts/enemy.lua`",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "source": {
+            "description": "Source text. Read from standard input when absent",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "script_write"
+    },
+    {
+      "description": "Connect a signal to a method",
+      "inputSchema": {
+        "properties": {
+          "from": {
+            "description": "Emitter's scene path",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "method": {
+            "description": "Method on the receiver's script",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "signal": {
+            "description": "Signal name",
+            "type": "string"
+          },
+          "to": {
+            "description": "Receiver's scene path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "signal",
+          "to",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "signal_connect"
+    },
+    {
+      "description": "Remove a connection",
+      "inputSchema": {
+        "properties": {
+          "from": {
+            "description": "Emitter's scene path",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "method": {
+            "description": "Method",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "signal": {
+            "description": "Signal name",
+            "type": "string"
+          },
+          "to": {
+            "description": "Receiver's scene path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "signal",
+          "to",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "signal_disconnect"
+    },
+    {
+      "description": "List the scene's connections",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "signal_list"
+    },
+    {
+      "description": "Run to a tick and dump the state there",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "input": {
+            "description": "Input log to drive the run",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "seed": {
+            "description": "Run seed",
+            "type": "string"
+          },
+          "tick": {
+            "description": "Tick to stop at",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "state_dump"
+    },
+    {
+      "description": "Print the state hash at a tick",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "seed": {
+            "description": "Run seed",
+            "type": "string"
+          },
+          "tick": {
+            "description": "Tick to stop at",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "state_hash"
+    },
+    {
+      "description": "Fill a rectangle",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "layer": {
+            "description": "Tile layer's scene path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "rect": {
+            "description": "Region, as `x,y,width,height`",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "tile": {
+            "description": "Tile index",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer",
+          "rect",
+          "tile"
+        ],
+        "type": "object"
+      },
+      "name": "tile_fill"
+    },
+    {
+      "description": "Read one tile",
+      "inputSchema": {
+        "properties": {
+          "at": {
+            "description": "Coordinate, as `x,y`",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "layer": {
+            "description": "Tile layer's scene path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer",
+          "at"
+        ],
+        "type": "object"
+      },
+      "name": "tile_get"
+    },
+    {
+      "description": "Import an LDtk level, baking it to native chunks",
+      "inputSchema": {
+        "properties": {
+          "dry_run": {
+            "description": "Report what would happen without changing anything",
+            "type": "boolean"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "into": {
+            "description": "Node the layers hang off. Defaults to the scene root",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "level": {
+            "description": "Level to bake. Defaults to the first in the project",
+            "type": "string"
+          },
+          "path": {
+            "description": "Path to the `.ldtk` file, project-relative",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "tileset": {
+            "description": "Tileset asset for every layer, overriding what LDtk named",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "tile_import_ldtk"
+    },
+    {
+      "description": "Set one tile",
+      "inputSchema": {
+        "properties": {
+          "at": {
+            "description": "Coordinate, as `x,y`",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "layer": {
+            "description": "Tile layer's scene path",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "tile": {
+            "description": "Tile index",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer",
+          "at",
+          "tile"
+        ],
+        "type": "object"
+      },
+      "name": "tile_set"
+    }
+  ]
+}

@@ -310,6 +310,35 @@ impl UserData for NodeHandle {
             Ok(())
         });
 
+        // Sound nodes. The properties are authored on the node, so a script
+        // says *when* rather than *what* — which keeps the clip, the bus and
+        // the gain somewhere a designer can see them and an override can reach.
+        m.add_method("play", |lua, this, ()| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            let id = resolve(&state, this.0)?;
+            let cue = state
+                .scene
+                .get(id)
+                .and_then(crate::sound::SoundCue::of)
+                .ok_or_else(|| mlua::Error::runtime("play() needs a Sound node with a stream"))?;
+            state.autoplayed.push(cue.node);
+            state.sounds.push(crate::sound::SoundEvent::Play(cue));
+            Ok(())
+        });
+
+        m.add_method("stop", |lua, this, ()| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            let id = resolve(&state, this.0)?;
+            let uid = state.scene.get(id).map(|n| n.uid).unwrap_or(this.0);
+            state.autoplayed.retain(|n| *n != uid);
+            state
+                .sounds
+                .push(crate::sound::SoundEvent::Stop { node: uid });
+            Ok(())
+        });
+
         m.add_method("set_velocity", |lua, this, v: LuaVec2| {
             let state = shared(lua)?;
             state.borrow_mut().velocity.insert(this.0, v.0);
@@ -436,6 +465,70 @@ fn resolve(state: &SimState, uid: NodeUid) -> mlua::Result<dimetric_core::NodeId
         .ok_or_else(|| mlua::Error::runtime(format!("node {uid} no longer exists")))
 }
 
+/// Convert a Lua table into a list or a map.
+///
+/// Lua has one table type and the engine has two values, so the shape has to be
+/// inferred: a table whose keys are exactly `1..=n` is a list, and anything
+/// else is a map. Sequences matter here beyond tidiness — an ordered list is
+/// how a script keeps a spawn table or an upgrade order reproducible, and a map
+/// iterates in key order, which is not the order anybody wrote (I4).
+///
+/// A table mixing the two is refused rather than silently losing half of it.
+fn table_to_value(t: mlua::Table) -> mlua::Result<Value> {
+    let mut integer_keys = Vec::new();
+    let mut string_keys = Vec::new();
+    for pair in t.clone().pairs::<mlua::Value, mlua::Value>() {
+        let (key, value) = pair?;
+        match key {
+            mlua::Value::Integer(i) => integer_keys.push((i, value)),
+            mlua::Value::String(s) => string_keys.push((s.to_str()?.to_string(), value)),
+            // A table keyed by anything else has no representation in the scene
+            // format, so it cannot be stored and saying so beats dropping it.
+            other => {
+                return Err(mlua::Error::runtime(format!(
+                    "a table key must be a string or an integer, not {}",
+                    other.type_name()
+                )))
+            }
+        }
+    }
+
+    if !integer_keys.is_empty() && !string_keys.is_empty() {
+        return Err(mlua::Error::runtime(
+            "a table mixing array entries and named keys has no engine value; \
+             use one or the other",
+        ));
+    }
+
+    if !integer_keys.is_empty() {
+        integer_keys.sort_by_key(|(i, _)| *i);
+        let contiguous = integer_keys
+            .iter()
+            .enumerate()
+            .all(|(index, (key, _))| *key == index as i64 + 1);
+        if !contiguous {
+            return Err(mlua::Error::runtime(
+                "an array with gaps in it has no engine value; \
+                 a list is 1..n with nothing missing",
+            ));
+        }
+        let mut items = Vec::with_capacity(integer_keys.len());
+        for (_, value) in integer_keys {
+            items.push(from_lua(value)?);
+        }
+        return Ok(Value::List(items));
+    }
+
+    // Sorted, so the same table always produces the same value and the same
+    // state hash whatever order Lua happened to iterate it in.
+    string_keys.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut map = IndexMap::new();
+    for (key, value) in string_keys {
+        map.insert(key, from_lua(value)?);
+    }
+    Ok(Value::Map(map))
+}
+
 /// Convert an engine value into Lua.
 fn to_lua(lua: &Lua, value: &Value) -> mlua::Result<mlua::Value> {
     Ok(match value {
@@ -497,17 +590,7 @@ fn from_lua(value: mlua::Value) -> mlua::Result<Value> {
                 return Err(mlua::Error::runtime("unsupported userdata"));
             }
         }
-        mlua::Value::Table(t) => {
-            let mut map = IndexMap::new();
-            let mut pairs: Vec<(String, mlua::Value)> = t
-                .pairs::<String, mlua::Value>()
-                .collect::<mlua::Result<Vec<_>>>()?;
-            pairs.sort_by(|a, b| a.0.cmp(&b.0));
-            for (k, v) in pairs {
-                map.insert(k, from_lua(v)?);
-            }
-            Value::Map(map)
-        }
+        mlua::Value::Table(t) => table_to_value(t)?,
         other => {
             return Err(mlua::Error::runtime(format!(
                 "cannot store a {} in simulation state",
@@ -741,6 +824,97 @@ impl LuaHost {
                 .map_err(err)?,
             )
             .map_err(err)?;
+        // scene.spawn(prefab, at, parent) -> the id the node will have.
+        //
+        // The node does not exist yet: creating it mid-tick would put it into a
+        // tree another script may be walking. It appears at the end of the
+        // tick and gets `on_ready` on the next one. The id comes back now
+        // because it is derived rather than drawn, so a script can hold it and
+        // look the node up when it arrives.
+        scene
+            .set(
+                "spawn",
+                lua.create_function(
+                    |lua, (prefab, at, parent): (String, Option<LuaVec2>, Option<NodeHandle>)| {
+                        let state = shared(lua)?;
+                        let mut state = state.borrow_mut();
+                        let counter = state.spawn_count;
+                        state.spawn_count += 1;
+                        // Seeded by the prefab's name rather than a template
+                        // that may not be loaded, so the id is decided here and
+                        // a missing prefab is a diagnostic rather than a panic.
+                        let seed = crate::spawn::derive_uid(
+                            NodeUid::parse("n_spawn000").expect("a valid uid"),
+                            counter,
+                        );
+                        let id = crate::spawn::derive_uid(seed, prefab.len() as u64);
+                        state.spawn_queue.push(crate::spawn::Spawn {
+                            template: prefab,
+                            at: at.map(|v| v.0).unwrap_or(Vec2Fx::ZERO),
+                            parent: parent.map(|h| h.0),
+                            id,
+                        });
+                        Ok(id.to_text())
+                    },
+                )
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+
+        // scene.near(at, radius, tag) -> handles within a radius.
+        //
+        // Over the broadphase the simulation already builds, rather than
+        // walking every node: a homing projectile asking "what is near me" per
+        // tick is the difference between a cost in the enemy count and a cost
+        // in the product of both counts.
+        //
+        // Positions are as of the start of the tick, before anything moved.
+        // That is a real semantic rather than an accident: every script sees
+        // the same world, so what one of them finds does not depend on whether
+        // another one has run yet.
+        scene
+            .set(
+                "near",
+                lua.create_function(|lua, (at, radius, tag): (LuaVec2, LuaFx, Option<String>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let found = state
+                        .query
+                        .as_ref()
+                        .map(|w| w.within_tagged(at.0, radius.0, tag.as_deref()));
+                    let mut handles = Vec::new();
+                    for uid in found.unwrap_or_default() {
+                        handles.push(NodeHandle(uid));
+                    }
+                    lua.create_sequence_from(handles)
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+
+        // scene.nearest(at, radius, tag) -> the closest one, or nothing.
+        scene
+            .set(
+                "nearest",
+                lua.create_function(|lua, (at, radius, tag): (LuaVec2, LuaFx, Option<String>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let Some(world) = state.query.as_ref() else {
+                        return Ok(None);
+                    };
+                    // The scan walks the index for this tag, so a tagged query
+                    // never visits a body that could not match — which is what
+                    // a few hundred homing projectiles asking every tick made
+                    // expensive.
+                    // No confirmation against the scene: the index is exact, so
+                    // a hit is a hit.
+                    let found = world.nearest(at.0, radius.0, tag.as_deref(), |_| true);
+                    Ok(found.map(NodeHandle))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+
         env.set("scene", scene).map_err(err)?;
 
         // tick.count and tick.dt
@@ -764,6 +938,95 @@ impl LuaHost {
         .map_err(err)?;
         tick.set("rate", rate).map_err(err)?;
         env.set("tick", tick).map_err(err)?;
+
+        // input: what the player is doing this tick.
+        //
+        // Read-only, and from `SimState` rather than from a device: inside a
+        // tick there is no way to tell a gamepad from a replay log, which is
+        // most of what makes replay possible (I8).
+        let input = lua.create_table().map_err(err)?;
+        input
+            .set(
+                "move",
+                lua.create_function(|lua, player: Option<u32>| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    Ok(LuaVec2(
+                        state.input.player(player.unwrap_or(0) as usize).move_dir,
+                    ))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "aim",
+                lua.create_function(|lua, player: Option<u32>| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let aim = state.input.player(player.unwrap_or(0) as usize).aim;
+                    Ok(aim.to_degrees_string())
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "aim_vector",
+                lua.create_function(|lua, player: Option<u32>| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let aim = state.input.player(player.unwrap_or(0) as usize).aim;
+                    Ok(LuaVec2(aim.to_unit_vector()))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "held",
+                lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let bit = button_bit(&button)?;
+                    Ok(state.input.player(player.unwrap_or(0) as usize).held(bit))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "pressed",
+                lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let bit = button_bit(&button)?;
+                    let index = player.unwrap_or(0) as usize;
+                    Ok(state
+                        .input
+                        .player(index)
+                        .pressed(&state.previous_input.player(index), bit))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        input
+            .set(
+                "released",
+                lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    let bit = button_bit(&button)?;
+                    let index = player.unwrap_or(0) as usize;
+                    Ok(state
+                        .previous_input
+                        .player(index)
+                        .pressed(&state.input.player(index), bit))
+                })
+                .map_err(err)?,
+            )
+            .map_err(err)?;
+        env.set("input", input).map_err(err)?;
 
         // tween: cosmetic motion, measured in ticks like everything else.
         let tween = lua.create_table().map_err(err)?;
@@ -1103,5 +1366,25 @@ fn read_property(state: &SimState, id: dimetric_core::NodeId, property: &str) ->
         "scale" => Value::Vec2(node.transform.scale),
         "rot" => Value::Angle(node.transform.rot),
         other => node.get(other)?.clone(),
+    })
+}
+
+/// The bit a button's name refers to.
+///
+/// Named rather than numbered, so a script says `input.held("fire")` and the
+/// engine keeps the bit layout to itself.
+fn button_bit(name: &str) -> mlua::Result<u32> {
+    use crate::input::buttons;
+    Ok(match name {
+        "fire" => buttons::FIRE,
+        "alt" => buttons::ALT,
+        "dash" => buttons::DASH,
+        "use" => buttons::USE,
+        "pause" => buttons::PAUSE,
+        other => {
+            return Err(mlua::Error::runtime(format!(
+                "no button called {other:?}; try fire, alt, dash, use or pause"
+            )))
+        }
     })
 }

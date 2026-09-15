@@ -144,6 +144,8 @@ pub struct Sim {
     /// Supplied by the host, which is what owns the asset catalogue. A
     /// simulation with no clips runs fine; nothing animates.
     clips: crate::anim::Clips,
+    /// Prefabs a script can stamp out, resolved by the host.
+    templates: crate::spawn::Templates,
     config: SimConfig,
     diagnostics: Diagnostics,
     /// This tick's intended motion per body, produced by the integrate phase
@@ -166,6 +168,7 @@ impl Sim {
             state: Rc::new(RefCell::new(state)),
             scripts,
             clips: Default::default(),
+            templates: Default::default(),
             config,
             diagnostics: Diagnostics::new(),
             motion: BTreeMap::new(),
@@ -196,6 +199,20 @@ impl Sim {
     pub fn with_clips(mut self, clips: crate::anim::Clips) -> Sim {
         self.clips = clips;
         self
+    }
+
+    /// Supply the prefabs a script may spawn.
+    ///
+    /// Resolved by the host, because flattening an instance needs the project's
+    /// other scenes and a simulation has no filesystem.
+    pub fn with_templates(mut self, templates: crate::spawn::Templates) -> Sim {
+        self.templates = templates;
+        self
+    }
+
+    /// The prefabs this simulation can spawn.
+    pub fn templates(&self) -> &crate::spawn::Templates {
+        &self.templates
     }
 
     /// The clips this simulation knows about.
@@ -248,10 +265,30 @@ impl Sim {
     fn run_phase(&mut self, phase: Phase, input: &InputFrame) {
         match phase {
             Phase::Input => {
-                self.state.borrow_mut().input = input.clone();
+                {
+                    let mut state = self.state.borrow_mut();
+                    let was = std::mem::replace(&mut state.input, input.clone());
+                    state.previous_input = was;
+                    // Cleared here rather than at the end of the tick, so that
+                    // when `step` returns the list holds what this tick asked
+                    // for and whoever is listening can read it.
+                    state.sounds.clear();
+                }
                 self.dispatch_ready();
+                self.start_autoplaying_sounds();
             }
-            Phase::ScriptsTick => self.dispatch_all(Hook::Tick),
+            Phase::ScriptsTick => {
+                // Built before scripts run, so every script queries the same
+                // world and what one finds does not depend on whether another
+                // has moved yet.
+                {
+                    let mut state = self.state.borrow_mut();
+                    state.scene.update_world_transforms();
+                    let world = PhysicsWorld::build(&state.scene);
+                    state.query = Some(world);
+                }
+                self.dispatch_all(Hook::Tick);
+            }
             Phase::PhysicsIntegrate => self.integrate(),
             Phase::CollisionBroadphase => self.build_broadphase(),
             Phase::CollisionResolve => self.resolve_collisions(),
@@ -260,7 +297,10 @@ impl Sim {
             Phase::ScriptsPostTick => self.dispatch_all(Hook::PostTick),
             Phase::SignalFlush => {
                 self.flush_signals();
+                // Destroys first: a spawn that reuses a destroyed node's name
+                // should find it gone, not clash with it.
                 self.apply_destroys();
+                self.apply_spawns();
             }
             Phase::TickIncrement => {
                 let mut state = self.state.borrow_mut();
@@ -323,6 +363,29 @@ impl Sim {
         }
     }
 
+    /// Start every `Sound` node that asked to start on its own.
+    ///
+    /// Separate from `on_ready` because a `Sound` node usually has no script,
+    /// and because a node that has both should get its `on_ready` *and* its
+    /// autoplay rather than whichever pass ran first.
+    fn start_autoplaying_sounds(&mut self) {
+        let mut state = self.state.borrow_mut();
+        let state = &mut *state;
+        let pending: Vec<crate::sound::SoundCue> = state
+            .scene
+            .walk()
+            .into_iter()
+            .filter_map(|id| state.scene.get(id))
+            .filter(|node| crate::sound::SoundCue::autoplays(node))
+            .filter(|node| !state.autoplayed.contains(&node.uid))
+            .filter_map(crate::sound::SoundCue::of)
+            .collect();
+        for cue in pending {
+            state.autoplayed.push(cue.node);
+            state.sounds.push(crate::sound::SoundEvent::Play(cue));
+        }
+    }
+
     fn dispatch_all(&mut self, hook: Hook) {
         for (uid, script) in self.scripted_nodes() {
             self.call(uid, &script, &hook);
@@ -369,10 +432,32 @@ impl Sim {
         let mut writes: Vec<(NodeUid, Vec2Fx)> = Vec::new();
 
         for (index, body) in world.bodies().iter().enumerate() {
-            if body.is_static || body.is_area {
+            if body.is_static {
                 continue;
             }
             let motion = self.motion.get(&body.uid).copied().unwrap_or(Vec2Fx::ZERO);
+
+            // An area is a sensor: it moves where it was told and reports what
+            // it passed through, rather than being pushed back out. Skipping it
+            // entirely — which is what used to happen — meant a projectile
+            // authored as an area sat where it spawned holding a velocity it
+            // could not use, which looks exactly like a scripting bug.
+            if body.is_area {
+                let target = body.pos + motion;
+                if !motion.is_zero() {
+                    writes.push((body.uid, target));
+                }
+                for c in world.overlaps(index, target) {
+                    events.push(CollisionEvent {
+                        node: c.a,
+                        other: c.b,
+                        normal: c.normal,
+                        trigger: c.trigger,
+                    });
+                }
+                continue;
+            }
+
             let (resolved, contacts) = world.move_body(index, body.pos + motion);
             // Sweeping handles motion. Depenetration handles what sweeping
             // cannot: a body spawned inside a wall, or one a script teleported
@@ -468,6 +553,30 @@ impl Sim {
     ///
     /// Deferred to a phase boundary so that a script cannot delete a node
     /// another script is part-way through working with.
+    /// Create everything scripts asked for this tick.
+    fn apply_spawns(&mut self) {
+        let pending: Vec<crate::spawn::Spawn> =
+            std::mem::take(&mut self.state.borrow_mut().spawn_queue);
+        for request in pending {
+            let Some(template) = self.templates.get(&request.template).cloned() else {
+                self.diagnostics.push(
+                    dimetric_core::Diagnostic::new(
+                        dimetric_core::Code::ASSET_MISSING,
+                        format!("no prefab called {:?} to spawn", request.template),
+                    )
+                    .with_field("prefab", request.template.clone()),
+                );
+                continue;
+            };
+            let mut state = self.state.borrow_mut();
+            if let Err(d) = crate::spawn::graft(&mut state.scene, &template, &request) {
+                drop(state);
+                self.diagnostics.push(d);
+            }
+        }
+        self.state.borrow_mut().scene.update_world_transforms();
+    }
+
     fn apply_destroys(&mut self) {
         let pending: Vec<NodeUid> = std::mem::take(&mut self.state.borrow_mut().destroy_queue);
         let scripts = self.scripted_nodes();

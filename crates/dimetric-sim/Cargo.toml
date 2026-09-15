@@ -12,6 +12,7 @@ authors.workspace = true
 dimetric-core.workspace = true
 dimetric-scene.workspace = true
 dimetric-assets.workspace = true
+blake3.workspace = true
 indexmap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -26,4 +27,8 @@ proptest.workspace = true
 # a statistics framework nobody re-runs.
 [[bench]]
 name = "handles"
+harness = false
+
+[[bench]]
+name = "queries"
 harness = false

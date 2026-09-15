@@ -136,6 +136,13 @@ pub struct Node {
     pub uid: NodeUid,
     /// Registered node kind.
     pub kind: String,
+    /// The built-in kind this node behaves as.
+    ///
+    /// Equal to [`Node::kind`] for a built-in, and to whatever a project kind
+    /// extends otherwise. Derived from the registry at load, so it is neither
+    /// written to a file nor hashed: the kind name already is, and this is a
+    /// consequence of it.
+    pub base: String,
     /// Human-facing name, unique among siblings.
     pub name: String,
     /// Local transform.
@@ -174,9 +181,11 @@ pub struct Node {
 impl Node {
     /// A node with default reserved values and no properties.
     pub fn new(uid: NodeUid, kind: impl Into<String>, name: impl Into<String>) -> Node {
+        let kind = kind.into();
         Node {
             uid,
-            kind: kind.into(),
+            kind: kind.clone(),
+            base: kind,
             name: name.into(),
             transform: Transform::IDENTITY,
             visible: true,

@@ -19,10 +19,14 @@ use crate::batch::Blend;
 use crate::extract::Frame;
 use crate::settings::RenderSettings;
 
-/// Format used for every texture the renderer owns.
+/// Format of every texture the renderer owns.
 ///
 /// One format everywhere so the windowed and headless paths cannot pick
-/// different ones and produce different pixels.
+/// different ones and produce different pixels. The final composite is the
+/// exception and cannot be: a window's swap chain is whatever the platform
+/// offers — commonly BGRA where an offscreen target is RGBA — and a pipeline
+/// whose target format disagrees with the pass is rejected outright. See
+/// [`Renderer::output_format`].
 pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 /// Why the renderer could not start or draw.
@@ -111,6 +115,13 @@ pub struct Renderer {
     light: wgpu::Texture,
 
     settings: RenderSettings,
+    output_format: wgpu::TextureFormat,
+    /// The adapter the device came from.
+    ///
+    /// Kept because a windowed target has to ask it what formats the surface
+    /// supports, and asking a second adapter would be asking about a different
+    /// device.
+    adapter: wgpu::Adapter,
     /// What the adapter reported, for diagnostics and for CI logs.
     pub adapter_info: wgpu::AdapterInfo,
 }
@@ -252,7 +263,22 @@ impl Renderer {
             sprite_pipeline(&device, &sprite_shader, &sprite_layout, Blend::Multiply),
         ];
         let light_pipeline = light_pipeline(&device, &light_shader, &light_layout);
-        let composite_pipeline = composite_pipeline(&device, &composite_shader, &composite_layout);
+        // What the composite writes into: the surface's preferred sRGB format
+        // when there is a surface, and the offscreen format when there is not.
+        // Everything before the composite is in FORMAT either way, so the two
+        // paths differ only in the last blit.
+        let output_format = match surface {
+            Some(surface) => surface
+                .get_capabilities(&adapter)
+                .formats
+                .iter()
+                .copied()
+                .find(|f| f.is_srgb())
+                .unwrap_or(FORMAT),
+            None => FORMAT,
+        };
+        let composite_pipeline =
+            composite_pipeline(&device, &composite_shader, &composite_layout, output_format);
 
         let sprite_capacity = 1024;
         let light_capacity = 64;
@@ -278,6 +304,8 @@ impl Renderer {
             world,
             light,
             settings,
+            output_format,
+            adapter,
             adapter_info,
         })
     }
@@ -295,6 +323,20 @@ impl Renderer {
     /// Current settings.
     pub fn settings(&self) -> RenderSettings {
         self.settings
+    }
+
+    /// The adapter this renderer's device came from.
+    pub fn adapter(&self) -> &wgpu::Adapter {
+        &self.adapter
+    }
+
+    /// The format the final composite writes.
+    ///
+    /// A window must configure its surface to exactly this: a swap chain in
+    /// another format is not a mismatch the driver will paper over, it is a
+    /// validation error on the first frame.
+    pub fn output_format(&self) -> wgpu::TextureFormat {
+        self.output_format
     }
 
     /// Draw a frame into `target`.
@@ -879,6 +921,7 @@ fn composite_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
     bind_layout: &wgpu::BindGroupLayout,
+    output_format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("composite pipeline layout"),
@@ -898,7 +941,7 @@ fn composite_pipeline(
             module: shader,
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
-                format: FORMAT,
+                format: output_format,
                 blend: None,
                 write_mask: wgpu::ColorWrites::ALL,
             })],

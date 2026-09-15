@@ -6,20 +6,17 @@ root = "n_sk_root0"
 
 [[node]]
 id = "n_sk_root0"
-kind = "Collider"
+kind = "Enemy"
 name = "Skeleton"
-script = "script:scripts/skeleton.lua"
-tags = ["enemy"]
+script = "script:scripts/enemy.lua"
+tags = ["enemy", "skeleton"]
 collision_layer = 2
 collision_mask = 3
+max_health = 40
 radius = 7.0
 shape = "Circle"
-
-[[node]]
-id = "n_sk_stats"
-kind = "Node"
-name = "Stats"
-parent = "n_sk_root0"          # /Skeleton
+speed = 35.0
+touch_damage = 4
 
 [[node]]
 id = "n_sk_hurt0"
@@ -30,3 +27,11 @@ collision_layer = 2
 collision_mask = 4
 radius = 9.0
 shape = "Circle"
+
+[[node]]
+id = "n_sk_body0"
+kind = "Sprite2D"
+name = "Body"
+parent = "n_sk_root0"          # /Skeleton
+z = 5
+texture = "asset:sprites/skeleton"

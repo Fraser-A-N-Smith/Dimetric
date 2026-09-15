@@ -303,7 +303,7 @@ fn import_one(full: &Path, entry: &Entry, tick_rate: u32) -> Result<Artifact, Im
                 clips: ase.clips,
             })
         }
-        SourceKind::Ogg => Ok(Artifact::Audio {
+        SourceKind::Audio => Ok(Artifact::Audio {
             bytes: std::fs::read(full).map_err(|e| ImageError::io(full, e))?,
         }),
         SourceKind::Ldtk => Ok(Artifact::Level),

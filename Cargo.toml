@@ -14,6 +14,7 @@ members = [
     "crates/dimetric-assets",
     "crates/dimetric-host",
     "crates/dimetric-editor",
+    "crates/dimetric-player",
     "crates/dimetric-agent",
     "xtask",
 ]
@@ -36,6 +37,7 @@ dimetric-audio = { path = "crates/dimetric-audio", version = "0.0.1" }
 dimetric-assets = { path = "crates/dimetric-assets", version = "0.0.1" }
 dimetric-host = { path = "crates/dimetric-host", version = "0.0.1" }
 dimetric-editor = { path = "crates/dimetric-editor", version = "0.0.1" }
+dimetric-player = { path = "crates/dimetric-player", version = "0.0.1" }
 
 fixed = { version = "1.29", features = ["serde"] }
 slotmap = { version = "1.0", features = ["serde"] }

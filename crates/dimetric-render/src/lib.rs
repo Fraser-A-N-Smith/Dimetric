@@ -26,7 +26,7 @@ pub mod settings;
 pub mod sort;
 
 pub use atlas::{Atlas, Region, Source};
-pub use batch::{build, Batch, Blend, DrawItem};
+pub use batch::{batch_group, build, Batch, Blend, DrawItem};
 pub use capture::{headless_instance, read_png, write_png, Capture};
 pub use extract::{extract, Frame, Interpolation, LightItem};
 pub use gpu::{GpuError, Renderer, Target};

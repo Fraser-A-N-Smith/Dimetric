@@ -22,8 +22,14 @@ pub const DEFAULT_TICK_RATE: u32 = 60;
 pub struct Project {
     /// Project root on disk.
     pub root: PathBuf,
-    /// Registered node kinds.
+    /// Registered node kinds, the built-ins plus anything `kinds.toml` adds.
     pub registry: KindRegistry,
+    /// Anything wrong with the project's own `kinds.toml`.
+    ///
+    /// Held rather than returned, because opening a project is infallible and
+    /// a broken kinds file should surface where a scene fails to load rather
+    /// than as a panic on startup.
+    pub kind_diagnostics: Diagnostics,
     /// The open scene, if any.
     pub open: Option<SceneDoc>,
     /// Undo and redo.
@@ -46,9 +52,25 @@ pub struct Project {
 impl Project {
     /// Open a project rooted at `root`.
     pub fn open(root: impl Into<PathBuf>, id_seed: u64) -> Project {
+        let root: PathBuf = root.into();
+        // A project's own node kinds, if it declares any. Read here rather than
+        // on demand because the registry has to be complete before the first
+        // scene is parsed — a kind discovered later is a scene that already
+        // failed to load.
+        let mut registry = KindRegistry::with_builtins();
+        let mut kind_diagnostics = Diagnostics::new();
+        let kinds_path = root.join(dimetric_scene::project_kinds::KINDS_FILE);
+        if let Ok(text) = std::fs::read_to_string(&kinds_path) {
+            kind_diagnostics = dimetric_scene::project_kinds::merge(
+                &mut registry,
+                &text,
+                &kinds_path.display().to_string(),
+            );
+        }
         Project {
-            root: root.into(),
-            registry: KindRegistry::with_builtins(),
+            root,
+            registry,
+            kind_diagnostics,
             open: None,
             bus: CommandBus::new(),
             scripts: BTreeMap::new(),
@@ -167,7 +189,12 @@ impl Project {
         let display = path.display().to_string();
         let out = dimetric_scene::parse(&source, &display, &self.registry);
         if out.diagnostics.has_errors() {
-            return Err(out.diagnostics);
+            // A scene failing on an unknown kind, when the kinds file that was
+            // meant to declare it is itself broken, should say so here rather
+            // than leave somebody hunting a typo in the scene.
+            let mut diagnostics = self.kind_diagnostics.clone();
+            diagnostics.extend(out.diagnostics);
+            return Err(diagnostics);
         }
         self.open = out.doc;
         self.bus.clear();
@@ -297,6 +324,56 @@ impl Project {
             &sources,
             &self.registry,
         ))
+    }
+
+    /// Every prefab under `prefabs/`, resolved and ready to spawn.
+    ///
+    /// Resolved here rather than in the simulation because flattening an
+    /// instance needs the project's other scenes, and a tick has no
+    /// filesystem. A prefab that will not load is reported and left out, so one
+    /// broken file does not stop the run.
+    pub fn templates(&self) -> (dimetric_sim::spawn::Templates, Diagnostics) {
+        let mut templates = dimetric_sim::spawn::Templates::new();
+        let mut diagnostics = Diagnostics::new();
+        let dir = self.root.join("prefabs");
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return (templates, diagnostics);
+        };
+        // Sorted, so what is loaded — and what a duplicate name resolves to —
+        // never depends on directory order.
+        let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        paths.sort();
+
+        let sources = DiskScenes {
+            root: self.root.clone(),
+            registry: self.registry.clone(),
+        };
+        for path in paths {
+            if path.extension().and_then(|e| e.to_str()) != Some(SCENE_EXTENSION) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let display = path.display().to_string();
+            let out = dimetric_scene::parse(&text, &display, &self.registry);
+            let Some(doc) = out.doc else {
+                diagnostics.extend(out.diagnostics);
+                continue;
+            };
+            let (resolved, resolve_diagnostics) =
+                dimetric_scene::resolve(&doc.scene, &sources, &self.registry);
+            diagnostics.extend(resolve_diagnostics);
+            let name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            // Both spellings, so a script can say either the bare name or the
+            // path a scene reference uses.
+            templates.insert(format!("prefabs/{name}"), resolved.clone());
+            templates.insert(name, resolved);
+        }
+        (templates, diagnostics)
     }
 
     /// Load every `.lua` file under `scripts/`.

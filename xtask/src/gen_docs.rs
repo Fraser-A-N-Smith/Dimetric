@@ -22,12 +22,14 @@ pub fn run() -> Result<(), String> {
     let codes = dim(&root, &["api", "codes", "--json"])?;
     let kinds = dim(&root, &["api", "kinds", "--json"])?;
     let commands = dim(&root, &["api", "schema", "--json"])?;
+    let tools = dim(&root, &["api", "tools", "--json"])?;
 
     write_json(&schemas.join("diagnostics.json"), &codes)?;
     write_json(&schemas.join("node-kinds.json"), &kinds)?;
     write_json(&schemas.join("commands.json"), &commands)?;
+    write_json(&schemas.join("mcp-tools.json"), &tools)?;
 
-    let markdown = render_markdown(&codes, &kinds, &commands)?;
+    let markdown = render_markdown(&codes, &kinds, &commands, &tools)?;
     let path = docs.join("API.md");
     std::fs::write(&path, markdown).map_err(|e| format!("writing {}: {e}", path.display()))?;
     eprintln!("xtask: wrote docs/API.md and docs/schemas/");
@@ -69,6 +71,7 @@ fn render_markdown(
     codes: &serde_json::Value,
     kinds: &serde_json::Value,
     commands: &serde_json::Value,
+    tools: &serde_json::Value,
 ) -> Result<String, String> {
     let mut out = String::new();
     out.push_str(
@@ -204,11 +207,70 @@ fn render_markdown(
         );
     }
 
+    // -- mcp tools -------------------------------------------------------
+    out.push_str(
+        "\n## MCP tools\n\n\
+         `dim mcp` serves the CLI over the Model Context Protocol. The tools are read\n\
+         from the CLI itself, so this list is what the binary answers `tools/list` with.\n\
+         `project`, `scene`, `json` and `id_seed` are global and omitted from the\n\
+         arguments column.\n\n\
+         | Tool | Arguments | What it does |\n|---|---|---|\n",
+    );
+    let globals = ["project", "scene", "json", "id_seed"];
+    let list = tools
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .ok_or("api tools gave no list")?;
+    for tool in list {
+        let name = tool
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let about = tool
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let schema = &tool["inputSchema"];
+        let required: Vec<&str> = schema
+            .get("required")
+            .and_then(|r| r.as_array())
+            .map(|r| r.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+        let mut arguments: Vec<String> = schema
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .map(|p| p.keys().cloned().collect())
+            .unwrap_or_default();
+        arguments.retain(|a| !globals.contains(&a.as_str()));
+        arguments.sort();
+        let rendered: Vec<String> = arguments
+            .iter()
+            .map(|a| {
+                if required.contains(&a.as_str()) {
+                    format!("`{a}`*")
+                } else {
+                    format!("`{a}`")
+                }
+            })
+            .collect();
+        let _ = writeln!(
+            out,
+            "| `{name}` | {} | {about} |",
+            if rendered.is_empty() {
+                "—".to_string()
+            } else {
+                rendered.join(", ")
+            }
+        );
+    }
+    out.push_str("\nAn argument marked `*` is required.\n");
+
     out.push_str(
         "\n## Lua API\n\n\
          Scripts see exactly these globals and nothing else.\n\n\
          | Global | What it gives you |\n|---|---|\n\
-         | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)` |\n\
+         | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)` |\n\
+         | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |\n\
          | `tick` | `count()`, `dt()`, `rate` |\n\
          | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |\n\
          | `vec2` | `vec2(x, y)`, building a fixed-point vector |\n\
@@ -218,8 +280,20 @@ fn render_markdown(
          | `anim` | `play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |\n\n\
          A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,\n\
          `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,\n\
-         `kind` and `valid`. Indexing a handle reads and writes script variables, except\n\
-         for `pos`, `rot` and `visible`, which reach the node's transform.\n\n\
+         `kind`, `valid`, and — on a `Sound` node — `play` and `stop`. Indexing a handle\n\
+         reads and writes script variables, except for `pos`, `rot` and `visible`, which\n\
+         reach the node's transform.\n\n\
+         ### Spawning\n\n\
+         `scene.spawn` returns the id the node *will* have and creates nothing yet.\n\
+         A node inserted mid-tick would be going into a tree another script may be\n\
+         walking, so spawns are applied at the end of the tick and the node gets\n\
+         `on_ready` on the next one. The id is derived from a counter in the state\n\
+         rather than drawn from the RNG, which is what makes it the same on every\n\
+         machine and the same again after a rollback — and means spawning one fewer\n\
+         projectile does not shift every gameplay roll after it.\n\n\
+         `scene.near` and `scene.nearest` read the broadphase as it stood at the\n\
+         *start* of the tick, so every script sees the same world and what one finds\n\
+         does not depend on whether another has run yet.\n\n\
          ### Tweens and animation\n\n\
          Tweens and animation are simulation state, not presentation. They advance on\n\
          ticks, they are snapshotted, and they are in the state hash — a tween outside\n\
@@ -232,6 +306,17 @@ fn render_markdown(
          ticks. `on_anim_event(self, name)` fires when playback reaches a frame that\n\
          carries an event, which is how a hitbox opens on the swing frame rather than\n\
          on a timer someone has to keep in sync by hand.\n\n\
+         ### Sound\n\n\
+         `node:play()` on a `Sound` node asks for its clip; `node:stop()` stops what\n\
+         that node started. The script says *when* and the node's properties say what,\n\
+         on which bus, how loud and how far the pitch wanders — so an instance override\n\
+         can change a sound and a designer can find it.\n\n\
+         The simulation never plays anything. It appends to a list that is cleared at\n\
+         the start of every tick and **is not hashed**, and whoever is listening reads\n\
+         it. If a trigger consumed a random number or wrote hashed state, muting a game\n\
+         would change how it plays and a run recorded with audio on would diverge from\n\
+         one played with it off. `dim run` reports how many sounds a headless run asked\n\
+         for.\n\n\
          ### The rule that matters\n\n\
          Lua numbers are `f64`. Gameplay arithmetic done in raw Lua numbers and written\n\
          into simulation state is the easiest way to break replay. Use `vec2` and `fx`\n\

@@ -20,11 +20,17 @@ pub fn run(check: bool) -> Result<(), String> {
 
     let mut offenders = Vec::new();
     for scene in &scenes {
-        let project = scene.parent().ok_or("a scene needs a directory")?;
-        let name = scene
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or("a scene needs a name")?;
+        // A prefab sits in a subdirectory of the project whose kinds it uses,
+        // so the project is the nearest directory up that declares any, not
+        // the one the file happens to be in.
+        let dir = scene.parent().ok_or("a scene needs a directory")?;
+        let project = project_root(dir, &root);
+        let relative = scene
+            .strip_prefix(project)
+            .map_err(|_| "a scene outside its project")?
+            .with_extension("");
+        let name = relative.to_str().ok_or("non-UTF-8 path")?.to_string();
+        let name = name.as_str();
         let mut args = vec![
             "run",
             "--quiet",
@@ -60,6 +66,23 @@ pub fn run(check: bool) -> Result<(), String> {
         offenders.len(),
         offenders.join("\n  ")
     ))
+}
+
+/// The nearest ancestor of `dir` that declares node kinds, or `dir` itself.
+fn project_root<'a>(dir: &'a Path, stop: &Path) -> &'a Path {
+    let mut cursor = dir;
+    loop {
+        if cursor.join("kinds.toml").is_file() {
+            return cursor;
+        }
+        if cursor == stop {
+            return dir;
+        }
+        match cursor.parent() {
+            Some(parent) => cursor = parent,
+            None => return dir,
+        }
+    }
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {

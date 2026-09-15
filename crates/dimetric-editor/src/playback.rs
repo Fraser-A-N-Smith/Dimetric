@@ -101,7 +101,11 @@ impl Playback {
             }
         }
 
-        let sim = Sim::new(scene, 0, Box::new(host), SimConfig::default()).with_clips(clips);
+        let (templates, template_diagnostics) = project.templates();
+        diagnostics.extend(template_diagnostics);
+        let sim = Sim::new(scene, 0, Box::new(host), SimConfig::default())
+            .with_clips(clips)
+            .with_templates(templates);
         self.keyframes = vec![(0, sim.snapshot())];
         self.log = Some(InputLog::new(0, env!("CARGO_PKG_VERSION"), 1));
         self.furthest = 0;

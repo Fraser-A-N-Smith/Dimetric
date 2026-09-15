@@ -17,6 +17,8 @@ pub mod input;
 pub mod phase;
 pub mod script;
 pub mod shape;
+pub mod sound;
+pub mod spawn;
 pub mod state;
 pub mod sweep;
 pub mod tick;

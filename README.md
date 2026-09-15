@@ -11,8 +11,11 @@ networking problem rather than a rewrite.
 
 ## Status
 
-Early. The simulation layer is real and tested; the renderer and editor are not
-built yet. See [Milestones](#milestones) for what that means in practice.
+Early, and further along than that suggests: the simulation, the renderer, the
+editor, the CLI and the runtime all exist and are tested, and a game packaged
+by `dim build` runs on its own, with sound. The gap between this and something
+to write a real game in is content tooling and time rather than missing layers.
+See [Milestones](#milestones).
 
 ## On the name
 
@@ -45,6 +48,13 @@ fork.
 cargo run -p dimetric-agent -- --project examples/sorcerer --scene arena01 scene tree
 ```
 
+Start a project of your own, and play it:
+
+```sh
+dim new mygame
+cargo run -p dimetric-player --features gui -- mygame
+```
+
 Run the simulation headlessly and record what happened:
 
 ```sh
@@ -56,7 +66,7 @@ Replay it and assert on the result:
 
 ```sh
 dim --project examples/sorcerer --scene arena01 \
-    replay --input tests/walk-and-cast.input \
+    replay --input tests/full-run.input \
            --hashes tests/arena01.hashes \
            --assert tests/arena01.probes
 ```
@@ -64,6 +74,32 @@ dim --project examples/sorcerer --scene arena01 \
 Every command takes `--json` and returns a structured envelope. Every failure
 carries a `DIM####` code with machine-readable fields, so nothing has to parse
 prose to find out what went wrong.
+
+## Playing, and shipping
+
+```sh
+cargo run -p dimetric-player --features gui -- examples/sorcerer --record run.input
+```
+
+A window, a fixed tick, WASD or the arrows, mouse to aim. `--record` writes
+what you did as an input log, so a run you played reproduces under `dim replay`
+— which means a bug you hit by playing arrives as evidence rather than as a
+description of it.
+
+The window is the small half. The clock that decides how many ticks a frame
+owes, the bindings that turn keys into input, and the session that owns the
+simulation are all in `dimetric-player` as a library with no display in it, and
+they are tested that way.
+
+```sh
+dim --project examples/sorcerer build --target linux --runtime target/release/dim-play
+```
+
+stages the game into `build/linux/`: the scenes, the scripts, the prefabs, the
+assets and the import cache, plus a manifest saying which scene to boot. The
+runtime reads that manifest from beside itself, so the staged directory runs
+with no arguments. `dim` does not compile Rust — cargo does — so `--runtime`
+takes a `dim-play` built for the target you asked for.
 
 ## Scenes
 
@@ -96,7 +132,7 @@ change, not a fifty-line re-indentation, and because two branches adding nodes
 in different places should touch different regions of the file. Canonical form
 orders nodes depth-first, so it still reads as a tree.
 
-Three things about the format are worth knowing:
+Four things about the format are worth knowing:
 
 - **Loading and saving an unedited scene reproduces it byte for byte**, comments
   included. Edits patch the parsed document rather than re-rendering it, so
@@ -108,6 +144,11 @@ Three things about the format are worth knowing:
 - **Numbers are read from the literal text, not from a float.** `0.1` is not
   exactly representable in fixed point, so it is refused (`DIM0203`) rather than
   silently rounded. Silent rounding is how replay determinism dies quietly.
+- **A project can add node kinds of its own.** A `kinds.toml` in the project
+  root declares them — `Enemy extends Collider`, with `max_health` and
+  `speed` — and they validate, canonicalise and override exactly like the
+  built-ins, because it is the same machinery. The engine treats a kind as
+  whatever it extends, so an `Enemy` collides.
 
 ## Scripting
 
@@ -149,12 +190,13 @@ crates/
   dimetric-scene      node tree, .dim format, prefab instancing
   dimetric-sim        tick loop, physics, scripting, snapshots
   dimetric-host       command bus, undo, project, replay harness
-  dimetric-agent      the dim CLI
+  dimetric-agent      the dim CLI and the MCP server
   dimetric-render     projection, sort keys, batching
   dimetric-audio      mixer buses, voice pool
   dimetric-assets     asset identity, import settings
   dimetric-platform   input sources, project paths
   dimetric-editor     editor view state
+  dimetric-player     the runtime: clock, bindings, session
 ```
 
 Dependencies run strictly downward and CI enforces it.
@@ -169,11 +211,11 @@ Dependencies run strictly downward and CI enforces it.
 | M3 | Renderer | done — wgpu backend, three passes, headless capture, golden images on three platforms |
 | M4 | Scripting | done — mlua, handles, sandbox, structured errors, cost measured at 2000 entities |
 | M5 | Physics | done — spatial hash, swept movement with sliding, triggers |
-| M6 | Assets, tiles, audio, animation | done — import pipeline, LDtk baking, mixer and fades, tweens and frame animation; the audio **device** is behind the `kira` feature |
-| M7 | Editor | tree, inspector, viewport, console, assets, play-in-editor and scrubber; the window is behind the `gui` feature |
-| M8 | Agent interface | done — full CLI, generated docs and schemas |
-| M9 | Vertical slice | a worked example, not yet a game |
-| M10 | Hardening | not started |
+| M6 | Assets, tiles, audio, animation | done — import pipeline, LDtk baking, tweens and frame animation, and audio from a `Sound` node through the mixer to a device; the device itself is behind the `kira` feature |
+| M7 | Editor | done — tree, inspector, viewport, console, assets, play-in-editor and scrubber; the window is behind the `gui` feature |
+| M8 | Agent interface | done — full CLI, MCP server, generated docs and schemas |
+| M9 | Vertical slice | done — a five-room run, spells and evolutions, the agent acceptance test passing; density measured and improved 7x |
+| M10 | Hardening | done — runtime, packaging, `dim new`, and the broadphase and batcher passes |
 
 Commands that exist but are not implemented fail with `DIM0801` naming the
 milestone they belong to, rather than pretending to succeed.
@@ -197,6 +239,33 @@ Two rules hold, and both are tests rather than intentions. Every mutation goes
 through the command bus — a scripted session asserts that anything which changed
 the file produced a command. And opening and closing a scene produces zero diff:
 camera, selection and fold state live in a committed `.dim.editor` sidecar.
+
+## The slice
+
+`examples/sorcerer` is a run of a top-down game, and the reason the engine has
+the shape it does. Five rooms, each a wave the arena spawns; clear one, take one
+of three upgrades, and two base spells held together evolve into a third.
+
+```sh
+dim --project examples/sorcerer --scene arena01 \
+    replay --input tests/full-run.input \
+           --hashes tests/arena01.hashes \
+           --assert tests/arena01.probes
+```
+
+That replay is the interesting part. It asserts the run clears all five waves,
+kills twenty enemies, and ends holding the **Forking Arc** — the same spell
+evolution, every time, on every machine. Spell definitions are a Lua table on
+one node, so balance tuning is an edit and a reload.
+
+`stress.dim` is not a game: four hundred live projectiles against forty enemies,
+which is the density §12 asks the engine to survive. It found that
+`scene.nearest` cost 139 ms a tick, and seven times faster later it found
+something better — that the broadphase is no longer where the time goes, and the
+Lua boundary in front of it is. `docs/ENGINE-GAPS.md` has the measurements, the
+one optimisation that was built and thrown away, and everything else the slice
+turned up: the gaps that belonged in the engine, the ones that did not, and the
+ones still open.
 
 ## Assets
 
@@ -240,15 +309,48 @@ LDtk or from `dim tile fill`. LDtk owns tile layers; `.dim` owns every entity.
 
 ## Audio
 
-The mixer decides what plays and the backend makes noise, which is what lets
-voice stealing, per-clip caps and fades be tested with no sound card involved.
-Headless runs and CI get the mock backend and produce no device I/O at all. The
-real one is behind the `kira` feature, off by default because it needs ALSA and
-D-Bus development headers on Linux.
+A sound is a node:
 
-Pitch variation draws from a presentation RNG stream, deliberately not the
+```toml
+[[node]]
+id = "n_bump0000"
+kind = "Sound"
+name = "Bump"
+parent = "n_player00"
+stream = "asset:sfx/bump"
+pitch_variation = 0.125
+```
+
+and a script says when, not what:
+
+```lua
+self:find("Bump"):play()
+```
+
+What plays, on which bus, how loud and how much the pitch wanders are
+properties of the node, so an instance override can change them and a designer
+can find them.
+
+**The simulation never plays a sound.** It says what it would play, into a list
+cleared at the start of every tick and never hashed. Whoever is listening reads
+it — a device in the player, nothing at all in a headless run. That line is not
+tidiness: if triggering a sound consumed a random number or wrote something
+hashed, then muting a game would change how it plays, and a run recorded with
+audio on would diverge from one played with it off. `dim run` counts the sounds
+a headless run asked for, which is how you check a scene makes a noise without
+owning a sound card.
+
+Everything after that list is presentation. The mixer decides what survives
+voice stealing and the per-clip caps; the backend makes the noise. Keeping them
+apart is what lets those rules be tested with no sound card involved. Pitch
+variation draws from a presentation RNG stream, deliberately not the
 simulation's: sharing one would mean that triggering one fewer sound effect
 shifted every gameplay roll after it.
+
+The real device is behind the `kira` feature (`--features gui,sound` on the
+player), off by default because it needs ALSA and D-Bus development headers on
+Linux. Without it, and with `--mute`, the mixer still runs and nothing reaches a
+device.
 
 ## Rendering
 
@@ -289,11 +391,31 @@ counts the slice game will reach. Its findings are in the benchmark's own
 documentation. The short version: handle validation is cheap and flat, and
 `scene.find` is not — resolve paths once in `on_ready` and keep the id.
 
+## Agents
+
+Every command is a `dim` subcommand, takes `--json`, and fails with a `DIM####`
+code rather than prose. The same commands are served over the Model Context
+Protocol:
+
+```sh
+dim mcp
+```
+
+Stdin and stdout, one JSON-RPC message per line. The tool list is read from the
+CLI's own argument parser at startup rather than written out beside it, so there
+is one command surface and no second copy to go stale — a subcommand added to
+the CLI is a tool. `dim api tools` prints the same list without starting a
+server.
+
+A command that says no comes back as a tool result carrying `isError` and its
+diagnostics, not as a protocol error: the request was well-formed and the answer
+was no, and an agent should be able to tell those apart.
+
 ## Documentation
 
-[`docs/API.md`](docs/API.md) lists every command, node kind and diagnostic code.
-It is generated by `cargo xtask gen-docs` and CI fails if it is stale, so it
-cannot disagree with the code. JSON schemas are in `docs/schemas/`.
+[`docs/API.md`](docs/API.md) lists every command, node kind, diagnostic code and
+MCP tool. It is generated by `cargo xtask gen-docs` and CI fails if it is stale,
+so it cannot disagree with the code. JSON schemas are in `docs/schemas/`.
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) has the invariants and the scope
 boundaries. The boundaries are not negotiable — in an open-source project the

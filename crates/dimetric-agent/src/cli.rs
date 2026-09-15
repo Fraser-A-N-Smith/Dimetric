@@ -71,9 +71,13 @@ pub enum Top {
     Replay(ReplayArgs),
     /// Package the project for a platform.
     Build(BuildArgs),
+    /// Write a new project to start from.
+    New(NewArgs),
     /// Print the engine's diagnostic codes, node kinds and command set.
     #[command(subcommand)]
     Api(ApiCmd),
+    /// Serve the same commands as MCP tools over stdin and stdout.
+    Mcp,
 }
 
 /// Scene-level operations.
@@ -471,9 +475,32 @@ pub struct ReplayArgs {
 /// Build arguments.
 #[derive(Parser, Debug)]
 pub struct BuildArgs {
-    /// Target platform.
+    /// Target platform: `linux`, `macos`, `windows`, or a Rust target triple.
     #[arg(long)]
     pub target: String,
+    /// Where to stage it. Defaults to `build/<target>` under the project.
+    #[arg(long)]
+    pub out: Option<String>,
+    /// A `dim-play` built for this target, to ship beside the game.
+    ///
+    /// `dim` does not compile Rust; cargo does. Build one with
+    /// `cargo build -p dimetric-player --features gui --release --target <triple>`
+    /// and pass it here.
+    #[arg(long)]
+    pub runtime: Option<String>,
+    /// Seed the packaged game starts from.
+    #[arg(long, default_value_t = 0)]
+    pub seed: u64,
+}
+
+/// Arguments for `dim new`.
+#[derive(clap::Args, Debug)]
+pub struct NewArgs {
+    /// Directory to create. Must be empty or absent.
+    pub path: String,
+    /// Name for the root node and the README. Defaults to the directory's name.
+    #[arg(long)]
+    pub name: Option<String>,
 }
 
 /// Generated-documentation commands.
@@ -487,4 +514,6 @@ pub enum ApiCmd {
     Commands,
     /// Print the JSON schema for the command set.
     Schema,
+    /// Print the MCP tool list, which is this CLI seen from the other side.
+    Tools,
 }
