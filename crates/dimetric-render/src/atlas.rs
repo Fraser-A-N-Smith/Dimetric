@@ -46,6 +46,12 @@ impl Region {
 }
 
 /// One packed texture and the regions inside it.
+///
+/// Fonts live here too, which reads oddly until you notice what the atlas
+/// already is: everything the renderer needs in order to draw, gathered from
+/// the import cache and handed over once. A font's page is packed like any
+/// image; its metrics ride alongside because extraction needs both and
+/// threading a second map through every caller would buy nothing.
 pub struct Atlas {
     /// Width in pixels.
     pub width: u32,
@@ -54,6 +60,7 @@ pub struct Atlas {
     /// RGBA pixel data.
     pub pixels: Vec<u8>,
     sheet: Sheet,
+    fonts: std::collections::BTreeMap<String, dimetric_assets::Font>,
 }
 
 impl Atlas {
@@ -74,7 +81,22 @@ impl Atlas {
             height: sheet.height,
             pixels: sheet.pixels.clone(),
             sheet,
+            fonts: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Attach the baked fonts whose pages this atlas holds.
+    pub fn with_fonts(
+        mut self,
+        fonts: std::collections::BTreeMap<String, dimetric_assets::Font>,
+    ) -> Atlas {
+        self.fonts = fonts;
+        self
+    }
+
+    /// The metrics for a font, by asset name.
+    pub fn font(&self, name: &str) -> Option<&dimetric_assets::Font> {
+        self.fonts.get(name)
     }
 
     /// Look up a region by asset name.

@@ -476,3 +476,175 @@ fn a_still_image_is_not_sliced() {
     );
     assert_eq!(frame.sprites[0].size, Vec2Fx::from_ints(16, 16));
 }
+
+// -- Labels ---------------------------------------------------------------
+//
+// A synthetic font rather than a rasterised one. A real TTF would make these
+// tests depend on which font happens to be installed, and the three CI
+// platforms do not agree on that — but the thing worth testing here is the
+// *path*, from baked metrics through layout to pixels on a target, and that
+// path does not care where the bitmap came from.
+
+/// Two glyphs, each a solid 4x4 block, side by side on an 8x4 page.
+///
+/// `A` is the left block and `B` the right, both advancing 5 — one pixel wider
+/// than the ink, so a run of them has a visible gap and a placement bug cannot
+/// hide behind touching blocks.
+fn block_font() -> (dimetric_assets::Font, dimetric_assets::Image) {
+    use dimetric_assets::font::Glyph;
+    let block = |x: u32| Glyph {
+        x,
+        y: 0,
+        width: 4,
+        height: 4,
+        bearing_x: 0,
+        bearing_y: -4,
+        advance: 5,
+    };
+    let mut glyphs = std::collections::BTreeMap::new();
+    glyphs.insert('A', block(0));
+    glyphs.insert('B', block(4));
+    let font = dimetric_assets::Font {
+        size: 4,
+        line_height: 6,
+        ascent: 4,
+        descent: 0,
+        glyphs,
+    };
+    let page = dimetric_assets::Image {
+        name: "fonts/block".to_string(),
+        width: 8,
+        height: 4,
+        pixels: vec![255; 8 * 4 * 4],
+    };
+    (font, page)
+}
+
+fn label_atlas() -> Atlas {
+    let (font, page) = block_font();
+    let mut fonts = std::collections::BTreeMap::new();
+    fonts.insert("fonts/block".to_string(), font);
+    Atlas::pack(vec![page], 64).with_fonts(fonts)
+}
+
+fn label_scene(text: &str, align: &str) -> dimetric_scene::Scene {
+    let source = format!(
+        r#"format = "dimetric"
+version = 1
+[scene]
+root = "n_root0000"
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Root"
+[[node]]
+id = "n_label000"
+kind = "Label"
+name = "Text"
+parent = "n_root0000"
+font = "asset:fonts/block"
+text = {text:?}
+align = {align:?}
+pos = [0.0, 0.0]
+"#
+    );
+    let out = dimetric_scene::parse(
+        &source,
+        "t.dim",
+        &dimetric_scene::KindRegistry::with_builtins(),
+    );
+    assert!(!out.diagnostics.has_errors(), "{}", out.diagnostics);
+    out.doc.unwrap().scene
+}
+
+#[test]
+fn a_label_becomes_one_quad_per_inked_glyph_in_a_single_batch() {
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let frame = extract(&label_scene("AB", "Left"), &atlas, &camera, None);
+
+    assert_eq!(frame.sprites.len(), 2, "one quad per glyph");
+    assert_eq!(
+        frame.draw_calls(),
+        1,
+        "a line of text shares a depth, so it batches as one draw"
+    );
+
+    // Five pixels apart: the advance, not the four-pixel bitmap width.
+    let dx = frame.sprites[1].pos.x - frame.sprites[0].pos.x;
+    assert_eq!(dx, dimetric_core::Fx::from_int(5));
+}
+
+#[test]
+fn each_glyph_samples_its_own_part_of_the_page() {
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let frame = extract(&label_scene("AB", "Left"), &atlas, &camera, None);
+
+    // Two glyphs, two different sub-rectangles. Identical UVs would mean every
+    // letter drew the same glyph, which on a real font is the kind of bug that
+    // looks like a rendering artefact rather than a lookup error.
+    assert_ne!(frame.sprites[0].uv, frame.sprites[1].uv);
+    assert!(frame.sprites[0].uv[2] <= frame.sprites[1].uv[0] + f32::EPSILON);
+}
+
+#[test]
+fn a_label_with_no_text_or_no_font_draws_nothing() {
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    assert!(extract(&label_scene("", "Left"), &atlas, &camera, None)
+        .sprites
+        .is_empty());
+
+    // A font the atlas has never heard of draws nothing rather than a
+    // page-sized magenta placeholder.
+    let missing = label_scene("AB", "Left");
+    let empty = Atlas::pack(
+        vec![dimetric_assets::Image {
+            name: "other".into(),
+            width: 1,
+            height: 1,
+            pixels: vec![255; 4],
+        }],
+        64,
+    );
+    assert!(extract(&missing, &empty, &camera, None).sprites.is_empty());
+}
+
+#[test]
+fn text_reaches_the_target() {
+    // The end of the path: metrics, layout, atlas lookup, quad, pixels.
+    let atlas = label_atlas();
+    let Some(mut renderer) = renderer(&atlas, settings()) else {
+        return;
+    };
+    let capture = Capture::new(&renderer, (64, 64));
+    let mut camera = Camera::new((64, 64));
+    camera.zoom = 1.0;
+
+    let blank = capture
+        .render(
+            &mut renderer,
+            &extract(&label_scene("", "Left"), &atlas, &camera, None),
+        )
+        .expect("render");
+    let drawn = capture
+        .render(
+            &mut renderer,
+            &extract(&label_scene("AB", "Left"), &atlas, &camera, None),
+        )
+        .expect("render");
+
+    // Against the blank frame rather than against alpha: the composite writes
+    // an opaque background, so every pixel is "inked" whether or not anything
+    // was drawn on it. What text does is *change* pixels.
+    let changed = blank
+        .chunks(4)
+        .zip(drawn.chunks(4))
+        .filter(|(before, after)| before != after)
+        .count();
+    assert!(
+        changed >= 32,
+        "two 4x4 glyphs should change about 32 pixels, found {changed}"
+    );
+}

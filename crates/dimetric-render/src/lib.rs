@@ -24,6 +24,7 @@ pub mod gpu;
 pub mod projection;
 pub mod settings;
 pub mod sort;
+pub mod text;
 
 pub use atlas::{Atlas, Region, Source};
 pub use batch::{batch_group, build, Batch, Blend, DrawItem};

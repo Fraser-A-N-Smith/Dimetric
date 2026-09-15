@@ -37,6 +37,7 @@
 pub mod aseprite;
 pub mod cache;
 pub mod clip;
+pub mod font;
 pub mod image;
 pub mod ldtk;
 pub mod meta;
@@ -45,6 +46,7 @@ pub mod sheet;
 pub use aseprite::{clip_from_range, Aseprite, Playback};
 pub use cache::{import, Artifact, Catalog, Entry, Imported, ASSETS_DIR, MAX_SHEET_WIDTH};
 pub use clip::{ms_to_ticks, Clip, Frame};
+pub use font::{bake, Font, FontError, Glyph, DEFAULT_CHARSET};
 pub use image::{decode_png, encode_png, Image, ImageError};
 pub use ldtk::{LdtkError, Level, Tile, TileLayer};
 pub use meta::{content_hash, ImportSettings, MetaError, SourceKind, IMPORT_DIR, META_EXTENSION};

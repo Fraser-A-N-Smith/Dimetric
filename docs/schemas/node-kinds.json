@@ -240,6 +240,47 @@
       "properties": []
     },
     {
+      "doc": "A run of text drawn from a baked font.",
+      "kind": "Label",
+      "properties": [
+        {
+          "default": null,
+          "doc": "Font to draw with.",
+          "name": "font",
+          "required": true,
+          "type": "asset-ref"
+        },
+        {
+          "default": "\"\"",
+          "doc": "What to draw. A newline starts a new line.",
+          "name": "text",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "default": "\"#ffffffff\"",
+          "doc": "Tint.",
+          "name": "modulate",
+          "required": false,
+          "type": "color"
+        },
+        {
+          "default": "\"Left\"",
+          "doc": "Horizontal alignment of each line about the node origin.",
+          "name": "align",
+          "required": false,
+          "type": "enum(Left | Center | Right)"
+        },
+        {
+          "default": "[0.0, 0.0]",
+          "doc": "Draw offset from the node origin.",
+          "name": "offset",
+          "required": false,
+          "type": "vec2"
+        }
+      ]
+    },
+    {
       "doc": "A light contributing to the additive light buffer.",
       "kind": "Light2D",
       "properties": [

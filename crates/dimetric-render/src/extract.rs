@@ -108,6 +108,7 @@ pub fn extract(
                 }
             }
             "TileLayer" => tiles(scene, node, pos, camera, atlas, &mut sprites),
+            "Label" => label(node, pos, camera, atlas, &mut sprites),
             "Light2D" => {
                 if let Some(light) = light(node, pos) {
                     lights.push(light);
@@ -260,6 +261,85 @@ fn sprite(
     })
 }
 
+/// Expand a label into one sprite per inked glyph.
+///
+/// The layout is integer arithmetic on baked metrics, so every machine puts
+/// every glyph in the same place. What varies between machines is only what
+/// the glyphs *look like*, and that was decided at import.
+///
+/// Every glyph in a label shares the label's depth, so a line of text batches
+/// as one draw rather than fighting itself for sort order.
+fn label(
+    node: &dimetric_scene::Node,
+    pos: Vec2Fx,
+    camera: &Camera,
+    atlas: &Atlas,
+    out: &mut Vec<DrawItem>,
+) {
+    let Some(key) = node
+        .get("font")
+        .and_then(Value::as_ref_value)
+        .map(|r| r.target().to_string())
+    else {
+        return;
+    };
+    // Unlike a sprite, a label with no font draws nothing rather than a
+    // placeholder: a magenta checkerboard where a sentence should be is not
+    // more informative than an empty space, and it would be the size of the
+    // whole font page.
+    let (Some(font), Some(region)) = (atlas.font(&key), atlas.region(&key)) else {
+        return;
+    };
+    let text = node.get("text").and_then(Value::as_str).unwrap_or_default();
+    if text.is_empty() {
+        return;
+    }
+    let align = node
+        .get("align")
+        .and_then(Value::as_str)
+        .map(crate::text::Align::parse)
+        .unwrap_or_default();
+    let offset = node
+        .get("offset")
+        .and_then(Value::as_vec2)
+        .unwrap_or(Vec2Fx::ZERO);
+    let modulate = node
+        .get("modulate")
+        .and_then(Value::as_color)
+        .unwrap_or(Color::WHITE);
+
+    let origin = pos + offset;
+    let depth = camera.projection.depth_of(origin);
+    let laid = crate::text::layout(font, text, align);
+
+    for placed in laid.glyphs {
+        let g = placed.glyph;
+        // The quad is positioned by its centre, and the layout gives a corner.
+        let center = origin
+            + Vec2Fx::from_ints(
+                placed.x + g.width as i32 / 2,
+                placed.y + g.height as i32 / 2,
+            );
+        out.push(DrawItem {
+            key: SortKey::new(
+                node.layer,
+                depth,
+                crate::batch::batch_group(0, 0, Blend::Alpha),
+                node.uid,
+            ),
+            atlas: 0,
+            blend: Blend::Alpha,
+            shader: 0,
+            pos: center,
+            size: Vec2Fx::from_ints(g.width as i32, g.height as i32),
+            rotation: Angle::ZERO,
+            uv: region.sub(g.x, g.y, g.width, g.height).uv,
+            modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
+            node: node.uid,
+        });
+    }
+}
+
 /// Expand a tile layer's chunks into sprites.
 ///
 /// One sprite per non-empty cell. The design document calls for chunks baked
@@ -380,7 +460,7 @@ pub fn required_assets(scene: &Scene) -> Vec<String> {
     let mut found: BTreeMap<String, ()> = BTreeMap::new();
     for id in scene.walk() {
         let Some(node) = scene.get(id) else { continue };
-        for key in ["texture", "frames", "tileset"] {
+        for key in ["texture", "frames", "tileset", "font"] {
             if let Some(reference) = node.get(key).and_then(Value::as_ref_value) {
                 found.insert(reference.target().to_string(), ());
             }

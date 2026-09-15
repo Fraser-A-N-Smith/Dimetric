@@ -17,6 +17,7 @@ toml_edit.workspace = true
 asefile = "0.3.8"
 png = "0.17"
 serde_json.workspace = true
+fontdue = { version = "0.9.4", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 png = "0.17"

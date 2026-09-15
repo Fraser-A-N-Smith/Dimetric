@@ -67,9 +67,14 @@ jobs:
       # Build runners have no GPU. lavapipe is Mesa's software Vulkan driver,
       # and is what lets the renderer be tested at all on Linux; macOS has
       # Metal and Windows has WARP without any extra installation.
-      - name: Install a software Vulkan driver
+      # A software Vulkan driver, and a font. The font tests bake a real TTF
+      # rather than committing one, so the runner has to have one to find;
+      # macOS and Windows ship Arial, Linux ships nothing by default.
+      - name: Install a software Vulkan driver and a font
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers fonts-dejavu-core
 
       - name: Build
         run: cargo build --workspace

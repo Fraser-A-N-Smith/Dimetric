@@ -188,6 +188,17 @@ pub enum Artifact {
     },
     /// An LDtk project, which is read when a level is baked rather than cached.
     Level,
+    /// A font: one page of glyphs, and the integer metrics that place them.
+    ///
+    /// The page is an image like any other and goes into the atlas alongside
+    /// the sprites. The metrics are the part that has to be baked — see
+    /// [`crate::font`].
+    Font {
+        /// Glyph rectangles and line metrics, all in whole pixels.
+        font: crate::font::Font,
+        /// The rasterised page, white with the glyph coverage as alpha.
+        page: Image,
+    },
 }
 
 /// The result of importing a project.
@@ -307,6 +318,14 @@ fn import_one(full: &Path, entry: &Entry, tick_rate: u32) -> Result<Artifact, Im
             bytes: std::fs::read(full).map_err(|e| ImageError::io(full, e))?,
         }),
         SourceKind::Ldtk => Ok(Artifact::Level),
+        SourceKind::Font => {
+            let bytes = std::fs::read(full).map_err(|e| ImageError::io(full, e))?;
+            let (font, mut page) =
+                crate::font::bake(&bytes, entry.settings.font_size, &entry.settings.charset)
+                    .map_err(|e| ImageError::decode(full, e.to_string()))?;
+            page.name = entry.name.clone();
+            Ok(Artifact::Font { font, page })
+        }
     }
 }
 

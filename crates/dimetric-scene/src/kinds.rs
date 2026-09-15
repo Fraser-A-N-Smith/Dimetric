@@ -241,6 +241,37 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
     ));
 
     kinds.push(NodeKindSchema::new(
+        "Label",
+        "A run of text drawn from a baked font.",
+        vec![
+            prop("font", PropertyType::AssetRef, None, "Font to draw with.").required(),
+            prop(
+                "text",
+                PropertyType::Str,
+                Some(Value::Str(String::new())),
+                "What to draw. A newline starts a new line.",
+            ),
+            prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
+            prop(
+                "align",
+                PropertyType::Enum(vec![
+                    "Left".to_string(),
+                    "Center".to_string(),
+                    "Right".to_string(),
+                ]),
+                Some(Value::Enum("Left".to_string())),
+                "Horizontal alignment of each line about the node origin.",
+            ),
+            prop(
+                "offset",
+                PropertyType::Vec2,
+                Some(Value::Vec2(dimetric_core::Vec2Fx::ZERO)),
+                "Draw offset from the node origin.",
+            ),
+        ],
+    ));
+
+    kinds.push(NodeKindSchema::new(
         "Camera2D",
         "A view onto the world.",
         vec![

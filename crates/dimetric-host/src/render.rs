@@ -87,7 +87,23 @@ pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
             ),
         }
     }
-    (Atlas::pack_framed(sources, ATLAS_WIDTH), diagnostics)
+    // The metric tables, gathered from the same cache the pages came from.
+    // A font is two things and they have to travel together: the page is in
+    // the atlas, and without the metrics beside it nothing knows where one
+    // glyph ends and the next begins.
+    let mut fonts = std::collections::BTreeMap::new();
+    if let Some(imported) = imported {
+        for (name, artifact) in &imported.artifacts {
+            if let dimetric_assets::Artifact::Font { font, .. } = artifact {
+                fonts.insert(name.clone(), font.clone());
+            }
+        }
+    }
+
+    (
+        Atlas::pack_framed(sources, ATLAS_WIDTH).with_fonts(fonts),
+        diagnostics,
+    )
 }
 
 /// The pixels an imported asset contributes to the atlas, and its frame count.
@@ -100,6 +116,9 @@ fn cached_image<'a>(
         dimetric_assets::Artifact::Animation {
             sheet, frame_count, ..
         } => Some((sheet, *frame_count)),
+        // A font's glyph page packs like any other image. What makes it a font
+        // is the metric table beside it, which the atlas neither has nor needs.
+        dimetric_assets::Artifact::Font { page, .. } => Some((page, 1)),
         _ => None,
     }
 }

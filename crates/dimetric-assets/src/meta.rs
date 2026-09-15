@@ -29,6 +29,8 @@ pub enum SourceKind {
     Audio,
     /// An LDtk level.
     Ldtk,
+    /// A font, baked to a glyph page and a table of integer metrics.
+    Font,
 }
 
 impl SourceKind {
@@ -40,6 +42,7 @@ impl SourceKind {
                 "ase" | "aseprite" => SourceKind::Aseprite,
                 "ogg" | "wav" => SourceKind::Audio,
                 "ldtk" => SourceKind::Ldtk,
+                "ttf" | "otf" => SourceKind::Font,
                 _ => return None,
             },
         )
@@ -74,6 +77,21 @@ pub struct ImportSettings {
     /// nothing in the file itself identifies as a strip.
     #[serde(default = "one")]
     pub frames: u32,
+    /// Pixel size a font is baked at.
+    ///
+    /// A font is rasterised once, at import, at this size — see
+    /// [`crate::font`] for why measurement cannot happen at runtime. Drawing
+    /// it larger scales the bitmap, which is what a pixel-art engine wants;
+    /// import the file twice if you need two sizes.
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+    /// Characters to bake.
+    ///
+    /// Printable ASCII by default. Every glyph baked is atlas space spent
+    /// whether the game draws it or not, so a project wanting more says so
+    /// rather than the engine guessing.
+    #[serde(default = "default_charset")]
+    pub charset: String,
     /// How long each frame of a declared strip is held, in milliseconds.
     ///
     /// Milliseconds here and ticks in the cache: the conversion happens once,
@@ -85,6 +103,14 @@ pub struct ImportSettings {
 
 fn default_frame_ms() -> u32 {
     100
+}
+
+fn default_font_size() -> u32 {
+    16
+}
+
+fn default_charset() -> String {
+    crate::font::DEFAULT_CHARSET.to_string()
 }
 
 fn one() -> u32 {
@@ -105,6 +131,8 @@ impl ImportSettings {
             atlas: true,
             frames: 1,
             frame_ms: default_frame_ms(),
+            font_size: default_font_size(),
+            charset: default_charset(),
         }
     }
 
@@ -119,6 +147,12 @@ impl ImportSettings {
         if self.frames > 1 {
             out.push_str(&format!("frames = {}\n", self.frames));
             out.push_str(&format!("frame_ms = {}\n", self.frame_ms));
+        }
+        // Only for fonts: writing a size and a charset into every PNG's
+        // sidecar would be noise in a file people are meant to read.
+        if self.font_size != default_font_size() || self.charset != default_charset() {
+            out.push_str(&format!("font_size = {}\n", self.font_size));
+            out.push_str(&format!("charset = {:?}\n", self.charset));
         }
         out
     }
@@ -156,6 +190,8 @@ impl ImportSettings {
             atlas: get_bool("atlas", true),
             frames: get_int("frames", 1),
             frame_ms: get_int("frame_ms", default_frame_ms()),
+            font_size: get_int("font_size", default_font_size()),
+            charset: get_str("charset").unwrap_or_else(default_charset),
         })
     }
 }

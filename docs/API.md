@@ -105,6 +105,18 @@ An instance of another scene, with sparse property overrides. The source is name
 
 No properties beyond the reserved keys.
 
+### `Label`
+
+A run of text drawn from a baked font.
+
+| Property | Type | Default | Notes |
+|---|---|---|---|
+| `font` | `asset-ref` | **required** | Font to draw with. |
+| `text` | `string` | `""` | What to draw. A newline starts a new line. |
+| `modulate` | `color` | `"#ffffffff"` | Tint. |
+| `align` | `enum(Left | Center | Right)` | `"Left"` | Horizontal alignment of each line about the node origin. |
+| `offset` | `vec2` | `[0.0, 0.0]` | Draw offset from the node origin. |
+
 ### `Light2D`
 
 A light contributing to the additive light buffer.
