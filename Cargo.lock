@@ -1012,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "dimetric-assets",
  "dimetric-audio",
@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-agent"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "clap",
  "dimetric-assets",
@@ -1042,7 +1042,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-assets"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "asefile",
  "blake3",
@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-audio"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "dimetric-core",
  "kira",
@@ -1066,7 +1066,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-core"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "fixed",
@@ -1079,7 +1079,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-editor"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "dimetric-assets",
  "dimetric-core",
@@ -1095,7 +1095,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-host"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "dimetric-assets",
@@ -1113,7 +1113,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-platform"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "dimetric-core",
  "dimetric-sim",
@@ -1121,7 +1121,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-player"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "clap",
  "dimetric-assets",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-render"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "bytemuck",
  "dimetric-assets",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-scene"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "dimetric-core",
@@ -1167,7 +1167,7 @@ dependencies = [
 
 [[package]]
 name = "dimetric-sim"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "dimetric-assets",
@@ -5425,7 +5425,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "serde_json",
 ]

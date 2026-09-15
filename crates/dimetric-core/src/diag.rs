@@ -154,7 +154,7 @@ codes! {
     LOG_MISMATCH      = "DIM0703", Error,   "Input log was recorded against a different scene or engine version";
 
     // 08xx — tooling
-    NOT_IMPLEMENTED   = "DIM0801", Error,   "The command exists but this build does not implement it yet";
+    NOT_IMPLEMENTED   = "DIM0801", Error,   "The command is implemented but something this build needs is missing";
     BAD_ARGUMENT      = "DIM0802", Error,   "A command-line argument could not be parsed";
 }
 

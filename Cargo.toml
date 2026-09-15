@@ -20,7 +20,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.82"
 license = "MIT OR Apache-2.0"
@@ -28,16 +28,16 @@ repository = "https://github.com/dimetric/dimetric"
 authors = ["The Dimetric authors"]
 
 [workspace.dependencies]
-dimetric-core = { path = "crates/dimetric-core", version = "0.0.1" }
-dimetric-platform = { path = "crates/dimetric-platform", version = "0.0.1" }
-dimetric-scene = { path = "crates/dimetric-scene", version = "0.0.1" }
-dimetric-sim = { path = "crates/dimetric-sim", version = "0.0.1" }
-dimetric-render = { path = "crates/dimetric-render", version = "0.0.1" }
-dimetric-audio = { path = "crates/dimetric-audio", version = "0.0.1" }
-dimetric-assets = { path = "crates/dimetric-assets", version = "0.0.1" }
-dimetric-host = { path = "crates/dimetric-host", version = "0.0.1" }
-dimetric-editor = { path = "crates/dimetric-editor", version = "0.0.1" }
-dimetric-player = { path = "crates/dimetric-player", version = "0.0.1" }
+dimetric-core = { path = "crates/dimetric-core", version = "0.1.0" }
+dimetric-platform = { path = "crates/dimetric-platform", version = "0.1.0" }
+dimetric-scene = { path = "crates/dimetric-scene", version = "0.1.0" }
+dimetric-sim = { path = "crates/dimetric-sim", version = "0.1.0" }
+dimetric-render = { path = "crates/dimetric-render", version = "0.1.0" }
+dimetric-audio = { path = "crates/dimetric-audio", version = "0.1.0" }
+dimetric-assets = { path = "crates/dimetric-assets", version = "0.1.0" }
+dimetric-host = { path = "crates/dimetric-host", version = "0.1.0" }
+dimetric-editor = { path = "crates/dimetric-editor", version = "0.1.0" }
+dimetric-player = { path = "crates/dimetric-player", version = "0.1.0" }
 
 fixed = { version = "1.29", features = ["serde"] }
 slotmap = { version = "1.0", features = ["serde"] }

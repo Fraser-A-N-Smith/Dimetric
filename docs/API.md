@@ -210,7 +210,7 @@ message. Codes are never reused for a different meaning.
 | `DIM0701` | error | Replay state hash diverged from the recorded log |
 | `DIM0702` | error | Replay probe assertion failed |
 | `DIM0703` | error | Input log was recorded against a different scene or engine version |
-| `DIM0801` | error | The command exists but this build does not implement it yet |
+| `DIM0801` | error | The command is implemented but something this build needs is missing |
 | `DIM0802` | error | A command-line argument could not be parsed |
 
 ## MCP tools

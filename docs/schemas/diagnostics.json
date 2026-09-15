@@ -173,7 +173,7 @@
     {
       "code": "DIM0801",
       "severity": "error",
-      "summary": "The command exists but this build does not implement it yet"
+      "summary": "The command is implemented but something this build needs is missing"
     },
     {
       "code": "DIM0802",

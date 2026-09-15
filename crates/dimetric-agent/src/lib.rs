@@ -1425,6 +1425,11 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
 
     let mut out = Output::new(body, text);
     out.warnings = diags.0;
+    // A replay that passed can still have had something to say — an engine
+    // version that does not match the log's, say. `passed()` only looks for
+    // errors, so without this a warning raised during a successful replay went
+    // nowhere at all.
+    out.warnings.extend(report.diagnostics.0);
     Ok(out)
 }
 

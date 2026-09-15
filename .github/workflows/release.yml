@@ -1,0 +1,134 @@
+name: Release
+
+# Tag-driven, because the tag is the thing people will fetch by. Pushing
+# `v0.1.0` builds a `dim-play` for each platform and hangs them off the release
+# with the changelog's section for that version.
+#
+# Nothing here publishes to crates.io. That is a decision to make once rather
+# than a button CI presses on every tag.
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The gate runs again against the tagged commit. A release built from a tree
+  # that was only ever green on a branch is a release nobody checked.
+  verify:
+    name: Gate the tagged commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install a software Vulkan driver
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - name: The whole gate
+        run: cargo run -p xtask -- ci
+        env:
+          DIMETRIC_REQUIRE_GPU: 1
+
+      # The tag and the workspace version have to agree, or the binaries in the
+      # release report a version nobody can check out.
+      - name: The tag matches the version
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          crated="$(cargo metadata --no-deps --format-version 1 | python3 -c '
+          import json, sys
+          packages = json.load(sys.stdin)["packages"]
+          print(next(p["version"] for p in packages if p["name"] == "dimetric"))
+          ')"
+          test "$tagged" = "$crated" \
+            || { echo "tag $tagged does not match Cargo.toml $crated"; exit 1; }
+
+  # The runtime, per platform. `dim build` stages a game against one of these,
+  # so a release that ships none of them leaves every packager cross-compiling.
+  runtimes:
+    name: dim-play for ${{ matrix.os }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: dimetric-linux-x86_64
+            suffix: ""
+          - os: macos-latest
+            artifact: dimetric-macos-aarch64
+            suffix: ""
+          - os: windows-latest
+            artifact: dimetric-windows-x86_64
+            suffix: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Both binaries: `dim-play` is what a packaged game runs, `dim` is what
+      # packages it. Shipping one without the other leaves half a toolchain.
+      - name: Build the runtime and the CLI
+        run: |
+          cargo build --release -p dimetric-player --features gui,sound
+          cargo build --release -p dimetric-agent
+
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/release/dim-play${{ matrix.suffix }}" dist/
+          cp "target/release/dim${{ matrix.suffix }}" dist/
+          cp LICENSE-MIT LICENSE-APACHE README.md CHANGELOG.md dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+
+  publish:
+    name: Draft the release
+    needs: runtimes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # One archive per platform, named for the tag, so a download says what it
+      # is without being opened.
+      - name: Archive each platform
+        run: |
+          mkdir -p release
+          for dir in artifacts/*/; do
+            name="$(basename "$dir")"
+            tar -czf "release/${name}-${GITHUB_REF_NAME}.tar.gz" -C "$dir" .
+          done
+          ls -l release
+
+      # The release notes are this version's section of the changelog, so there
+      # is one description of a release rather than two that drift apart.
+      - name: Take this version's notes from the changelog
+        run: |
+          python3 - <<'PY' > notes.md
+          import os, re
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          text = open("CHANGELOG.md").read()
+          match = re.search(rf"^## {re.escape(version)}$(.*?)(?=^## |\Z)", text, re.M | re.S)
+          print((match.group(1).strip() if match else
+                 f"No changelog section for {version}."))
+          PY
+          cat notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: ${{ github.ref_name }}
+          body_path: notes.md
+          files: release/*.tar.gz

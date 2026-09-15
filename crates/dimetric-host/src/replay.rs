@@ -448,13 +448,34 @@ impl Replay<'_> {
             });
         }
 
+        let mut diagnostics = sim.take_diagnostics();
+        // An input log records the engine that wrote it, and until now nothing
+        // read the field back. A log from another version usually still
+        // replays, so this is a warning rather than a refusal — but when it
+        // does diverge, the difference between "your change broke this" and
+        // "this was recorded by a different engine" is the whole afternoon.
+        let running = env!("CARGO_PKG_VERSION");
+        if !self.log.engine.is_empty() && self.log.engine != running {
+            diagnostics.push(
+                Diagnostic::new(
+                    Code::LOG_MISMATCH,
+                    format!(
+                        "this log was recorded by engine {} and you are running {running}; \
+                         a divergence below may be that rather than anything you changed",
+                        self.log.engine
+                    ),
+                )
+                .with_severity(dimetric_core::Severity::Warning),
+            );
+        }
+
         ReplayReport {
             ticks,
             seed: self.log.seed,
             hashes,
             divergence,
             probes,
-            diagnostics: sim.take_diagnostics(),
+            diagnostics,
         }
     }
 }
