@@ -54,7 +54,8 @@ pub fn create(root: impl AsRef<Path>, name: &str) -> Result<Created, Diagnostics
     write(&root, "README.md", &readme(name), &mut created)?;
     write(&root, ".gitignore", GITIGNORE, &mut created)?;
 
-    // Two squares, so the scene draws something the moment it opens.
+    // Two squares and a click, so the scene draws something and makes a noise
+    // the moment it opens.
     png(
         &root,
         "assets/sprites/hero.png",
@@ -69,6 +70,7 @@ pub fn create(root: impl AsRef<Path>, name: &str) -> Result<Created, Diagnostics
         Color::parse("#5a5f6b").unwrap_or(Color::WHITE),
         &mut created,
     )?;
+    wav(&root, "assets/sfx/bump.wav", &mut created)?;
 
     Ok(created)
 }
@@ -130,6 +132,16 @@ name = "View"
 parent = "n_player00"          # /{name}/Player
 current = true
 
+# A sound the script triggers. What plays, on which bus and how loud are
+# properties of the node, so a script says when and a designer says what.
+[[node]]
+id = "n_bump0000"
+kind = "Sound"
+name = "Bump"
+parent = "n_player00"          # /{name}/Player
+stream = "asset:sfx/bump"
+pitch_variation = 0.125
+
 [[node]]
 id = "n_wall0000"
 kind = "Collider"
@@ -175,9 +187,23 @@ function on_tick(self)
   end
 end
 
-function on_collision(self, other)
-  -- Walls stop you; this is here to show where a reaction would go.
+function on_collide(self, other, normal, trigger)
+  -- Walls stop you; this is where a reaction goes. The click is a Sound node
+  -- hanging off the player, so the script says when and the node says what.
+  if trigger then return end
+
+  local now = tick.count()
+  local touching = self.last_bump == now - 1
+  self.last_bump = now
+  if touching then
+    -- Leaning on a wall is a contact every tick. Play on the tick it starts,
+    -- or the click becomes a drill.
+    return
+  end
+
   self.bumped = (self.bumped or 0) + 1
+  local bump = self:find("Bump")
+  if bump then bump:play() end
 end
 "#;
 
@@ -211,6 +237,8 @@ same state, on any machine.
 - `main.dim` — the room. TOML, a flat node list, each node naming its parent.
 - `scripts/player.lua` — what the player node does each tick.
 - `assets/sprites/` — two placeholder squares. Replace them.
+- `assets/sfx/bump.wav` — a click, played by the `Bump` node when you hit the
+  wall. `dim-play --mute` runs the mixer and sends nothing to a device.
 
 `dim api kinds --project .` lists every node kind and property you can use.
 Declare your own in a `kinds.toml` here — `Enemy extends Collider` with
@@ -225,6 +253,50 @@ dim build --target linux --runtime <path to dim-play>
 ```
 "#
     )
+}
+
+/// A short click, so a new project makes a noise before anyone has made audio.
+///
+/// A decaying sine at 440Hz, 16-bit mono. Written out as a WAV by hand because
+/// the header is forty-four bytes, and the alternative is a binary file in the
+/// engine's own repository that nobody can read a diff of.
+fn wav(root: &Path, relative: &str, created: &mut Created) -> Result<(), Diagnostics> {
+    const RATE: u32 = 22_050;
+    const MS: u32 = 120;
+    let samples = RATE * MS / 1000;
+
+    let mut pcm: Vec<u8> = Vec::with_capacity(samples as usize * 2);
+    for i in 0..samples {
+        // I3-exempt: generating a sound file, about as far from the simulation
+        // as it is possible to be.
+        let t = i as f32 / RATE as f32;
+        let decay = (1.0 - i as f32 / samples as f32).powi(3);
+        let value = (t * 440.0 * std::f32::consts::TAU).sin() * decay * 0.4;
+        pcm.extend_from_slice(&((value * i16::MAX as f32) as i16).to_le_bytes());
+    }
+
+    let mut out: Vec<u8> = Vec::with_capacity(pcm.len() + 44);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes()); // chunk size
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // mono
+    out.extend_from_slice(&RATE.to_le_bytes());
+    out.extend_from_slice(&(RATE * 2).to_le_bytes()); // bytes a second
+    out.extend_from_slice(&2u16.to_le_bytes()); // block align
+    out.extend_from_slice(&16u16.to_le_bytes()); // bits a sample
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+    out.extend_from_slice(&pcm);
+
+    let path = root.join(relative);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| cannot(parent, e))?;
+    }
+    std::fs::write(&path, out).map_err(|e| cannot(&path, e))?;
+    created.files.push(relative.to_string());
+    Ok(())
 }
 
 fn write(

@@ -77,6 +77,8 @@ fn allowed() -> BTreeMap<&'static str, Vec<&'static str>> {
                 "dimetric-assets",
                 "dimetric-host",
                 "dimetric-platform",
+                // The player is the one thing that opens a sound device.
+                "dimetric-audio",
             ],
         ),
         (

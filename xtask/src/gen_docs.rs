@@ -280,8 +280,9 @@ fn render_markdown(
          | `anim` | `play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |\n\n\
          A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,\n\
          `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,\n\
-         `kind` and `valid`. Indexing a handle reads and writes script variables, except\n\
-         for `pos`, `rot` and `visible`, which reach the node's transform.\n\n\
+         `kind`, `valid`, and — on a `Sound` node — `play` and `stop`. Indexing a handle\n\
+         reads and writes script variables, except for `pos`, `rot` and `visible`, which\n\
+         reach the node's transform.\n\n\
          ### Spawning\n\n\
          `scene.spawn` returns the id the node *will* have and creates nothing yet.\n\
          A node inserted mid-tick would be going into a tree another script may be\n\
@@ -305,6 +306,17 @@ fn render_markdown(
          ticks. `on_anim_event(self, name)` fires when playback reaches a frame that\n\
          carries an event, which is how a hitbox opens on the swing frame rather than\n\
          on a timer someone has to keep in sync by hand.\n\n\
+         ### Sound\n\n\
+         `node:play()` on a `Sound` node asks for its clip; `node:stop()` stops what\n\
+         that node started. The script says *when* and the node's properties say what,\n\
+         on which bus, how loud and how far the pitch wanders — so an instance override\n\
+         can change a sound and a designer can find it.\n\n\
+         The simulation never plays anything. It appends to a list that is cleared at\n\
+         the start of every tick and **is not hashed**, and whoever is listening reads\n\
+         it. If a trigger consumed a random number or wrote hashed state, muting a game\n\
+         would change how it plays and a run recorded with audio on would diverge from\n\
+         one played with it off. `dim run` reports how many sounds a headless run asked\n\
+         for.\n\n\
          ### The rule that matters\n\n\
          Lua numbers are `f64`. Gameplay arithmetic done in raw Lua numbers and written\n\
          into simulation state is the easiest way to break replay. Use `vec2` and `fx`\n\

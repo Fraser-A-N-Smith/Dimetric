@@ -310,6 +310,35 @@ impl UserData for NodeHandle {
             Ok(())
         });
 
+        // Sound nodes. The properties are authored on the node, so a script
+        // says *when* rather than *what* — which keeps the clip, the bus and
+        // the gain somewhere a designer can see them and an override can reach.
+        m.add_method("play", |lua, this, ()| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            let id = resolve(&state, this.0)?;
+            let cue = state
+                .scene
+                .get(id)
+                .and_then(crate::sound::SoundCue::of)
+                .ok_or_else(|| mlua::Error::runtime("play() needs a Sound node with a stream"))?;
+            state.autoplayed.push(cue.node);
+            state.sounds.push(crate::sound::SoundEvent::Play(cue));
+            Ok(())
+        });
+
+        m.add_method("stop", |lua, this, ()| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            let id = resolve(&state, this.0)?;
+            let uid = state.scene.get(id).map(|n| n.uid).unwrap_or(this.0);
+            state.autoplayed.retain(|n| *n != uid);
+            state
+                .sounds
+                .push(crate::sound::SoundEvent::Stop { node: uid });
+            Ok(())
+        });
+
         m.add_method("set_velocity", |lua, this, v: LuaVec2| {
             let state = shared(lua)?;
             state.borrow_mut().velocity.insert(this.0, v.0);

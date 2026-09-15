@@ -6,8 +6,10 @@
 //! played and a game that was replayed have to be the same game or none of the
 //! rest of this engine means anything.
 
+use dimetric_audio::Device;
 use dimetric_core::{Angle, Code, Diagnostic, Diagnostics, Fx, Vec2Fx};
 use dimetric_host::render::{build_atlas, scene_camera};
+use dimetric_host::speaker::Speaker;
 use dimetric_host::Project;
 use dimetric_render::{extract, Atlas, Camera, Frame, Interpolation, RenderSettings};
 use dimetric_sim::{InputFrame, InputLog, LuaHost, PlayerInput, Sim, SimConfig, SimState};
@@ -22,6 +24,8 @@ pub struct SessionConfig {
     pub record: Option<std::path::PathBuf>,
     /// How to draw.
     pub settings: RenderSettings,
+    /// Where sound goes. `Silent` still runs the mixer and makes no noise.
+    pub device: Device,
 }
 
 /// A running game.
@@ -30,6 +34,7 @@ pub struct Session {
     /// The state one tick back, so a drawn frame can sit between two ticks.
     previous: Option<SimState>,
     atlas: Atlas,
+    speaker: Speaker,
     settings: RenderSettings,
     log: InputLog,
     recording: bool,
@@ -65,10 +70,17 @@ impl Session {
             .with_clips(project.clips())
             .with_templates(templates);
 
+        let mut speaker = Speaker::open(project, config.device);
+        diagnostics.extend(std::mem::replace(
+            &mut speaker.diagnostics,
+            Diagnostics::new(),
+        ));
+
         Ok(Session {
             sim,
             previous: None,
             atlas,
+            speaker,
             settings: config.settings,
             log: InputLog::new(config.seed, env!("CARGO_PKG_VERSION"), 1),
             recording: config.record.is_some(),
@@ -115,6 +127,19 @@ impl Session {
         self.sim.step(frame);
         self.tick += 1;
         self.diagnostics.extend(self.sim.take_diagnostics());
+
+        // After the step, over the state it produced: the simulation says what
+        // it would play and this is what decides whether anything is heard.
+        self.speaker.tick(&self.sim.state());
+        self.diagnostics.extend(std::mem::replace(
+            &mut self.speaker.diagnostics,
+            Diagnostics::new(),
+        ));
+    }
+
+    /// How many voices are sounding.
+    pub fn voices(&self) -> usize {
+        self.speaker.playing()
     }
 
     /// The frame to draw, `alpha` of the way from the last tick to the next.

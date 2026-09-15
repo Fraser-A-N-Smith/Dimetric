@@ -13,10 +13,9 @@ networking problem rather than a rewrite.
 
 Early, and further along than that suggests: the simulation, the renderer, the
 editor, the CLI and the runtime all exist and are tested, and a game packaged
-by `dim build` runs on its own. The gap between this and something to write a
-real game in is content tooling and time, not missing layers — with one hole
-worth naming, which is that nothing plays a sound yet. See
-[Milestones](#milestones).
+by `dim build` runs on its own, with sound. The gap between this and something
+to write a real game in is content tooling and time rather than missing layers.
+See [Milestones](#milestones).
 
 ## On the name
 
@@ -193,7 +192,7 @@ crates/
   dimetric-host       command bus, undo, project, replay harness
   dimetric-agent      the dim CLI and the MCP server
   dimetric-render     projection, sort keys, batching
-  dimetric-audio      mixer buses, voice pool (not yet driven by anything)
+  dimetric-audio      mixer buses, voice pool
   dimetric-assets     asset identity, import settings
   dimetric-platform   input sources, project paths
   dimetric-editor     editor view state
@@ -212,11 +211,11 @@ Dependencies run strictly downward and CI enforces it.
 | M3 | Renderer | done — wgpu backend, three passes, headless capture, golden images on three platforms |
 | M4 | Scripting | done — mlua, handles, sandbox, structured errors, cost measured at 2000 entities |
 | M5 | Physics | done — spatial hash, swept movement with sliding, triggers |
-| M6 | Assets, tiles, audio, animation | import pipeline, LDtk baking, tweens and frame animation are done. **Audio is not**: the mixer and its backends exist and nothing drives them, so no scene makes a sound |
+| M6 | Assets, tiles, audio, animation | done — import pipeline, LDtk baking, tweens and frame animation, and audio from a `Sound` node through the mixer to a device; the device itself is behind the `kira` feature |
 | M7 | Editor | done — tree, inspector, viewport, console, assets, play-in-editor and scrubber; the window is behind the `gui` feature |
 | M8 | Agent interface | done — full CLI, MCP server, generated docs and schemas |
 | M9 | Vertical slice | done — a five-room run, spells and evolutions, the agent acceptance test passing; density measured and improved 7x |
-| M10 | Hardening | runtime, packaging, `dim new`, broadphase and batcher passes done; audio still open |
+| M10 | Hardening | done — runtime, packaging, `dim new`, and the broadphase and batcher passes |
 
 Commands that exist but are not implemented fail with `DIM0801` naming the
 milestone they belong to, rather than pretending to succeed.
@@ -310,23 +309,48 @@ LDtk or from `dim tile fill`. LDtk owns tile layers; `.dim` owns every entity.
 
 ## Audio
 
-**Nothing triggers it yet.** The mixer is real — buses, a voice pool with
-stealing, per-clip caps, tweened fades, a mock backend for CI and a `kira` one
-for a device — and no scene, script or node reaches it, so a game built on this
-engine today is silent. It is the one hole worth knowing about before starting
-something; `docs/ENGINE-GAPS.md` says what the fix has to look like and why the
-determinism part of it is the half that cannot be bolted on later.
+A sound is a node:
 
-What exists is worth describing because the split is the point. The mixer
-decides what plays and the backend makes noise, which is what lets voice
-stealing, per-clip caps and fades be tested with no sound card involved.
-Headless runs and CI get the mock backend and produce no device I/O at all. The
-real one is behind the `kira` feature, off by default because it needs ALSA and
-D-Bus development headers on Linux.
+```toml
+[[node]]
+id = "n_bump0000"
+kind = "Sound"
+name = "Bump"
+parent = "n_player00"
+stream = "asset:sfx/bump"
+pitch_variation = 0.125
+```
 
-Pitch variation draws from a presentation RNG stream, deliberately not the
+and a script says when, not what:
+
+```lua
+self:find("Bump"):play()
+```
+
+What plays, on which bus, how loud and how much the pitch wanders are
+properties of the node, so an instance override can change them and a designer
+can find them.
+
+**The simulation never plays a sound.** It says what it would play, into a list
+cleared at the start of every tick and never hashed. Whoever is listening reads
+it — a device in the player, nothing at all in a headless run. That line is not
+tidiness: if triggering a sound consumed a random number or wrote something
+hashed, then muting a game would change how it plays, and a run recorded with
+audio on would diverge from one played with it off. `dim run` counts the sounds
+a headless run asked for, which is how you check a scene makes a noise without
+owning a sound card.
+
+Everything after that list is presentation. The mixer decides what survives
+voice stealing and the per-clip caps; the backend makes the noise. Keeping them
+apart is what lets those rules be tested with no sound card involved. Pitch
+variation draws from a presentation RNG stream, deliberately not the
 simulation's: sharing one would mean that triggering one fewer sound effect
 shifted every gameplay roll after it.
+
+The real device is behind the `kira` feature (`--features gui,sound` on the
+player), off by default because it needs ALSA and D-Bus development headers on
+Linux. Without it, and with `--mute`, the mixer still runs and nothing reaches a
+device.
 
 ## Rendering
 

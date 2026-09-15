@@ -177,6 +177,12 @@ jobs:
       - name: Clippy
         run: cargo clippy -p dimetric-player --features gui --all-targets -- -D warnings
 
+      # The sound device, built and linted but not run: a runner has no sound
+      # card, and every rule the mixer has is tested against the mock backend
+      # by the default suite.
+      - name: Build with the sound device
+        run: cargo clippy -p dimetric-player --features gui,sound --all-targets -- -D warnings
+
       - name: Play the example for three hundred ticks
         run: |
           xvfb-run -a -s "-screen 0 1440x810x24" \

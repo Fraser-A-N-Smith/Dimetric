@@ -10,9 +10,11 @@ arguing about — whether it belongs in a reusable engine.
 
 ## Fixed
 
-The first pass at the slice logged these; the second pass built them, and the
-slice was rewritten on top. Everything transient is now spawned — a room is a
-wave rather than a file, and a run is five of them.
+The first pass at the slice logged these; later passes built them, and the slice
+was rewritten on top. Everything transient is now spawned — a room is a wave
+rather than a file, and a run is five of them. The last two entries were found
+later still, by declaring node kinds and by packaging a game and listening to
+it.
 
 **A Lua array could not be stored.** `self.order = { "bolt", "nova" }` came back
 as an empty map: the conversion only accepted string keys, so every entry was
@@ -68,6 +70,21 @@ being resolved out of it, which is what a projectile wants.
 **Buttons have edges.** `input.pressed` and `input.released`, over a
 `previous_input` that is part of the state — a rollback that re-derived it from
 the log would fire every edge again on the tick it landed on.
+
+**A game can make a noise.** `dimetric-audio` was a complete mixer — buses, a
+voice pool with stealing, per-clip caps, tweened fades, two backends — wired to
+nothing at all: `Sound` was a registered node kind no code read, and a game
+built on the engine was silent. It was found by packaging one and listening.
+
+The wire is the interesting part, because the obvious way to build it is wrong.
+A sound cannot be simulation state: if triggering one consumed a random number
+or wrote something hashed, muting a game would change how it plays and a run
+recorded with audio on would diverge from one played with it off. So the
+simulation says what it *would* play, into a list cleared at the start of every
+tick and never hashed, and whoever is listening reads it. M6's acceptance
+criterion — a headless run with audio triggered producing the same state hash as
+a windowed one — is now a test that runs the same scene twice and wipes the
+sound bookkeeping from one of them.
 
 **Scripts can ask what is nearby.** `scene.near` and `scene.nearest` read the
 broadphase the simulation already builds. See the performance section below:
@@ -201,23 +218,6 @@ and the scene has no stamp on it. What survives is
 would have broken, for whoever has this idea next.
 
 ## Still open, and known
-
-**Nothing plays a sound.** `dimetric-audio` is a real mixer — buses, a voice
-pool with stealing, tweened fades, a mock backend for headless runs and a `kira`
-one for a device — and it is wired to nothing. `Sound` is a registered node kind
-that no code reads, no script binding triggers a clip, and no `SimState` field
-carries what was played, so a run cannot hash it and a replay cannot reproduce
-it. The parts exist and the wire between them does not.
-
-It is the one hole in the engine that a game would hit on its first day, and it
-was found by packaging a game and noticing the result was silent. M6's own
-acceptance criterion — "a headless run with audio triggered produces the same
-state hash as a windowed one" — cannot be evaluated, because nothing can trigger
-audio. The shape of the fix is not in doubt: sounds are emitted into the
-simulation's state like any other event, hashed with it, and drained by whatever
-is listening — the player to a device, a headless run to nothing. That keeps a
-windowed run and a replay identical, which is the only part of it that is
-actually hard to retrofit.
 
 **An agent adding a spell changes the run.** The upgrade roll samples a list, so
 appending to it shifts every later choice — the fixture had to be re-recorded

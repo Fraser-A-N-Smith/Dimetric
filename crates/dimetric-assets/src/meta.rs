@@ -25,8 +25,8 @@ pub enum SourceKind {
     Png,
     /// An Aseprite document, whose tags become animation clips.
     Aseprite,
-    /// An audio clip.
-    Ogg,
+    /// An audio clip, in any container the backend decodes.
+    Audio,
     /// An LDtk level.
     Ldtk,
 }
@@ -38,7 +38,7 @@ impl SourceKind {
             match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
                 "png" => SourceKind::Png,
                 "ase" | "aseprite" => SourceKind::Aseprite,
-                "ogg" => SourceKind::Ogg,
+                "ogg" | "wav" => SourceKind::Audio,
                 "ldtk" => SourceKind::Ldtk,
                 _ => return None,
             },

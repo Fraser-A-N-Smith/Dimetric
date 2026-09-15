@@ -39,6 +39,12 @@ struct Args {
     /// Window size, as `WIDTHxHEIGHT`.
     #[arg(long, default_value = "1440x810")]
     window: String,
+    /// Play with no sound.
+    ///
+    /// The mixer still runs and still decides what would be heard; nothing
+    /// reaches a device. What `--headless` is to drawing.
+    #[arg(long)]
+    mute: bool,
     /// Close after this many ticks. Without it the window stays open.
     ///
     /// For smoke tests and for recording a fixed-length session: a run that
@@ -83,6 +89,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             scene,
             record: args.record.clone(),
             settings,
+            device: if args.mute {
+                dimetric_audio::Device::Silent
+            } else {
+                dimetric_audio::Device::System
+            },
         },
     )
     .map_err(|d| d.to_string())?;

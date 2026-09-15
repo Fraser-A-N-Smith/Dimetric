@@ -127,6 +127,19 @@ pub struct SimState {
     pub destroy_queue: Vec<NodeUid>,
     /// Nodes readied since the last tick, so `on_ready` fires exactly once.
     pub readied: Vec<NodeUid>,
+    /// Sounds asked for this tick, cleared at the start of the next one.
+    ///
+    /// Not hashed. Triggering a sound must not change what the simulation does
+    /// — otherwise muting a game would change how it plays, and a run recorded
+    /// with audio on would diverge from one played with it off. See
+    /// [`crate::sound`].
+    pub sounds: Vec<crate::sound::SoundEvent>,
+    /// `Sound` nodes that have already started themselves.
+    ///
+    /// Not hashed, for the same reason, but snapshotted with everything else —
+    /// so a rollback that lands before a sound started lets it start again, and
+    /// one that lands after does not restart it.
+    pub autoplayed: Vec<NodeUid>,
 }
 
 impl SimState {
@@ -149,6 +162,8 @@ impl SimState {
             spawn_count: 0,
             destroy_queue: Vec::new(),
             readied: Vec::new(),
+            sounds: Vec::new(),
+            autoplayed: Vec::new(),
         }
     }
 

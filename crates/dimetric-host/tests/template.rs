@@ -69,6 +69,42 @@ fn a_new_project_draws_something() {
 }
 
 #[test]
+fn a_new_project_makes_a_noise() {
+    // The click is generated too, and it has to be a file a decoder accepts —
+    // a forty-four-byte header written by hand is exactly the kind of thing
+    // that is subtly wrong and silently silent.
+    let root = scratch("sound");
+    template::create(&root, "Testbed").unwrap_or_else(|d| panic!("{d}"));
+
+    let bytes = std::fs::read(root.join("assets/sfx/bump.wav")).expect("the clip");
+    assert_eq!(&bytes[0..4], b"RIFF");
+    assert_eq!(&bytes[8..12], b"WAVE");
+    // The header declares exactly as many bytes as follow it.
+    let declared = u32::from_le_bytes(bytes[40..44].try_into().unwrap()) as usize;
+    assert_eq!(
+        declared,
+        bytes.len() - 44,
+        "the data chunk is the wrong size"
+    );
+    assert_eq!(
+        u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize,
+        bytes.len() - 8,
+        "the RIFF chunk is the wrong size"
+    );
+
+    // And the scene has something that plays it.
+    let text = std::fs::read_to_string(root.join("main.dim")).expect("the scene");
+    assert!(text.contains(r#"kind = "Sound""#), "no Sound node");
+    assert!(
+        text.contains("asset:sfx/bump"),
+        "nothing points at the clip"
+    );
+    let script = std::fs::read_to_string(root.join("scripts/player.lua")).expect("the script");
+    assert!(script.contains(":play()"), "nothing triggers it");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn writing_into_somebody_elses_directory_is_refused() {
     // Typing the wrong path should not cost someone their work.
     let root = scratch("occupied");

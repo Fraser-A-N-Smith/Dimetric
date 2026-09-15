@@ -13,6 +13,9 @@ default = []
 # The window. Off by default for the same reason the editor's is: building the
 # engine should not build winit.
 gui = ["dep:winit", "dep:wgpu", "dep:pollster", "dep:clap"]
+# The system sound device. Off by default because it needs ALSA and D-Bus
+# development headers on Linux, exactly as the audio crate's own does.
+sound = ["dimetric-audio/kira"]
 
 [[bin]]
 name = "dim-play"
@@ -27,6 +30,7 @@ dimetric-render.workspace = true
 dimetric-assets.workspace = true
 dimetric-host.workspace = true
 dimetric-platform.workspace = true
+dimetric-audio.workspace = true
 
 winit = { version = "0.30", optional = true }
 wgpu = { version = "30", optional = true }

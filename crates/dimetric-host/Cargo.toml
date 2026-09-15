@@ -13,6 +13,7 @@ dimetric-core.workspace = true
 dimetric-scene.workspace = true
 dimetric-render.workspace = true
 dimetric-assets.workspace = true
+dimetric-audio.workspace = true
 blake3.workspace = true
 dimetric-sim.workspace = true
 indexmap.workspace = true

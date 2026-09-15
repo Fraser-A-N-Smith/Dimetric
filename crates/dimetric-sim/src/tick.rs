@@ -269,8 +269,13 @@ impl Sim {
                     let mut state = self.state.borrow_mut();
                     let was = std::mem::replace(&mut state.input, input.clone());
                     state.previous_input = was;
+                    // Cleared here rather than at the end of the tick, so that
+                    // when `step` returns the list holds what this tick asked
+                    // for and whoever is listening can read it.
+                    state.sounds.clear();
                 }
                 self.dispatch_ready();
+                self.start_autoplaying_sounds();
             }
             Phase::ScriptsTick => {
                 // Built before scripts run, so every script queries the same
@@ -355,6 +360,29 @@ impl Sim {
         for (uid, script) in pending {
             self.state.borrow_mut().readied.push(uid);
             self.call(uid, &script, &Hook::Ready);
+        }
+    }
+
+    /// Start every `Sound` node that asked to start on its own.
+    ///
+    /// Separate from `on_ready` because a `Sound` node usually has no script,
+    /// and because a node that has both should get its `on_ready` *and* its
+    /// autoplay rather than whichever pass ran first.
+    fn start_autoplaying_sounds(&mut self) {
+        let mut state = self.state.borrow_mut();
+        let state = &mut *state;
+        let pending: Vec<crate::sound::SoundCue> = state
+            .scene
+            .walk()
+            .into_iter()
+            .filter_map(|id| state.scene.get(id))
+            .filter(|node| crate::sound::SoundCue::autoplays(node))
+            .filter(|node| !state.autoplayed.contains(&node.uid))
+            .filter_map(crate::sound::SoundCue::of)
+            .collect();
+        for cue in pending {
+            state.autoplayed.push(cue.node);
+            state.sounds.push(crate::sound::SoundEvent::Play(cue));
         }
     }
 

@@ -285,8 +285,9 @@ Scripts see exactly these globals and nothing else.
 
 A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,
 `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,
-`kind` and `valid`. Indexing a handle reads and writes script variables, except
-for `pos`, `rot` and `visible`, which reach the node's transform.
+`kind`, `valid`, and — on a `Sound` node — `play` and `stop`. Indexing a handle
+reads and writes script variables, except for `pos`, `rot` and `visible`, which
+reach the node's transform.
 
 ### Spawning
 
@@ -316,6 +317,20 @@ Animation clips come from the importer with their frame durations already in
 ticks. `on_anim_event(self, name)` fires when playback reaches a frame that
 carries an event, which is how a hitbox opens on the swing frame rather than
 on a timer someone has to keep in sync by hand.
+
+### Sound
+
+`node:play()` on a `Sound` node asks for its clip; `node:stop()` stops what
+that node started. The script says *when* and the node's properties say what,
+on which bus, how loud and how far the pitch wanders — so an instance override
+can change a sound and a designer can find it.
+
+The simulation never plays anything. It appends to a list that is cleared at
+the start of every tick and **is not hashed**, and whoever is listening reads
+it. If a trigger consumed a random number or wrote hashed state, muting a game
+would change how it plays and a run recorded with audio on would diverge from
+one played with it off. `dim run` reports how many sounds a headless run asked
+for.
 
 ### The rule that matters
 

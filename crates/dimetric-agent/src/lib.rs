@@ -1070,6 +1070,10 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
     let mut reloaded = Vec::new();
 
     let mut hashes = Vec::with_capacity(args.ticks as usize);
+    // Sounds are presentation and a headless run has nowhere to put them, but
+    // counting them is how an agent checks that a scene makes a noise without
+    // owning a sound card.
+    let mut sounds = 0usize;
     for tick in 0..args.ticks {
         // Between ticks, never inside one: a tick that picked up a new script
         // half way through would hash to something nobody could reproduce.
@@ -1086,6 +1090,7 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
             }
         }
         sim.step(log.frame(tick));
+        sounds += sim.state().sounds.len();
         hashes.push(sim.hash());
     }
     warnings.extend(sim.take_diagnostics().0);
@@ -1115,11 +1120,17 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
             "hash": final_hash.map(|h| h.to_hex()),
             "recorded": args.record,
             "reloaded": reloaded,
+            "sounds": sounds,
         }),
         format!(
-            "ran {} ticks from seed {seed}; final state {}",
+            "ran {} ticks from seed {seed}; final state {}{}",
             args.ticks,
-            final_hash.map(|h| h.to_hex()).unwrap_or_default()
+            final_hash.map(|h| h.to_hex()).unwrap_or_default(),
+            match sounds {
+                0 => String::new(),
+                1 => "; 1 sound".to_string(),
+                n => format!("; {n} sounds"),
+            }
         ),
     );
     out.warnings = warnings;
