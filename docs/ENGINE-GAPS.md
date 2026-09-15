@@ -202,6 +202,23 @@ would have broken, for whoever has this idea next.
 
 ## Still open, and known
 
+**Nothing plays a sound.** `dimetric-audio` is a real mixer — buses, a voice
+pool with stealing, tweened fades, a mock backend for headless runs and a `kira`
+one for a device — and it is wired to nothing. `Sound` is a registered node kind
+that no code reads, no script binding triggers a clip, and no `SimState` field
+carries what was played, so a run cannot hash it and a replay cannot reproduce
+it. The parts exist and the wire between them does not.
+
+It is the one hole in the engine that a game would hit on its first day, and it
+was found by packaging a game and noticing the result was silent. M6's own
+acceptance criterion — "a headless run with audio triggered produces the same
+state hash as a windowed one" — cannot be evaluated, because nothing can trigger
+audio. The shape of the fix is not in doubt: sounds are emitted into the
+simulation's state like any other event, hashed with it, and drained by whatever
+is listening — the player to a device, a headless run to nothing. That keeps a
+windowed run and a replay identical, which is the only part of it that is
+actually hard to retrofit.
+
 **An agent adding a spell changes the run.** The upgrade roll samples a list, so
 appending to it shifts every later choice — the fixture had to be re-recorded
 after the acceptance test added `frost`. That is correct behaviour rather than a

@@ -11,8 +11,12 @@ networking problem rather than a rewrite.
 
 ## Status
 
-Early. The simulation layer is real and tested; the renderer and editor are not
-built yet. See [Milestones](#milestones) for what that means in practice.
+Early, and further along than that suggests: the simulation, the renderer, the
+editor, the CLI and the runtime all exist and are tested, and a game packaged
+by `dim build` runs on its own. The gap between this and something to write a
+real game in is content tooling and time, not missing layers — with one hole
+worth naming, which is that nothing plays a sound yet. See
+[Milestones](#milestones).
 
 ## On the name
 
@@ -45,6 +49,13 @@ fork.
 cargo run -p dimetric-agent -- --project examples/sorcerer --scene arena01 scene tree
 ```
 
+Start a project of your own, and play it:
+
+```sh
+dim new mygame
+cargo run -p dimetric-player --features gui -- mygame
+```
+
 Run the simulation headlessly and record what happened:
 
 ```sh
@@ -64,6 +75,32 @@ dim --project examples/sorcerer --scene arena01 \
 Every command takes `--json` and returns a structured envelope. Every failure
 carries a `DIM####` code with machine-readable fields, so nothing has to parse
 prose to find out what went wrong.
+
+## Playing, and shipping
+
+```sh
+cargo run -p dimetric-player --features gui -- examples/sorcerer --record run.input
+```
+
+A window, a fixed tick, WASD or the arrows, mouse to aim. `--record` writes
+what you did as an input log, so a run you played reproduces under `dim replay`
+— which means a bug you hit by playing arrives as evidence rather than as a
+description of it.
+
+The window is the small half. The clock that decides how many ticks a frame
+owes, the bindings that turn keys into input, and the session that owns the
+simulation are all in `dimetric-player` as a library with no display in it, and
+they are tested that way.
+
+```sh
+dim --project examples/sorcerer build --target linux --runtime target/release/dim-play
+```
+
+stages the game into `build/linux/`: the scenes, the scripts, the prefabs, the
+assets and the import cache, plus a manifest saying which scene to boot. The
+runtime reads that manifest from beside itself, so the staged directory runs
+with no arguments. `dim` does not compile Rust — cargo does — so `--runtime`
+takes a `dim-play` built for the target you asked for.
 
 ## Scenes
 
@@ -154,12 +191,13 @@ crates/
   dimetric-scene      node tree, .dim format, prefab instancing
   dimetric-sim        tick loop, physics, scripting, snapshots
   dimetric-host       command bus, undo, project, replay harness
-  dimetric-agent      the dim CLI
+  dimetric-agent      the dim CLI and the MCP server
   dimetric-render     projection, sort keys, batching
-  dimetric-audio      mixer buses, voice pool
+  dimetric-audio      mixer buses, voice pool (not yet driven by anything)
   dimetric-assets     asset identity, import settings
   dimetric-platform   input sources, project paths
   dimetric-editor     editor view state
+  dimetric-player     the runtime: clock, bindings, session
 ```
 
 Dependencies run strictly downward and CI enforces it.
@@ -174,11 +212,11 @@ Dependencies run strictly downward and CI enforces it.
 | M3 | Renderer | done — wgpu backend, three passes, headless capture, golden images on three platforms |
 | M4 | Scripting | done — mlua, handles, sandbox, structured errors, cost measured at 2000 entities |
 | M5 | Physics | done — spatial hash, swept movement with sliding, triggers |
-| M6 | Assets, tiles, audio, animation | done — import pipeline, LDtk baking, mixer and fades, tweens and frame animation; the audio **device** is behind the `kira` feature |
-| M7 | Editor | tree, inspector, viewport, console, assets, play-in-editor and scrubber; the window is behind the `gui` feature |
+| M6 | Assets, tiles, audio, animation | import pipeline, LDtk baking, tweens and frame animation are done. **Audio is not**: the mixer and its backends exist and nothing drives them, so no scene makes a sound |
+| M7 | Editor | done — tree, inspector, viewport, console, assets, play-in-editor and scrubber; the window is behind the `gui` feature |
 | M8 | Agent interface | done — full CLI, MCP server, generated docs and schemas |
-| M9 | Vertical slice | a five-room run, spells and evolutions, the agent acceptance test passing; density measured and improved 7x |
-| M10 | Hardening | not started |
+| M9 | Vertical slice | done — a five-room run, spells and evolutions, the agent acceptance test passing; density measured and improved 7x |
+| M10 | Hardening | runtime, packaging, `dim new`, broadphase and batcher passes done; audio still open |
 
 Commands that exist but are not implemented fail with `DIM0801` naming the
 milestone they belong to, rather than pretending to succeed.
@@ -223,10 +261,12 @@ one node, so balance tuning is an edit and a reload.
 
 `stress.dim` is not a game: four hundred live projectiles against forty enemies,
 which is the density §12 asks the engine to survive. It found that
-`scene.nearest` cost 139 ms a tick; it now costs 20. What that cost and what was
-wrong with it is in `docs/ENGINE-GAPS.md`, along with everything else the slice
-found — the four gaps that turned out to belong in the engine, the ones that did
-not, and the two still open.
+`scene.nearest` cost 139 ms a tick, and seven times faster later it found
+something better — that the broadphase is no longer where the time goes, and the
+Lua boundary in front of it is. `docs/ENGINE-GAPS.md` has the measurements, the
+one optimisation that was built and thrown away, and everything else the slice
+turned up: the gaps that belonged in the engine, the ones that did not, and the
+ones still open.
 
 ## Assets
 
@@ -270,8 +310,16 @@ LDtk or from `dim tile fill`. LDtk owns tile layers; `.dim` owns every entity.
 
 ## Audio
 
-The mixer decides what plays and the backend makes noise, which is what lets
-voice stealing, per-clip caps and fades be tested with no sound card involved.
+**Nothing triggers it yet.** The mixer is real — buses, a voice pool with
+stealing, per-clip caps, tweened fades, a mock backend for CI and a `kira` one
+for a device — and no scene, script or node reaches it, so a game built on this
+engine today is silent. It is the one hole worth knowing about before starting
+something; `docs/ENGINE-GAPS.md` says what the fix has to look like and why the
+determinism part of it is the half that cannot be bolted on later.
+
+What exists is worth describing because the split is the point. The mixer
+decides what plays and the backend makes noise, which is what lets voice
+stealing, per-clip caps and fades be tested with no sound card involved.
 Headless runs and CI get the mock backend and produce no device I/O at all. The
 real one is behind the `kira` feature, off by default because it needs ALSA and
 D-Bus development headers on Linux.

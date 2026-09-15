@@ -33,8 +33,8 @@ code comments can cite them, and several are checked mechanically.
 |---|---|---|
 | I1 | Every editor operation exists as a `Command` first | review |
 | I2 | Scenes are text, and load-then-save is byte-identical | `dim scene fmt --check`, round-trip tests |
-| I3 | No `f32`/`f64` in simulation code | `cargo xtask lint-floats` |
-| I4 | No `HashMap`/`HashSet` iteration in simulation | `cargo xtask lint-floats` |
+| I3 | No `f32`/`f64` in simulation code | `cargo xtask lint-sim` |
+| I4 | No `HashMap`/`HashSet` iteration in simulation | `cargo xtask lint-sim` |
 | I5 | No wall-clock time in simulation | review + lint |
 | I6 | All randomness comes from a seeded `Rng` stream | review |
 | I7 | Rendering never writes simulation state | review |
@@ -52,8 +52,14 @@ cargo xtask ci
 ```
 
 That runs the same gates CI does: formatting, clippy, tests, the float and
-`HashMap` lints, the crate dependency-direction check, and scene canonical-form
-checking. It is faster to run it than to wait for the robot to tell you.
+`HashMap` lints, the crate dependency-direction check, scene canonical-form
+checking, and a check that the generated documentation matches the code. It is
+faster to run it than to wait for the robot to tell you.
+
+Two things it does not build, because they pull in a window and the engine's
+own build should not: the editor (`cargo clippy -p dimetric-editor --features
+gui --all-targets`) and the player (`--features gui` likewise). CI has a job
+for each, and both are run rather than only built.
 
 ## Determinism
 
