@@ -48,24 +48,31 @@ pub struct Body {
     /// A bloom filter over the node's tags.
     ///
     /// One bit per tag, hashed into sixty-four. A miss is exact — the bit is
-    /// definitely absent — and a hit needs confirming. That is enough to skip
-    /// most of the work: a tagged query over a scene full of projectiles spends
-    /// its time on candidates that cannot possibly match, and an integer test
-    /// beats two map lookups and a string compare several hundred thousand
-    /// times a tick.
+    /// definitely absent — and a hit needs confirming. Kept for callers that
+    /// have a tag but not a world to resolve it against; the per-tag index is
+    /// what the queries use.
     pub tags: u64,
+    /// This body's slice of the world's interned tag ids.
+    pub tags_at: (u32, u32),
 }
 
-/// The bit a tag sets in [`Body::tags`].
-pub fn tag_bit(tag: &str) -> u64 {
-    // FNV-1a, because it is short, stable across builds and platforms, and the
-    // exact spread does not matter for a filter that is confirmed on a hit.
+/// A tag's full hash, which is what the per-tag index is keyed by.
+///
+/// FNV-1a, because it is short, stable across builds and platforms, and a
+/// collision costs a confirmation rather than a wrong answer — every caller
+/// checks the node's own tags before believing a hit.
+pub fn tag_hash(tag: &str) -> u64 {
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in tag.as_bytes() {
         hash ^= *byte as u64;
         hash = hash.wrapping_mul(0x100000001b3);
     }
-    1u64 << (hash % 64)
+    hash
+}
+
+/// The bit a tag sets in [`Body::tags`].
+pub fn tag_bit(tag: &str) -> u64 {
+    1u64 << (tag_hash(tag) % 64)
 }
 
 impl Body {
@@ -101,6 +108,19 @@ pub struct PhysicsWorld {
     /// A `BTreeMap` rather than a `HashMap`: bucket iteration reaches contact
     /// order, and hash iteration order is not stable across runs (I4).
     grid: BTreeMap<(i32, i32), Vec<usize>>,
+    /// Every distinct tag in the scene, in first-seen order.
+    ///
+    /// Tags are interned so that a query can compare integers. The scene has a
+    /// handful of distinct tags and a thousand bodies carrying them, so this is
+    /// a handful of strings rather than one per body — and, more to the point,
+    /// answering "does this body carry `enemy`" stops being a scene lookup and
+    /// a string compare. That confirmation, run once per candidate per query,
+    /// was what a few hundred homing projectiles actually cost.
+    tag_names: Vec<String>,
+    /// Tag ids, flat; each body owns a slice given by [`Body::tags_at`].
+    tag_ids: Vec<u32>,
+    /// A spatial hash per tag id, holding only the bodies that carry it.
+    tag_grids: Vec<BTreeMap<(i32, i32), Vec<usize>>>,
 }
 
 impl PhysicsWorld {
@@ -130,7 +150,14 @@ impl PhysicsWorld {
                 .world_of(id)
                 .map(|t| t.pos)
                 .unwrap_or(node.transform.pos);
+            let tags_from = world.tag_ids.len() as u32;
+            for tag in &node.tags {
+                let id = world.intern(tag);
+                world.tag_ids.push(id);
+            }
+            let tags_to = world.tag_ids.len() as u32;
             world.bodies.push(Body {
+                tags_at: (tags_from, tags_to),
                 node: id,
                 uid: node.uid,
                 shape,
@@ -146,6 +173,34 @@ impl PhysicsWorld {
         world
     }
 
+    /// The id of a tag, adding it if this is the first body to carry it.
+    fn intern(&mut self, tag: &str) -> u32 {
+        match self.tag_names.iter().position(|t| t == tag) {
+            Some(index) => index as u32,
+            None => {
+                self.tag_names.push(tag.to_string());
+                (self.tag_names.len() - 1) as u32
+            }
+        }
+    }
+
+    /// The id of a tag, or nothing when no body in the scene carries it.
+    pub fn tag_id(&self, tag: &str) -> Option<u32> {
+        self.tag_names
+            .iter()
+            .position(|t| t == tag)
+            .map(|i| i as u32)
+    }
+
+    /// True when a body carries a tag.
+    ///
+    /// An integer scan over the two or three ids the body has, which is the
+    /// whole point of interning them.
+    pub fn body_has_tag(&self, index: usize, tag: u32) -> bool {
+        let (from, to) = self.bodies[index].tags_at;
+        self.tag_ids[from as usize..to as usize].contains(&tag)
+    }
+
     /// Rebuild the spatial hash from the current body positions.
     pub fn reindex(&mut self) {
         self.grid.clear();
@@ -153,6 +208,33 @@ impl PhysicsWorld {
             for cell in cells_of(body) {
                 self.grid.entry(cell).or_default().push(index);
             }
+        }
+
+        // And one grid per tag, holding only the bodies that carry it. The
+        // bloom filter made a tagged query cheap per candidate; this makes it
+        // cheap in the number of candidates.
+        self.tag_grids.clear();
+        self.tag_grids
+            .resize_with(self.tag_names.len(), BTreeMap::new);
+        for index in 0..self.bodies.len() {
+            let (from, to) = self.bodies[index].tags_at;
+            let cells = cells_of(&self.bodies[index]);
+            for slot in from as usize..to as usize {
+                let tag = self.tag_ids[slot] as usize;
+                for cell in &cells {
+                    self.tag_grids[tag].entry(*cell).or_default().push(index);
+                }
+            }
+        }
+    }
+
+    /// The grid a query over `tag` should walk.
+    fn grid_for(&self, tag: Option<u32>) -> Option<&BTreeMap<(i32, i32), Vec<usize>>> {
+        match tag {
+            // A tag nothing carries has no grid, and the answer is nothing —
+            // which is not the same as falling back to every body.
+            Some(id) => self.tag_grids.get(id as usize),
+            None => Some(&self.grid),
         }
     }
 
@@ -169,19 +251,7 @@ impl PhysicsWorld {
     /// Candidate bodies near a box, in ascending index order and without
     /// duplicates.
     pub fn candidates(&self, center: Vec2Fx, half: Vec2Fx) -> Vec<usize> {
-        let min = cell_of(center - half);
-        let max = cell_of(center + half);
-        let mut out = Vec::new();
-        for y in min.1..=max.1 {
-            for x in min.0..=max.0 {
-                if let Some(bucket) = self.grid.get(&(x, y)) {
-                    out.extend_from_slice(bucket);
-                }
-            }
-        }
-        out.sort_unstable();
-        out.dedup();
-        out
+        cells_in(&self.grid, center, half)
     }
 
     /// Move a body toward `target`, sliding along whatever blocks it.
@@ -367,24 +437,31 @@ impl PhysicsWorld {
         &self,
         at: Vec2Fx,
         radius: Fx,
-        tag_filter: u64,
+        tag: Option<&str>,
         accept: impl Fn(NodeUid) -> bool,
     ) -> Option<NodeUid> {
         let half = Vec2Fx::new(radius, radius);
         let limit = radius.wide() * radius.wide();
         let min = cell_of(at - half);
         let max = cell_of(at + half);
+        let tag = match tag {
+            Some(tag) => match self.tag_id(tag) {
+                Some(id) => Some(id),
+                None => return None,
+            },
+            None => None,
+        };
+        let grid = self.grid_for(tag)?;
 
         let mut best: Option<(dimetric_core::FxWide, NodeUid)> = None;
         for y in min.1..=max.1 {
             for x in min.0..=max.0 {
-                let Some(bucket) = self.grid.get(&(x, y)) else {
+                let Some(bucket) = grid.get(&(x, y)) else {
                     continue;
                 };
                 for index in bucket {
                     let body = &self.bodies[*index];
-                    // The cheap tests first: a bit that is absent is absent.
-                    if tag_filter != 0 && body.tags & tag_filter == 0 {
+                    if tag.is_some_and(|id| !self.body_has_tag(*index, id)) {
                         continue;
                     }
                     let distance = (body.pos - at).length_squared();
@@ -410,11 +487,30 @@ impl PhysicsWorld {
     /// about where things are, and a caller that wants overlap has
     /// [`PhysicsWorld::overlaps`].
     pub fn within(&self, at: Vec2Fx, radius: Fx) -> Vec<NodeUid> {
+        self.within_tagged(at, radius, None)
+    }
+
+    /// The same, restricted to bodies carrying `tag`.
+    ///
+    /// Filtering afterwards would build the list of everything nearby first,
+    /// which in a scene full of projectiles is most of the work and all of it
+    /// wasted.
+    pub fn within_tagged(&self, at: Vec2Fx, radius: Fx, tag: Option<&str>) -> Vec<NodeUid> {
         let half = Vec2Fx::new(radius, radius);
         let limit = radius.wide() * radius.wide();
-        let mut out: Vec<NodeUid> = self
-            .candidates(at, half)
+        let tag = match tag {
+            Some(tag) => match self.tag_id(tag) {
+                Some(id) => Some(id),
+                None => return Vec::new(),
+            },
+            None => None,
+        };
+        let Some(grid) = self.grid_for(tag) else {
+            return Vec::new();
+        };
+        let mut out: Vec<NodeUid> = cells_in(grid, at, half)
             .into_iter()
+            .filter(|i| tag.is_none_or(|id| self.body_has_tag(*i, id)))
             .filter(|i| (self.bodies[*i].pos - at).length_squared() <= limit)
             .map(|i| self.bodies[i].uid)
             .collect();
@@ -434,7 +530,8 @@ impl PhysicsWorld {
             .filter(|i| self.bodies[*i].shape.contains(self.bodies[*i].pos, point))
             .map(|i| self.bodies[i].uid)
             .collect();
-        out.sort_by_key(|u| u.body().to_string());
+        out.sort_by(|a, b| a.body().cmp(b.body()));
+        out.dedup();
         out
     }
 
@@ -457,6 +554,26 @@ fn cell_of(p: Vec2Fx) -> (i32, i32) {
         p.x.floor_int().div_euclid(CELL_SIZE),
         p.y.floor_int().div_euclid(CELL_SIZE),
     )
+}
+
+/// Every body index a grid holds in the cells covering a box.
+///
+/// Ascending and without duplicates, because a body spanning two cells is in
+/// both and a caller asking what is nearby should hear about it once.
+fn cells_in(grid: &BTreeMap<(i32, i32), Vec<usize>>, center: Vec2Fx, half: Vec2Fx) -> Vec<usize> {
+    let min = cell_of(center - half);
+    let max = cell_of(center + half);
+    let mut out = Vec::new();
+    for y in min.1..=max.1 {
+        for x in min.0..=max.0 {
+            if let Some(bucket) = grid.get(&(x, y)) {
+                out.extend_from_slice(bucket);
+            }
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
 }
 
 fn cells_of(body: &Body) -> Vec<(i32, i32)> {

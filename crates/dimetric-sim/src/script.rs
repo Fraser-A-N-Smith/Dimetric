@@ -849,19 +849,12 @@ impl LuaHost {
                 lua.create_function(|lua, (at, radius, tag): (LuaVec2, LuaFx, Option<String>)| {
                     let state = shared(lua)?;
                     let state = state.borrow();
-                    let found = state.query.as_ref().map(|w| w.within(at.0, radius.0));
+                    let found = state
+                        .query
+                        .as_ref()
+                        .map(|w| w.within_tagged(at.0, radius.0, tag.as_deref()));
                     let mut handles = Vec::new();
                     for uid in found.unwrap_or_default() {
-                        if let Some(tag) = &tag {
-                            let matches = state
-                                .scene
-                                .by_uid(uid)
-                                .and_then(|id| state.scene.get(id))
-                                .is_some_and(|n| n.has_tag(tag));
-                            if !matches {
-                                continue;
-                            }
-                        }
                         handles.push(NodeHandle(uid));
                     }
                     lua.create_sequence_from(handles)
@@ -880,19 +873,13 @@ impl LuaHost {
                     let Some(world) = state.query.as_ref() else {
                         return Ok(None);
                     };
-                    // The filter runs inside the scan, so a tagged query never
-                    // builds a list of everything nearby and then throws most
-                    // of it away — which is what a few hundred homing
-                    // projectiles asking every tick made expensive.
-                    let filter = tag.as_deref().map(crate::world::tag_bit).unwrap_or(0);
-                    let found = world.nearest(at.0, radius.0, filter, |uid| match &tag {
-                        None => true,
-                        Some(tag) => state
-                            .scene
-                            .by_uid(uid)
-                            .and_then(|id| state.scene.get(id))
-                            .is_some_and(|n| n.has_tag(tag)),
-                    });
+                    // The scan walks the index for this tag, so a tagged query
+                    // never visits a body that could not match — which is what
+                    // a few hundred homing projectiles asking every tick made
+                    // expensive.
+                    // No confirmation against the scene: the index is exact, so
+                    // a hit is a hit.
+                    let found = world.nearest(at.0, radius.0, tag.as_deref(), |_| true);
                     Ok(found.map(NodeHandle))
                 })
                 .map_err(err)?,

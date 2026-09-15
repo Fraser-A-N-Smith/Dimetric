@@ -70,14 +70,14 @@ fn interpolation_stays_between_the_two_states() {
 }
 
 #[test]
-fn layer_beats_depth_and_depth_beats_texture() {
+fn layer_beats_depth_and_depth_beats_the_batch_group() {
     let low_layer = SortKey::new(0, Fx::from_int(1000), 0, uid("n_aaaaaaaa"));
     let high_layer = SortKey::new(1, Fx::from_int(-1000), 9, uid("n_aaaaaaaa"));
     assert!(low_layer < high_layer, "layer must dominate");
 
     let near = SortKey::new(0, Fx::from_int(10), 9, uid("n_aaaaaaaa"));
     let far = SortKey::new(0, Fx::from_int(200), 0, uid("n_aaaaaaaa"));
-    assert!(near < far, "depth must beat texture");
+    assert!(near < far, "depth must beat the batch group");
 }
 
 #[test]
@@ -107,7 +107,12 @@ fn sub_unit_movement_does_not_change_sort_position() {
 
 fn item(layer: i32, depth: i32, atlas: u16, blend: Blend, id: &str) -> DrawItem {
     DrawItem {
-        key: SortKey::new(layer, Fx::from_int(depth), atlas, uid(id)),
+        key: SortKey::new(
+            layer,
+            Fx::from_int(depth),
+            dimetric_render::batch_group(atlas, 0, blend),
+            uid(id),
+        ),
         atlas,
         blend,
         shader: 0,
@@ -234,4 +239,50 @@ fn the_view_projection_shears_and_does_not_transpose() {
     let (qx, qy) = at(0.0, 100.0);
     assert!(qx < 0.0, "world +y should move left, got {qx}");
     assert!(qy < 0.0, "world +y should move down the screen, got {qy}");
+}
+
+#[test]
+fn sprites_at_one_depth_are_grouped_by_what_the_batcher_splits_on() {
+    // The stress scene is projectiles and enemies at every depth, and before
+    // this the two blend modes alternated all the way down: 440 sprites in 27
+    // draw calls. Two sprites at the same quantised depth are in no meaningful
+    // order, so putting the ones that can be drawn together next to each other
+    // costs nothing and saves a third of the draws.
+    let mut items = vec![
+        item(0, 10, 0, Blend::Alpha, "n_aaaaaaaa"),
+        item(0, 10, 0, Blend::Additive, "n_bbbbbbbb"),
+        item(0, 10, 0, Blend::Alpha, "n_cccccccc"),
+        item(0, 10, 0, Blend::Additive, "n_dddddddd"),
+    ];
+    let batches = build(&mut items);
+    assert_eq!(batches.len(), 2, "one batch per blend, not four");
+}
+
+#[test]
+fn the_sort_group_is_exactly_what_the_batcher_splits_on() {
+    // If these ever disagree the sort produces a tidy order and the same number
+    // of draw calls, which is an optimisation that looks like it works.
+    let a = item(0, 10, 0, Blend::Alpha, "n_aaaaaaaa");
+    let b = item(0, 10, 1, Blend::Alpha, "n_bbbbbbbb");
+    let c = item(0, 10, 0, Blend::Additive, "n_cccccccc");
+    assert_ne!(a.key.group(), b.key.group(), "a different atlas splits");
+    assert_ne!(a.key.group(), c.key.group(), "a different blend splits");
+
+    let d = item(0, 10, 0, Blend::Alpha, "n_dddddddd");
+    assert_eq!(a.key.group(), d.key.group(), "the same pair does not");
+}
+
+#[test]
+fn depth_still_wins_over_the_group() {
+    // Grouping is a tie-break and nothing more. An additive sprite in front of
+    // an alpha one is drawn in front of it, however many draws that costs.
+    let mut items = vec![
+        item(0, 30, 0, Blend::Alpha, "n_cccccccc"),
+        item(0, 20, 0, Blend::Additive, "n_bbbbbbbb"),
+        item(0, 10, 0, Blend::Alpha, "n_aaaaaaaa"),
+    ];
+    let batches = build(&mut items);
+    assert_eq!(batches.len(), 3);
+    assert_eq!(items[0].node, uid("n_aaaaaaaa"));
+    assert_eq!(items[2].node, uid("n_cccccccc"));
 }

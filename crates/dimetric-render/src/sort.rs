@@ -11,17 +11,24 @@ use dimetric_core::{Fx, NodeUid};
 pub const LAYER_BITS: u32 = 8;
 /// Bits for the depth field.
 pub const DEPTH_BITS: u32 = 24;
-/// Bits for the texture field.
-pub const TEXTURE_BITS: u32 = 16;
+/// Bits for the batch-group field.
+pub const GROUP_BITS: u32 = 16;
 /// Bits for the tie-break field.
 pub const TIE_BITS: u32 = 16;
 
 /// A packed draw-order key.
 ///
-/// Field order is layer, then depth, then texture, then a tie-break. Layer
-/// first because it is an authored decision and must win; texture before the
-/// tie-break because grouping by texture is what lets the batcher emit few
-/// draw calls; a tie-break last so the order is never ambiguous.
+/// Field order is layer, then depth, then batch group, then a tie-break. Layer
+/// first because it is an authored decision and must win; the batch group
+/// before the tie-break because two sprites at the same depth are in no
+/// meaningful order anyway, and putting the ones that can be drawn together
+/// next to each other is what lets the batcher emit few draw calls; a tie-break
+/// last so the order is never ambiguous.
+///
+/// The group is [`batch_group`](crate::batch::batch_group) — whatever the
+/// batcher splits on. It has to be exactly that: a key that sorted by something
+/// the batcher ignores would produce a tidy order and the same number of draw
+/// calls, which is the shape of an optimisation that does nothing.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct SortKey(pub u64);
 
@@ -32,27 +39,27 @@ impl SortKey {
     /// [`Projection::depth_of`](crate::Projection::depth_of); it is biased into
     /// an unsigned range so that negative coordinates sort before positive
     /// ones instead of wrapping past them.
-    pub fn new(layer: i32, depth: Fx, texture: u16, tie: NodeUid) -> SortKey {
+    pub fn new(layer: i32, depth: Fx, group: u16, tie: NodeUid) -> SortKey {
         let layer = (layer.clamp(-128, 127) + 128) as u64 & mask(LAYER_BITS);
         let depth = bias_depth(depth);
-        let texture = texture as u64 & mask(TEXTURE_BITS);
+        let group = group as u64 & mask(GROUP_BITS);
         let tie = tie_break(tie);
         SortKey(
-            (layer << (DEPTH_BITS + TEXTURE_BITS + TIE_BITS))
-                | (depth << (TEXTURE_BITS + TIE_BITS))
-                | (texture << TIE_BITS)
+            (layer << (DEPTH_BITS + GROUP_BITS + TIE_BITS))
+                | (depth << (GROUP_BITS + TIE_BITS))
+                | (group << TIE_BITS)
                 | tie,
         )
     }
 
     /// The layer this key sorts into.
     pub fn layer(self) -> i32 {
-        ((self.0 >> (DEPTH_BITS + TEXTURE_BITS + TIE_BITS)) & mask(LAYER_BITS)) as i32 - 128
+        ((self.0 >> (DEPTH_BITS + GROUP_BITS + TIE_BITS)) & mask(LAYER_BITS)) as i32 - 128
     }
 
-    /// The texture this key sorts into.
-    pub fn texture(self) -> u16 {
-        ((self.0 >> TIE_BITS) & mask(TEXTURE_BITS)) as u16
+    /// The batch group this key sorts into.
+    pub fn group(self) -> u16 {
+        ((self.0 >> TIE_BITS) & mask(GROUP_BITS)) as u16
     }
 }
 

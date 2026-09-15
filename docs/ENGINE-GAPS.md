@@ -134,6 +134,51 @@ comes in at 12.7 ms.
 The lesson is the one the stress scene was for. `sort_by_key(|u| u.body().to_string())`
 looks like nothing. At four hundred calls a tick it was half the frame.
 
+### The pass that finished it, and what it found instead
+
+M10 came back to the two things left open: the broadphase and the batcher.
+
+**The broadphase.** A tagged query now walks an index holding only that tag,
+rather than the main grid with a bloom filter over each candidate. `cargo bench
+-p dimetric-sim --bench queries` measures it on the stress scene's shape — forty
+enemies among four hundred projectiles, sharing cells:
+
+| Query | Main grid + bloom | The tag's own index |
+|---|---|---|
+| `nearest`, tagged | 5.47 us | 1.92 us |
+| `near`, tagged | 9.78 us | 2.30 us |
+
+Two and a half to four times faster, against 71 us to rebuild every index and
+two rebuilds a tick. At four hundred queries a tick that trades 0.14 ms for
+1.4 ms. The index also lets the query answer on its own: confirming a tag used to
+mean a scene lookup and a string compare per candidate, and tags are interned
+now, so it is an integer.
+
+**And it does not show up end to end.** The stress scene measures the same
+either way through Lua. That is the real finding of this pass: a `scene.nearest`
+that returns without looking at anything still costs about 21 us, so the
+boundary the query sits behind costs more than the query. The broadphase is no
+longer where the time goes, and two changes in a row measuring as noise is what
+it took to notice — which is why `benches/queries.rs` exists and measures the
+query on its own rather than through a script.
+
+**The batcher.** §11 asks for thousands of sprites in a handful of draw calls.
+The stress scene drew 440 sprites in **27** draw calls, which is neither.
+
+The sort key had a sixteen-bit texture field in it, and the field was always
+zero: everything is in one atlas, so it never distinguished anything. Meanwhile
+the thing that *does* split a batch — the blend mode — was not in the key at all,
+so alpha enemies and additive projectiles alternated all the way down the sort.
+The field now holds whatever the batcher splits on, which is atlas, shader and
+blend together, and sprites at the same quantised depth are grouped by it. Same
+440 sprites, **19** draw calls, and no visual change: two sprites at the same
+depth were already in an arbitrary order and this picks a different arbitrary
+one.
+
+What is left is inherent. Correct back-to-front order with two blend modes
+interleaved by depth cannot be merged further without drawing something in front
+of what it should be behind.
+
 ### One that was tried and thrown away
 
 A tick builds the broadphase twice: once before the scripts run, so every query
