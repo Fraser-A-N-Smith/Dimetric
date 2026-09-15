@@ -33,6 +33,15 @@ pub struct PlayerInput {
     pub move_dir: Vec2Fx,
     /// Aim direction.
     pub aim: Angle,
+    /// Where the pointer is, in canvas pixels.
+    ///
+    /// In the input frame rather than at the render boundary, because a UI
+    /// click has to be replayable: the simulation lays the UI out against a
+    /// fixed canvas and decides for itself what the pointer was over. Whole
+    /// canvas pixels, so the value is exactly representable and writes into a
+    /// log without rounding — a UI hit test has no use for a sixteenth of a
+    /// pixel.
+    pub pointer: Vec2Fx,
 }
 
 impl PlayerInput {
@@ -52,7 +61,8 @@ impl PlayerInput {
     pub fn hash_state(&self, h: &mut StateHasher) {
         h.u64(self.buttons as u64)
             .vec2(self.move_dir)
-            .angle(self.aim);
+            .angle(self.aim)
+            .vec2(self.pointer);
     }
 }
 
@@ -148,18 +158,23 @@ impl InputLog {
             let _ = writeln!(out, "scene {h}");
         }
         let _ = writeln!(out, "players {}", self.player_count);
-        let _ = writeln!(out, "# tick  then buttons move_x move_y aim, per player");
+        let _ = writeln!(
+            out,
+            "# tick  then buttons move_x move_y aim pointer_x pointer_y, per player"
+        );
         for (tick, frame) in self.frames.iter().enumerate() {
             let _ = write!(out, "{tick}");
             for i in 0..self.player_count {
                 let p = frame.player(i);
                 let _ = write!(
                     out,
-                    " {:04x} {} {} {}",
+                    " {:04x} {} {} {} {} {}",
                     p.buttons,
                     p.move_dir.x.to_exact_string(),
                     p.move_dir.y.to_exact_string(),
-                    p.aim.to_degrees_string()
+                    p.aim.to_degrees_string(),
+                    p.pointer.x.to_exact_string(),
+                    p.pointer.y.to_exact_string()
                 );
             }
             out.push('\n');
@@ -228,10 +243,18 @@ impl InputLog {
                                 .ok_or_else(|| LogError::Malformed(number + 1, raw.to_string()))?,
                         )
                         .map_err(|_| LogError::Malformed(number + 1, raw.to_string()))?;
+                        // The pointer arrived after the first logs were
+                        // written, so a line without it is a log from before
+                        // there was a pointer — which is idle, not malformed.
+                        // Refusing those would strand every recording anyone
+                        // had already made.
+                        let px = optional_fx(parts.next(), number)?;
+                        let py = optional_fx(parts.next(), number)?;
                         players.push(PlayerInput {
                             buttons,
                             move_dir: Vec2Fx::new(x, y),
                             aim,
+                            pointer: Vec2Fx::new(px, py),
                         });
                     }
                     frames.push(InputFrame { players });
@@ -255,6 +278,16 @@ impl InputLog {
 fn parse_field<T: std::str::FromStr>(v: Option<&str>, line: usize) -> Result<T, LogError> {
     v.and_then(|s| s.parse().ok())
         .ok_or_else(|| LogError::Malformed(line + 1, v.unwrap_or("").to_string()))
+}
+
+/// A field that older logs do not have. Absent reads as zero; present but
+/// unreadable is still an error, because that is a corrupt log rather than an
+/// old one.
+fn optional_fx(v: Option<&str>, line: usize) -> Result<Fx, LogError> {
+    match v {
+        None => Ok(Fx::ZERO),
+        Some(_) => parse_fx(v, line),
+    }
 }
 
 fn parse_fx(v: Option<&str>, line: usize) -> Result<Fx, LogError> {

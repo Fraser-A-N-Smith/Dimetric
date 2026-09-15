@@ -225,6 +225,9 @@ Dependencies run strictly downward and CI enforces it.
 | M8 | Agent interface | done — full CLI, MCP server, generated docs and schemas |
 | M9 | Vertical slice | done — a five-room run, spells and evolutions, the agent acceptance test passing; density measured and improved 7x |
 | M10 | Hardening | done — runtime, packaging, `dim new`, and the broadphase and batcher passes |
+| M11 | Text and fonts | done — TTF baked at import to a glyph page and integer metrics, a `Label` node, layout that is the same on every machine |
+| M12 | UI | core done — `Control` and `Panel`, anchors and offsets, fixed-point layout against a canvas, a screen-space render layer. Widgets and containers beyond a panel are not built |
+| M13 | Input breadth | core done — gamepads behind the `pad` feature, an analogue stick quantised into something a replay can hold, the pointer in the input frame. Touch is not built: there is no platform with one yet |
 
 Every command in the CLI is implemented. `DIM0801` no longer means "this build
 does not do that yet" — it is what you get when a command needs something the

@@ -115,6 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         gpu: None,
         last: Instant::now(),
         cursor: (0.0, 0.0),
+        pads: dimetric_player::pad::Pads::new(),
         window_size,
         paused: false,
         stop_after: args.ticks,
@@ -150,6 +151,9 @@ struct App {
     gpu: Option<Gpu>,
     last: Instant,
     cursor: (f32, f32),
+    /// Gamepads, polled between ticks. Present even without the feature, in
+    /// which case it reports none.
+    pads: dimetric_player::pad::Pads,
     window_size: (u32, u32),
     paused: bool,
     stop_after: Option<u64>,
@@ -297,6 +301,15 @@ impl App {
                     self.session
                         .aim_from_screen(self.cursor_in_world(), viewport),
                 );
+                // A pad, if there is one, and the cursor in canvas pixels.
+                // Both read here, between ticks: a device polled inside a tick
+                // would make the tick depend on when the poll happened.
+                self.pads.poll(&mut self.held);
+                self.held.point_at(dimetric_player::pad::window_to_canvas(
+                    (self.cursor.0 as f64, self.cursor.1 as f64),
+                    self.window_size(),
+                    dimetric_scene::ui::Canvas::default(),
+                ));
                 let input = self.held.player_input();
                 self.session.step(input);
             }
@@ -305,6 +318,15 @@ impl App {
             }
         }
         self.draw();
+    }
+
+    /// The window's size in physical pixels, for turning a cursor position
+    /// into a canvas pixel.
+    fn window_size(&self) -> (u32, u32) {
+        match &self.gpu {
+            Some(gpu) => (gpu.config.width, gpu.config.height),
+            None => (1, 1),
+        }
     }
 
     /// The cursor, in the internal resolution's pixels rather than the

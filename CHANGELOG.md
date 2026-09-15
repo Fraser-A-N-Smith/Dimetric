@@ -12,6 +12,67 @@ is not avoidable — it is what determinism costs. Entries below say plainly
 whether they move the hash, because a project with recorded runs has to
 re-record them, and finding that out from a failing replay is a bad afternoon.
 
+## Unreleased
+
+Three milestones from the Godot-parity table, in order. Each is the core of
+its milestone rather than the whole estimate — what is built and what is not is
+stated per entry.
+
+### M11: text and fonts
+
+The engine can draw text. A font is baked at import into a glyph page and a
+table of **integer** metrics; layout is integer arithmetic over those metrics,
+so it is the same on every machine. Rasterisation is presentation and can come
+from a third-party rasteriser; measurement cannot, because anything that
+measures text — a centred label, a button sized to its caption — would
+otherwise drift between machines.
+
+A `Label` is a `Node2D`, useful before there is any UI to put it in. A font is
+baked at one size; import it twice if you need two.
+
+**Not built:** no built-in fallback font, so a project with no font asset still
+cannot draw text. No rich text, no shaping for complex scripts, no BiDi.
+
+### M12: UI
+
+`Control` and `Panel` node kinds, anchors and offsets, and a screen-space
+render layer the composite blends over the world unlit.
+
+Layout runs against a fixed canvas rather than the window, and that is the
+load-bearing decision: UI is clicked as well as drawn, so a layout that moved
+with the window would make a click's outcome depend on the window, and two
+players on different monitors would diverge. **Moves the state hash** by way of
+M13's pointer field.
+
+**Not built:** the canvas size is a constant rather than a project setting. No
+containers, no widgets beyond a panel, no focus traversal, no themes. Scripts
+cannot yet ask whether a button was pressed — the geometry and the pointer are
+both in place, and joining them is the next step.
+
+### M13: input breadth
+
+Gamepads behind a `pad` feature, and the pointer in the input frame.
+
+An analogue stick is the hardest device to admit to a deterministic engine, and
+not because it reports floats: it is that a stick *never stops moving*, so a
+naive mapping writes a new line into the input log sixty times a second while
+the player sits still. A stick is quantised to one of sixteen magnitudes on an
+angle from the engine's own tables — exactly representable, identical
+everywhere, stable while a thumb rests on it.
+
+The pointer is in `PlayerInput`, in whole canvas pixels, because a UI click has
+to be replayable. The window's size is divided out at the boundary, so a
+recorded click lands on the same button on a different monitor.
+
+**Breaking — moves the state hash.** `PlayerInput` gained a `pointer` field, so
+every recorded run's hashes change; the input log gained two columns per player.
+A log written before this reads back with the pointer at zero rather than being
+refused, so old recordings still replay, but their hashes will not match. All
+committed fixtures were re-recorded.
+
+**Not built:** no touch, because there is no platform with one yet. Bindings
+are still a table in code rather than a file a project can edit.
+
 ## 0.1.0
 
 The first release. Everything in the design document's M0 through M10 is built,

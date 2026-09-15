@@ -19,6 +19,7 @@
 
 pub mod bindings;
 pub mod clock;
+pub mod pad;
 pub mod session;
 
 pub use bindings::{Action, Bindings, Held};

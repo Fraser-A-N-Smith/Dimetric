@@ -166,6 +166,7 @@ fn the_same_seed_and_inputs_produce_the_same_state_hash() {
                 buttons: if tick % 7 == 0 { buttons::FIRE } else { 0 },
                 move_dir: Vec2Fx::new(Fx::HALF, Fx::ZERO),
                 aim: dimetric_core::Angle::from_bam((tick * 512) as u16),
+                pointer: Vec2Fx::from_ints(tick as i32 % 320, 90),
             };
             sim.step(frame);
             hashes.push(sim.hash());
@@ -236,6 +237,7 @@ fn input_logs_round_trip_through_text() {
                     buttons: (tick as u32) & 0xf,
                     move_dir: Vec2Fx::new(Fx::HALF, -Fx::HALF),
                     aim: dimetric_core::Angle::from_degrees_str("45.0").unwrap(),
+                    pointer: Vec2Fx::from_ints(tick as i32 % 320, 12),
                 },
                 PlayerInput::default(),
             ],

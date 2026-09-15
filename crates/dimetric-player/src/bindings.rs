@@ -67,6 +67,46 @@ impl Action {
     }
 }
 
+/// Snap an analogue stick to something a log can hold exactly.
+///
+/// A stick reports floats, and a float written into simulation state is the
+/// easiest way to break a replay (I3). Worse, the raw value jitters: a stick
+/// at rest sends slightly different numbers every poll, and every one of them
+/// would be a different line in the log.
+///
+/// So the magnitude is rounded to one of [`STICK_STEPS`] steps and the value
+/// rebuilt from the engine's own trig tables. What comes out is exactly
+/// representable, identical on every machine, and stable while the player
+/// holds still. Below the dead zone it is exactly zero, which is what stops a
+/// resting stick writing input for ever.
+pub fn quantize_stick(x: f32, y: f32) -> Vec2Fx {
+    // I3-exempt: this is the device boundary, and quantising is the whole
+    // point of the function. Nothing downstream of it sees a float.
+    let magnitude = (x * x + y * y).sqrt();
+    if magnitude < STICK_DEAD_ZONE {
+        return Vec2Fx::ZERO;
+    }
+    let clamped = magnitude.min(1.0);
+    let step = ((clamped * STICK_STEPS as f32).round() as i32).clamp(1, STICK_STEPS);
+    let scale = Fx::from_int(step) / Fx::from_int(STICK_STEPS);
+
+    // The direction goes through the engine's own fixed-point atan2 rather
+    // than the platform's, for the same reason everything else does: libm
+    // implementations do not agree with each other.
+    let angle = Angle::from_vector(Fx::from_f64_lossy(x as f64), Fx::from_f64_lossy(y as f64));
+    let (sin, cos) = angle.sin_cos();
+    Vec2Fx::new(cos * scale, sin * scale)
+}
+
+/// How many magnitude steps a stick is rounded to.
+///
+/// Sixteen is finer than a player can feel and coarse enough that holding a
+/// stick still produces one repeated value rather than a stream of them.
+pub const STICK_STEPS: i32 = 16;
+
+/// Below this, a stick reads as centred.
+pub const STICK_DEAD_ZONE: f32 = 0.2;
+
 /// Which key does what.
 #[derive(Clone, Debug)]
 pub struct Bindings {
@@ -125,6 +165,13 @@ impl Bindings {
 pub struct Held {
     actions: BTreeSet<Action>,
     aim: Angle,
+    pointer: Vec2Fx,
+    /// A gamepad stick, when one is being pushed.
+    ///
+    /// Separate from the key-derived direction rather than folded into it: a
+    /// stick is analogue and keys are not, and adding them would let a player
+    /// holding both walk at twice the speed.
+    stick: Option<Vec2Fx>,
 }
 
 impl Held {
@@ -152,6 +199,27 @@ impl Held {
         self.aim = aim;
     }
 
+    /// Put the pointer at a canvas pixel.
+    ///
+    /// Whole pixels, and the caller does the conversion from window
+    /// coordinates: the window is the one thing that must not reach a tick,
+    /// so the boundary is where its size gets divided out.
+    pub fn point_at(&mut self, canvas_pixel: Vec2Fx) {
+        self.pointer = canvas_pixel;
+    }
+
+    /// Where the pointer is.
+    pub fn pointer(&self) -> Vec2Fx {
+        self.pointer
+    }
+
+    /// Push the movement stick, or let it go with `None`.
+    ///
+    /// The value is quantised by [`quantize_stick`] before it gets here.
+    pub fn push_stick(&mut self, stick: Option<Vec2Fx>) {
+        self.stick = stick;
+    }
+
     /// Release everything. Used when the window loses focus, so a key held at
     /// the moment someone alt-tabs does not stay held forever.
     pub fn release_all(&mut self) {
@@ -174,10 +242,22 @@ impl Held {
         // North is negative y, as it is everywhere else in the engine.
         let y = i32::from(self.holds(Action::Down)) - i32::from(self.holds(Action::Up));
         let raw = Vec2Fx::new(Fx::from_int(x), Fx::from_int(y));
+        let keys = if raw.is_zero() { raw } else { raw.normalized() };
+
+        // A pushed stick wins over the keys rather than adding to them: a
+        // player resting a hand on both should not move at twice the speed,
+        // and whichever device they are actually using is the one that is
+        // moving.
+        let move_dir = match self.stick {
+            Some(stick) if !stick.is_zero() => stick,
+            _ => keys,
+        };
+
         PlayerInput {
             buttons,
-            move_dir: if raw.is_zero() { raw } else { raw.normalized() },
+            move_dir,
             aim: self.aim,
+            pointer: self.pointer,
         }
     }
 }

@@ -131,6 +131,31 @@ jobs:
       - name: Clippy
         run: cargo clippy -p dimetric-audio --features kira --all-targets -- -D warnings
 
+  # Gamepads. Off by default for the same reason as the audio device: gilrs
+  # needs platform input headers, and a feature nobody builds is a feature that
+  # stops compiling.
+  gamepad:
+    name: Gamepad backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the input development headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libudev-dev
+
+      # Built and linted, not run: a runner has no gamepad plugged into it. The
+      # part worth testing — quantising a stick into something a replay can
+      # hold — is device-independent and covered by the default suite.
+      - name: Build
+        run: cargo build -p dimetric-player --features pad
+
+      - name: Clippy
+        run: cargo clippy -p dimetric-player --features pad --all-targets -- -D warnings
+
   # The editor window. Off by default so the engine's own build does not pull
   # egui and winit; built and *driven* here, headlessly, so "it compiles" is not
   # the only thing anybody knows about it.
