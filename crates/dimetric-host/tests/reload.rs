@@ -76,9 +76,13 @@ fn sim_of(project: &mut Project) -> Sim {
     assert!(!diagnostics.has_errors(), "{diagnostics}");
     project.load_scripts();
     let mut host = LuaHost::new(SimConfig::default().tick_rate).expect("lua");
-    for (path, source) in &project.scripts {
-        host.load(path, source).expect("script loads");
-    }
+    let diags = host.load_all(
+        project
+            .scripts
+            .iter()
+            .map(|(p, s)| (p.as_str(), s.as_str())),
+    );
+    assert!(diags.is_empty(), "{}", diags[0]);
     Sim::new(scene, 1, Box::new(host), SimConfig::default())
 }
 

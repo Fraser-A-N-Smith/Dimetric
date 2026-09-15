@@ -275,8 +275,9 @@ fn render_markdown(
          | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |\n\
          | `vec2` | `vec2(x, y)`, building a fixed-point vector |\n\
          | `fx` | `new`, `parse`, `sin`, `cos`, `from_angle` |\n\
-         | `log` | `info`, `warn`, `error` |\n\
+         | `log` | `info`, `warn`, `error` — collected per tick, never hashed |\n\
          | `tween` | `to(node, property, target, ticks, easing)`, `cancel(node, property)`, `running(node, property)` |\n\
+         | `require` | `require(path)`, another script's returned table |\n\
          | `anim` | `play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |\n\n\
          A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,\n\
          `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,\n\
@@ -317,15 +318,35 @@ fn render_markdown(
          would change how it plays and a run recorded with audio on would diverge from\n\
          one played with it off. `dim run` reports how many sounds a headless run asked\n\
          for.\n\n\
+         ### Modules\n\n\
+         `require(\"scripts/spellbook.lua\")` runs that script once and hands back\n\
+         what it returned — the project-relative path a scene would write after\n\
+         `script:`, one spelling rather than several to guess between. Every\n\
+         script in a project is loaded before any of them runs, so requiring one\n\
+         does not depend on where its name falls in the alphabet, and a cycle is\n\
+         an error naming the loop.\n\n\
+         What comes back is **read-only, all the way down**. A module's table is\n\
+         not part of the state: it is not hashed, not snapshotted and not\n\
+         rewound, so anything written into it would survive a rollback that\n\
+         rewound everything around it — a divergence that surfaces hours later\n\
+         in a replay rather than at the write. A module holds constants and pure\n\
+         functions; state belongs in node variables, where the hash can see it.\n\
+         The engine enforces the first part and not the second: a module\n\
+         function that closes over a local and mutates it is out of reach of any\n\
+         guard, and is the one way left to hide state from the hash.\n\n\
+         Reloading a module re-runs every script, because a script that required\n\
+         it is holding the table it returned and reloading one file would leave\n\
+         that script reading the previous version's constants.\n\n\
          ### The rule that matters\n\n\
          Lua numbers are `f64`. Gameplay arithmetic done in raw Lua numbers and written\n\
          into simulation state is the easiest way to break replay. Use `vec2` and `fx`\n\
          values, which do their arithmetic in fixed point.\n\n\
-         The sandbox has no `os`, `io`, `require`, `dofile`, `load` or `package`, and no\n\
+         The sandbox has no `os`, `io`, `dofile`, `load` or `package`, and no\n\
          `math.random` — randomness comes from a seeded `rng` stream. `math.sin` and the\n\
          other transcendental functions are also absent, because platform maths libraries\n\
          do not agree with each other; use `fx.sin` and `fx.cos`, which read committed\n\
-         lookup tables.\n",
+         lookup tables. `rawset` is absent too: it writes past a `__newindex`, which is\n\
+         the guard holding a required module read-only.\n",
     );
     Ok(out)
 }

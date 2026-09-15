@@ -3,6 +3,8 @@
 -- Spawns a single skeleton, holds the two spells whose combination is under
 -- test, and fires at it. Short enough to read the result off a probe.
 
+local spells = require("scripts/spellbook.lua")
+
 local CENTRE = vec2(fx.new(160), fx.new(96))
 
 function on_ready(self)
@@ -18,12 +20,11 @@ function on_tick(self)
     return
   end
 
-  local book = scene.find("/Arena01/Spellbook")
   local target = self.target_id and scene.by_id(self.target_id)
-  if not book or not target then return end
+  if not target then return end
 
   -- The evolution under test, looked up the same way the arena does.
-  local spell = book.evolutions["bolt+frost"]
+  local spell = spells.evolutions["bolt+frost"]
   if not spell then self.missing = true; return end
   self.spell_name = spell.name
 

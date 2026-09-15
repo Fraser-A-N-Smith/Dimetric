@@ -15,13 +15,6 @@ name = "Arena01"
 script = "script:scripts/trial.lua"
 
 [[node]]
-id = "n_book0001"
-kind = "Node"
-name = "Spellbook"
-parent = "n_root0000"          # /Arena01
-script = "script:scripts/spellbook.lua"
-
-[[node]]
 id = "n_floor000"
 kind = "TileLayer"
 name = "Floor"

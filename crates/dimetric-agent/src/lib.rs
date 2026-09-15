@@ -1020,11 +1020,7 @@ fn build_sim(
     diags.extend(template_diags);
     diags.extend(project.load_scripts());
     let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
-    for (path, source) in &project.scripts {
-        if let Err(d) = host.load(path, source) {
-            diags.push(d);
-        }
-    }
+    diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
     let config = dimetric_sim::SimConfig::default();
     Ok((
         dimetric_sim::Sim::new(scene, seed, Box::new(host), config)
@@ -1032,6 +1028,19 @@ fn build_sim(
             .with_templates(templates),
         diags,
     ))
+}
+
+/// Hand a host the project's whole script set at once.
+///
+/// All of it rather than one at a time, so that `require` resolves against
+/// every script rather than the ones that happened to sort earlier.
+fn load_project_scripts(host: &mut dimetric_sim::LuaHost, project: &Project) -> Vec<Diagnostic> {
+    host.load_all(
+        project
+            .scripts
+            .iter()
+            .map(|(path, source)| (path.as_str(), source.as_str())),
+    )
 }
 
 fn read_log(project: &Project, path: &str) -> Result<dimetric_sim::InputLog, Diagnostics> {
@@ -1054,6 +1063,13 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
         None => dimetric_sim::InputLog::new(args.seed, env!("CARGO_PKG_VERSION"), 1),
     };
     let seed = args.input.as_ref().map(|_| log.seed).unwrap_or(args.seed);
+    // A recorded log knows how long the run was. Truncating it to a default
+    // sixty ticks and recording *that* as the run's hashes is a fixture that
+    // silently covers the first second of a five-minute game.
+    let ticks = args.ticks.unwrap_or(match args.input.is_some() {
+        true => log.frames.len() as u64,
+        false => 60,
+    });
     let (mut sim, diags) = build_sim(project, seed)?;
     let mut warnings = diags.0;
 
@@ -1062,12 +1078,17 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
         .then(|| dimetric_host::reload::Reloader::new(dimetric_host::RunMode::Headless, project));
     let mut reloaded = Vec::new();
 
-    let mut hashes = Vec::with_capacity(args.ticks as usize);
+    let mut hashes = Vec::with_capacity(ticks as usize);
     // Sounds are presentation and a headless run has nowhere to put them, but
     // counting them is how an agent checks that a scene makes a noise without
     // owning a sound card.
     let mut sounds = 0usize;
-    for tick in 0..args.ticks {
+    // Likewise the lines scripts logged. They are output, not state, so they
+    // are drained rather than accumulated in the simulation: a script that
+    // logged into the hash would make a run with logging on a different game
+    // from one with it off.
+    let mut logged: Vec<serde_json::Value> = Vec::new();
+    for tick in 0..ticks {
         // Between ticks, never inside one: a tick that picked up a new script
         // half way through would hash to something nobody could reproduce.
         if let Some(reloader) = reloader.as_mut() {
@@ -1084,6 +1105,9 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
         }
         sim.step(log.frame(tick));
         sounds += sim.state().sounds.len();
+        for line in sim.take_log() {
+            logged.push(json!({ "tick": tick, "line": line }));
+        }
         hashes.push(sim.hash());
     }
     warnings.extend(sim.take_diagnostics().0);
@@ -1108,23 +1132,36 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
     let final_hash = hashes.last().copied();
     let mut out = Output::new(
         json!({
-            "ticks": args.ticks,
+            "ticks": ticks,
             "seed": seed,
             "hash": final_hash.map(|h| h.to_hex()),
             "recorded": args.record,
             "reloaded": reloaded,
             "sounds": sounds,
+            "log": logged,
         }),
         format!(
             "ran {} ticks from seed {seed}; final state {}{}",
-            args.ticks,
+            ticks,
             final_hash.map(|h| h.to_hex()).unwrap_or_default(),
             match sounds {
                 0 => String::new(),
                 1 => "; 1 sound".to_string(),
                 n => format!("; {n} sounds"),
             }
-        ),
+        ) + &match logged.len() {
+            0 => String::new(),
+            _ => logged
+                .iter()
+                .map(|e| {
+                    format!(
+                        "\n  tick {}: {}",
+                        e["tick"],
+                        e["line"].as_str().unwrap_or_default()
+                    )
+                })
+                .collect::<String>(),
+        },
     );
     out.warnings = warnings;
     Ok(out)
@@ -1341,11 +1378,7 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     diags.extend(template_diags);
     diags.extend(project.load_scripts());
     let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
-    for (path, source) in &project.scripts {
-        if let Err(d) = host.load(path, source) {
-            diags.push(d);
-        }
-    }
+    diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
 
     let replay = dimetric_host::Replay {
         log: &log,

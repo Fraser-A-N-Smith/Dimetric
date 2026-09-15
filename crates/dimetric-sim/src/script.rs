@@ -42,6 +42,29 @@ use crate::tick::{Hook, ScriptHost};
 /// Shared handle to the state a hook is running against.
 type Shared = Rc<RefCell<SimState>>;
 
+/// What `require` can reach, shared with every environment that has one.
+///
+/// Held behind an `Rc<RefCell<_>>` because `require` is a Lua closure that can
+/// call itself: a module may require another, which builds an environment with
+/// its own `require` in it.
+#[derive(Default)]
+struct Modules {
+    /// Every loaded script's source, by project-relative path. A module is
+    /// evaluated from here rather than from disk — the simulation does no I/O,
+    /// which is the same reason the sandbox has no `io`.
+    sources: BTreeMap<String, String>,
+    /// Modules already evaluated, frozen. A module is evaluated once, so two
+    /// scripts requiring the same path get the same table.
+    cache: BTreeMap<String, mlua::Value>,
+    /// The chain being evaluated right now, so a cycle is an error naming the
+    /// loop rather than a stack overflow.
+    loading: Vec<String>,
+}
+
+/// Marks a table the engine has frozen, and protects the metatable from being
+/// swapped for one that would let writes through.
+const FROZEN: &str = "dimetric.module";
+
 /// A fixed-point scalar, as Lua sees it.
 #[derive(Clone, Copy, Debug)]
 pub struct LuaFx(pub Fx);
@@ -605,10 +628,18 @@ pub struct LuaHost {
     lua: Lua,
     /// Script path to its environment table, which holds its hook functions.
     scripts: BTreeMap<String, Table>,
+    /// Sources and evaluated modules, shared with every `require` closure.
+    modules: Rc<RefCell<Modules>>,
     /// Ticks per second, for `tick.dt`.
     tick_rate: u32,
-    /// Messages scripts wrote, in order.
-    pub log: Vec<String>,
+    /// Messages scripts wrote, in order, shared with the `log` closures.
+    ///
+    /// Deliberately not in `SimState`. A log line is output, the way a sound
+    /// is: if writing one could reach the state hash, a script that logged
+    /// only when a flag was on would play a different game with the flag off.
+    /// Keeping the buffer over here rather than in a field the hash skips
+    /// means there is nothing to get wrong later.
+    log: Rc<RefCell<Vec<String>>>,
 }
 
 impl LuaHost {
@@ -618,14 +649,22 @@ impl LuaHost {
         Ok(LuaHost {
             lua,
             scripts: BTreeMap::new(),
+            modules: Rc::new(RefCell::new(Modules::default())),
             tick_rate,
-            log: Vec::new(),
+            log: Rc::new(RefCell::new(Vec::new())),
         })
     }
 
     /// Load a script under a project-relative path.
+    ///
+    /// The source is registered before it runs, so a script can `require`
+    /// itself out of the same registry every other script reads.
     pub fn load(&mut self, path: &str, source: &str) -> Result<(), Diagnostic> {
-        let env = self.build_environment(path)?;
+        self.modules
+            .borrow_mut()
+            .sources
+            .insert(path.to_string(), source.to_string());
+        let env = build_environment(&self.lua, self.tick_rate, &self.modules, &self.log, path)?;
         self.lua
             .load(source)
             .set_name(path)
@@ -636,629 +675,862 @@ impl LuaHost {
         Ok(())
     }
 
+    /// Load a project's whole script set.
+    ///
+    /// Every source is registered before any of them runs. Loading one at a
+    /// time would make `require` depend on the order the caller happened to
+    /// iterate in — `scripts/arena.lua` sorts before `scripts/spellbook.lua`,
+    /// so requiring the second from the first would fail on nothing but the
+    /// alphabet. Errors are collected rather than returned at the first one: a
+    /// project with two broken scripts should report both.
+    pub fn load_all<'a, I>(&mut self, scripts: I) -> Vec<Diagnostic>
+    where
+        I: IntoIterator<Item = (&'a str, &'a str)>,
+    {
+        let paths: Vec<String> = scripts
+            .into_iter()
+            .map(|(path, source)| {
+                self.modules
+                    .borrow_mut()
+                    .sources
+                    .insert(path.to_string(), source.to_string());
+                path.to_string()
+            })
+            .collect();
+        let mut diags = Vec::new();
+        for path in paths {
+            let source = self.modules.borrow().sources[&path].clone();
+            if let Err(d) = self.load(&path, &source) {
+                diags.push(d);
+            }
+        }
+        diags
+    }
+
     /// True when a script has been loaded.
     pub fn has(&self, path: &str) -> bool {
         self.scripts.contains_key(path)
     }
+}
 
-    /// The sandbox: exactly what a script may reach, and nothing else.
-    ///
-    /// `os`, `io`, `require`, `dofile`, `load` and `package` are absent — a
-    /// script that could read the clock or the filesystem could break
-    /// determinism without the engine ever knowing. `math.random` is gone
-    /// because randomness must come from a seeded stream (I6), and the
-    /// transcendental functions are gone because platform `libm` does not agree
-    /// with itself across operating systems.
-    fn build_environment(&self, path: &str) -> Result<Table, Diagnostic> {
-        let lua = &self.lua;
-        let env = lua.create_table().map_err(|e| runtime_error(path, e))?;
-        let globals = lua.globals();
+/// The sandbox: exactly what a script may reach, and nothing else.
+///
+/// `os`, `io`, `dofile`, `load` and `package` are absent — a script that could
+/// read the clock or the filesystem could break determinism without the engine
+/// ever knowing. `math.random` is gone because randomness must come from a
+/// seeded stream (I6), and the transcendental functions are gone because
+/// platform `libm` does not agree with itself across operating systems.
+///
+/// `require` is here, but it is the engine's: it reads project scripts out of
+/// memory rather than files off disk, and freezes what they return.
+/// `rawset` is not, because it writes past a `__newindex` and would walk
+/// straight through that freeze. Plain assignment does everything a script
+/// needs; `rawget` and `rawlen` stay, since reading past a metatable breaks
+/// nothing.
+fn build_environment(
+    lua: &Lua,
+    tick_rate: u32,
+    modules: &Rc<RefCell<Modules>>,
+    log: &Rc<RefCell<Vec<String>>>,
+    path: &str,
+) -> Result<Table, Diagnostic> {
+    let env = lua.create_table().map_err(|e| runtime_error(path, e))?;
+    let globals = lua.globals();
 
-        for name in [
-            "assert",
-            "error",
-            "ipairs",
-            "next",
-            "pairs",
-            "pcall",
-            "select",
-            "tonumber",
-            "tostring",
-            "type",
-            "unpack",
-            "xpcall",
-            "rawequal",
-            "rawget",
-            "rawset",
-            "rawlen",
-            "setmetatable",
-            "getmetatable",
-        ] {
-            if let Ok(v) = globals.get::<mlua::Value>(name) {
-                let _ = env.set(name, v);
-            }
+    for name in [
+        "assert",
+        "error",
+        "ipairs",
+        "next",
+        "pairs",
+        "pcall",
+        "select",
+        "tonumber",
+        "tostring",
+        "type",
+        "unpack",
+        "xpcall",
+        "rawequal",
+        "rawget",
+        "rawlen",
+        "setmetatable",
+        "getmetatable",
+    ] {
+        if let Ok(v) = globals.get::<mlua::Value>(name) {
+            let _ = env.set(name, v);
         }
-        for name in ["string", "table"] {
-            if let Ok(v) = globals.get::<mlua::Value>(name) {
-                let _ = env.set(name, v);
-            }
+    }
+    for name in ["string", "table"] {
+        if let Ok(v) = globals.get::<mlua::Value>(name) {
+            let _ = env.set(name, v);
         }
-
-        // A reduced `math`: the exactly-defined integer operations stay, the
-        // platform-dependent ones do not.
-        if let Ok(math) = globals.get::<Table>("math") {
-            let safe = lua.create_table().map_err(|e| runtime_error(path, e))?;
-            for name in [
-                "abs",
-                "ceil",
-                "floor",
-                "fmod",
-                "max",
-                "min",
-                "tointeger",
-                "type",
-            ] {
-                if let Ok(v) = math.get::<mlua::Value>(name) {
-                    let _ = safe.set(name, v);
-                }
-            }
-            // I3-exempt: `math.huge` is a Lua constant scripts compare against;
-            // it never becomes simulation state.
-            let _ = safe.set("huge", f64::INFINITY);
-            let _ = env.set("math", safe);
-        }
-
-        env.set("_G", env.clone())
-            .map_err(|e| runtime_error(path, e))?;
-        self.install_api(&env, path)?;
-        Ok(env)
     }
 
-    fn install_api(&self, env: &Table, path: &str) -> Result<(), Diagnostic> {
-        let lua = &self.lua;
-        let err = |e: mlua::Error| runtime_error(path, e);
+    // A reduced `math`: the exactly-defined integer operations stay, the
+    // platform-dependent ones do not.
+    if let Ok(math) = globals.get::<Table>("math") {
+        let safe = lua.create_table().map_err(|e| runtime_error(path, e))?;
+        for name in [
+            "abs",
+            "ceil",
+            "floor",
+            "fmod",
+            "max",
+            "min",
+            "tointeger",
+            "type",
+        ] {
+            if let Ok(v) = math.get::<mlua::Value>(name) {
+                let _ = safe.set(name, v);
+            }
+        }
+        // I3-exempt: `math.huge` is a Lua constant scripts compare against;
+        // it never becomes simulation state.
+        let _ = safe.set("huge", f64::INFINITY);
+        let _ = env.set("math", safe);
+    }
 
-        // vec2(x, y)
-        let vec2 = lua
-            .create_function(|_, (x, y): (LuaFx, LuaFx)| Ok(LuaVec2(Vec2Fx::new(x.0, y.0))))
-            .map_err(err)?;
-        env.set("vec2", vec2).map_err(err)?;
+    env.set("_G", env.clone())
+        .map_err(|e| runtime_error(path, e))?;
+    install_api(lua, tick_rate, modules, log, &env, path)?;
+    Ok(env)
+}
 
-        // fx: fixed-point construction and the trig the sandbox withholds.
-        let fx = lua.create_table().map_err(err)?;
-        fx.set(
-            "new",
-            lua.create_function(|_, v: LuaFx| Ok(v)).map_err(err)?,
-        )
+fn install_api(
+    lua: &Lua,
+    tick_rate: u32,
+    modules: &Rc<RefCell<Modules>>,
+    log: &Rc<RefCell<Vec<String>>>,
+    env: &Table,
+    path: &str,
+) -> Result<(), Diagnostic> {
+    let err = |e: mlua::Error| runtime_error(path, e);
+
+    // vec2(x, y)
+    let vec2 = lua
+        .create_function(|_, (x, y): (LuaFx, LuaFx)| Ok(LuaVec2(Vec2Fx::new(x.0, y.0))))
         .map_err(err)?;
-        fx.set(
-            "parse",
-            lua.create_function(|_, s: String| {
-                Fx::parse_exact(&s)
-                    .map(LuaFx)
-                    .map_err(|e| mlua::Error::runtime(e.to_string()))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        fx.set(
-            "sin",
-            lua.create_function(|_, degrees: String| {
-                Angle::from_degrees_str(&degrees)
-                    .map(|a| LuaFx(a.sin()))
-                    .map_err(|e| mlua::Error::runtime(e.to_string()))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        fx.set(
-            "cos",
-            lua.create_function(|_, degrees: String| {
-                Angle::from_degrees_str(&degrees)
-                    .map(|a| LuaFx(a.cos()))
-                    .map_err(|e| mlua::Error::runtime(e.to_string()))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        fx.set(
-            "from_angle",
-            lua.create_function(|_, degrees: String| {
-                Angle::from_degrees_str(&degrees)
-                    .map(|a| LuaVec2(a.to_unit_vector()))
-                    .map_err(|e| mlua::Error::runtime(e.to_string()))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        env.set("fx", fx).map_err(err)?;
+    env.set("vec2", vec2).map_err(err)?;
 
-        // scene.find(path)
-        let scene = lua.create_table().map_err(err)?;
-        scene
-            .set(
-                "find",
-                lua.create_function(|lua, p: String| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    Ok(state
-                        .scene
-                        .resolve_path(&p)
-                        .and_then(|id| state.scene.get(id))
-                        .map(|n| NodeHandle(n.uid)))
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        scene
-            .set(
-                "by_id",
-                lua.create_function(|lua, id: String| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    let uid =
-                        NodeUid::parse(&id).map_err(|e| mlua::Error::runtime(e.to_string()))?;
-                    Ok(state.scene.by_uid(uid).map(|_| NodeHandle(uid)))
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        scene
-            .set(
-                "tagged",
-                lua.create_function(|lua, tag: String| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    // Depth-first order, so a script iterating this sees the
-                    // same sequence on every machine.
-                    let handles: Vec<NodeHandle> = state
-                        .scene
-                        .walk()
-                        .into_iter()
-                        .filter_map(|id| state.scene.get(id))
-                        .filter(|n| n.has_tag(&tag))
-                        .map(|n| NodeHandle(n.uid))
-                        .collect();
-                    lua.create_sequence_from(handles)
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        // scene.spawn(prefab, at, parent) -> the id the node will have.
-        //
-        // The node does not exist yet: creating it mid-tick would put it into a
-        // tree another script may be walking. It appears at the end of the
-        // tick and gets `on_ready` on the next one. The id comes back now
-        // because it is derived rather than drawn, so a script can hold it and
-        // look the node up when it arrives.
-        scene
-            .set(
-                "spawn",
-                lua.create_function(
-                    |lua, (prefab, at, parent): (String, Option<LuaVec2>, Option<NodeHandle>)| {
-                        let state = shared(lua)?;
-                        let mut state = state.borrow_mut();
-                        let counter = state.spawn_count;
-                        state.spawn_count += 1;
-                        // Seeded by the prefab's name rather than a template
-                        // that may not be loaded, so the id is decided here and
-                        // a missing prefab is a diagnostic rather than a panic.
-                        let seed = crate::spawn::derive_uid(
-                            NodeUid::parse("n_spawn000").expect("a valid uid"),
-                            counter,
-                        );
-                        let id = crate::spawn::derive_uid(seed, prefab.len() as u64);
-                        state.spawn_queue.push(crate::spawn::Spawn {
-                            template: prefab,
-                            at: at.map(|v| v.0).unwrap_or(Vec2Fx::ZERO),
-                            parent: parent.map(|h| h.0),
-                            id,
-                        });
-                        Ok(id.to_text())
-                    },
-                )
-                .map_err(err)?,
-            )
-            .map_err(err)?;
+    // fx: fixed-point construction and the trig the sandbox withholds.
+    let fx = lua.create_table().map_err(err)?;
+    fx.set(
+        "new",
+        lua.create_function(|_, v: LuaFx| Ok(v)).map_err(err)?,
+    )
+    .map_err(err)?;
+    fx.set(
+        "parse",
+        lua.create_function(|_, s: String| {
+            Fx::parse_exact(&s)
+                .map(LuaFx)
+                .map_err(|e| mlua::Error::runtime(e.to_string()))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    fx.set(
+        "sin",
+        lua.create_function(|_, degrees: String| {
+            Angle::from_degrees_str(&degrees)
+                .map(|a| LuaFx(a.sin()))
+                .map_err(|e| mlua::Error::runtime(e.to_string()))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    fx.set(
+        "cos",
+        lua.create_function(|_, degrees: String| {
+            Angle::from_degrees_str(&degrees)
+                .map(|a| LuaFx(a.cos()))
+                .map_err(|e| mlua::Error::runtime(e.to_string()))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    fx.set(
+        "from_angle",
+        lua.create_function(|_, degrees: String| {
+            Angle::from_degrees_str(&degrees)
+                .map(|a| LuaVec2(a.to_unit_vector()))
+                .map_err(|e| mlua::Error::runtime(e.to_string()))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    env.set("fx", fx).map_err(err)?;
 
-        // scene.near(at, radius, tag) -> handles within a radius.
-        //
-        // Over the broadphase the simulation already builds, rather than
-        // walking every node: a homing projectile asking "what is near me" per
-        // tick is the difference between a cost in the enemy count and a cost
-        // in the product of both counts.
-        //
-        // Positions are as of the start of the tick, before anything moved.
-        // That is a real semantic rather than an accident: every script sees
-        // the same world, so what one of them finds does not depend on whether
-        // another one has run yet.
-        scene
-            .set(
-                "near",
-                lua.create_function(|lua, (at, radius, tag): (LuaVec2, LuaFx, Option<String>)| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    let found = state
-                        .query
-                        .as_ref()
-                        .map(|w| w.within_tagged(at.0, radius.0, tag.as_deref()));
-                    let mut handles = Vec::new();
-                    for uid in found.unwrap_or_default() {
-                        handles.push(NodeHandle(uid));
-                    }
-                    lua.create_sequence_from(handles)
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-
-        // scene.nearest(at, radius, tag) -> the closest one, or nothing.
-        scene
-            .set(
-                "nearest",
-                lua.create_function(|lua, (at, radius, tag): (LuaVec2, LuaFx, Option<String>)| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    let Some(world) = state.query.as_ref() else {
-                        return Ok(None);
-                    };
-                    // The scan walks the index for this tag, so a tagged query
-                    // never visits a body that could not match — which is what
-                    // a few hundred homing projectiles asking every tick made
-                    // expensive.
-                    // No confirmation against the scene: the index is exact, so
-                    // a hit is a hit.
-                    let found = world.nearest(at.0, radius.0, tag.as_deref(), |_| true);
-                    Ok(found.map(NodeHandle))
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-
-        env.set("scene", scene).map_err(err)?;
-
-        // tick.count and tick.dt
-        let tick = lua.create_table().map_err(err)?;
-        let rate = self.tick_rate;
-        tick.set(
-            "count",
-            lua.create_function(|lua, ()| {
+    // scene.find(path)
+    let scene = lua.create_table().map_err(err)?;
+    scene
+        .set(
+            "find",
+            lua.create_function(|lua, p: String| {
                 let state = shared(lua)?;
-                let t = state.borrow().tick.0;
-                Ok(t)
+                let state = state.borrow();
+                Ok(state
+                    .scene
+                    .resolve_path(&p)
+                    .and_then(|id| state.scene.get(id))
+                    .map(|n| NodeHandle(n.uid)))
             })
             .map_err(err)?,
         )
         .map_err(err)?;
-        tick.set(
-            "dt",
-            lua.create_function(move |_, ()| Ok(LuaFx(Fx::ONE / rate as i32)))
-                .map_err(err)?,
+    scene
+        .set(
+            "by_id",
+            lua.create_function(|lua, id: String| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let uid = NodeUid::parse(&id).map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                Ok(state.scene.by_uid(uid).map(|_| NodeHandle(uid)))
+            })
+            .map_err(err)?,
         )
         .map_err(err)?;
-        tick.set("rate", rate).map_err(err)?;
-        env.set("tick", tick).map_err(err)?;
-
-        // input: what the player is doing this tick.
-        //
-        // Read-only, and from `SimState` rather than from a device: inside a
-        // tick there is no way to tell a gamepad from a replay log, which is
-        // most of what makes replay possible (I8).
-        let input = lua.create_table().map_err(err)?;
-        input
-            .set(
-                "move",
-                lua.create_function(|lua, player: Option<u32>| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    Ok(LuaVec2(
-                        state.input.player(player.unwrap_or(0) as usize).move_dir,
-                    ))
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        input
-            .set(
-                "aim",
-                lua.create_function(|lua, player: Option<u32>| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    let aim = state.input.player(player.unwrap_or(0) as usize).aim;
-                    Ok(aim.to_degrees_string())
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        input
-            .set(
-                "aim_vector",
-                lua.create_function(|lua, player: Option<u32>| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    let aim = state.input.player(player.unwrap_or(0) as usize).aim;
-                    Ok(LuaVec2(aim.to_unit_vector()))
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        input
-            .set(
-                "held",
-                lua.create_function(|lua, (button, player): (String, Option<u32>)| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    let bit = button_bit(&button)?;
-                    Ok(state.input.player(player.unwrap_or(0) as usize).held(bit))
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        input
-            .set(
-                "pressed",
-                lua.create_function(|lua, (button, player): (String, Option<u32>)| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    let bit = button_bit(&button)?;
-                    let index = player.unwrap_or(0) as usize;
-                    Ok(state
-                        .input
-                        .player(index)
-                        .pressed(&state.previous_input.player(index), bit))
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        input
-            .set(
-                "released",
-                lua.create_function(|lua, (button, player): (String, Option<u32>)| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    let bit = button_bit(&button)?;
-                    let index = player.unwrap_or(0) as usize;
-                    Ok(state
-                        .previous_input
-                        .player(index)
-                        .pressed(&state.input.player(index), bit))
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        env.set("input", input).map_err(err)?;
-
-        // tween: cosmetic motion, measured in ticks like everything else.
-        let tween = lua.create_table().map_err(err)?;
-        tween
-            .set(
-                "to",
-                lua.create_function(
-                    |lua,
-                     (node, property, target, ticks, easing): (
-                        NodeHandle,
-                        String,
-                        mlua::Value,
-                        u32,
-                        Option<String>,
-                    )| {
-                        let easing = match easing.as_deref() {
-                            None => crate::tween::Easing::Linear,
-                            Some(name) => crate::tween::Easing::parse(name).ok_or_else(|| {
-                                mlua::Error::runtime(format!(
-                                    "no easing called {name:?}; \
-                                     try linear, ease_in, ease_out or ease_in_out"
-                                ))
-                            })?,
-                        };
-                        let target = from_lua(target)?;
-                        let state = shared(lua)?;
-                        let mut state = state.borrow_mut();
-                        let id = resolve(&state, node.0)?;
-                        let from = read_property(&state, id, &property).ok_or_else(|| {
-                            mlua::Error::runtime(format!(
-                                "{property:?} is not a property of this node, \
-                                 so there is nothing to tween from"
-                            ))
-                        })?;
-                        if !crate::tween::can_tween(&from, &target) {
-                            return Err(mlua::Error::runtime(format!(
-                                "{property:?} is a {}, and the target is a {}",
-                                from.type_name(),
-                                target.type_name()
-                            )));
-                        }
-                        // Starting a second tween on a property replaces the
-                        // first. Two tweens fighting over one number is never
-                        // what anybody meant.
-                        let list = state.tweens.entry(node.0).or_default();
-                        list.retain(|t| t.property != property);
-                        list.push(crate::tween::Tween {
-                            property,
-                            from,
-                            to: target,
-                            elapsed: 0,
-                            ticks,
-                            easing,
-                        });
-                        Ok(())
-                    },
-                )
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        tween
-            .set(
-                "cancel",
-                lua.create_function(|lua, (node, property): (NodeHandle, Option<String>)| {
+    scene
+        .set(
+            "tagged",
+            lua.create_function(|lua, tag: String| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                // Depth-first order, so a script iterating this sees the
+                // same sequence on every machine.
+                let handles: Vec<NodeHandle> = state
+                    .scene
+                    .walk()
+                    .into_iter()
+                    .filter_map(|id| state.scene.get(id))
+                    .filter(|n| n.has_tag(&tag))
+                    .map(|n| NodeHandle(n.uid))
+                    .collect();
+                lua.create_sequence_from(handles)
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    // scene.spawn(prefab, at, parent) -> the id the node will have.
+    //
+    // The node does not exist yet: creating it mid-tick would put it into a
+    // tree another script may be walking. It appears at the end of the
+    // tick and gets `on_ready` on the next one. The id comes back now
+    // because it is derived rather than drawn, so a script can hold it and
+    // look the node up when it arrives.
+    scene
+        .set(
+            "spawn",
+            lua.create_function(
+                |lua, (prefab, at, parent): (String, Option<LuaVec2>, Option<NodeHandle>)| {
                     let state = shared(lua)?;
                     let mut state = state.borrow_mut();
-                    match property {
-                        Some(property) => {
-                            if let Some(list) = state.tweens.get_mut(&node.0) {
-                                list.retain(|t| t.property != property);
-                                if list.is_empty() {
-                                    state.tweens.remove(&node.0);
-                                }
+                    let counter = state.spawn_count;
+                    state.spawn_count += 1;
+                    // Seeded by the prefab's name rather than a template
+                    // that may not be loaded, so the id is decided here and
+                    // a missing prefab is a diagnostic rather than a panic.
+                    let seed = crate::spawn::derive_uid(
+                        NodeUid::parse("n_spawn000").expect("a valid uid"),
+                        counter,
+                    );
+                    let id = crate::spawn::derive_uid(seed, prefab.len() as u64);
+                    state.spawn_queue.push(crate::spawn::Spawn {
+                        template: prefab,
+                        at: at.map(|v| v.0).unwrap_or(Vec2Fx::ZERO),
+                        parent: parent.map(|h| h.0),
+                        id,
+                    });
+                    Ok(id.to_text())
+                },
+            )
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+
+    // scene.near(at, radius, tag) -> handles within a radius.
+    //
+    // Over the broadphase the simulation already builds, rather than
+    // walking every node: a homing projectile asking "what is near me" per
+    // tick is the difference between a cost in the enemy count and a cost
+    // in the product of both counts.
+    //
+    // Positions are as of the start of the tick, before anything moved.
+    // That is a real semantic rather than an accident: every script sees
+    // the same world, so what one of them finds does not depend on whether
+    // another one has run yet.
+    scene
+        .set(
+            "near",
+            lua.create_function(|lua, (at, radius, tag): (LuaVec2, LuaFx, Option<String>)| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let found = state
+                    .query
+                    .as_ref()
+                    .map(|w| w.within_tagged(at.0, radius.0, tag.as_deref()));
+                let mut handles = Vec::new();
+                for uid in found.unwrap_or_default() {
+                    handles.push(NodeHandle(uid));
+                }
+                lua.create_sequence_from(handles)
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+
+    // scene.nearest(at, radius, tag) -> the closest one, or nothing.
+    scene
+        .set(
+            "nearest",
+            lua.create_function(|lua, (at, radius, tag): (LuaVec2, LuaFx, Option<String>)| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let Some(world) = state.query.as_ref() else {
+                    return Ok(None);
+                };
+                // The scan walks the index for this tag, so a tagged query
+                // never visits a body that could not match — which is what
+                // a few hundred homing projectiles asking every tick made
+                // expensive.
+                // No confirmation against the scene: the index is exact, so
+                // a hit is a hit.
+                let found = world.nearest(at.0, radius.0, tag.as_deref(), |_| true);
+                Ok(found.map(NodeHandle))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+
+    env.set("scene", scene).map_err(err)?;
+
+    // tick.count and tick.dt
+    let tick = lua.create_table().map_err(err)?;
+    let rate = tick_rate;
+    tick.set(
+        "count",
+        lua.create_function(|lua, ()| {
+            let state = shared(lua)?;
+            let t = state.borrow().tick.0;
+            Ok(t)
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    tick.set(
+        "dt",
+        lua.create_function(move |_, ()| Ok(LuaFx(Fx::ONE / rate as i32)))
+            .map_err(err)?,
+    )
+    .map_err(err)?;
+    tick.set("rate", rate).map_err(err)?;
+    env.set("tick", tick).map_err(err)?;
+
+    // input: what the player is doing this tick.
+    //
+    // Read-only, and from `SimState` rather than from a device: inside a
+    // tick there is no way to tell a gamepad from a replay log, which is
+    // most of what makes replay possible (I8).
+    let input = lua.create_table().map_err(err)?;
+    input
+        .set(
+            "move",
+            lua.create_function(|lua, player: Option<u32>| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                Ok(LuaVec2(
+                    state.input.player(player.unwrap_or(0) as usize).move_dir,
+                ))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    input
+        .set(
+            "aim",
+            lua.create_function(|lua, player: Option<u32>| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let aim = state.input.player(player.unwrap_or(0) as usize).aim;
+                Ok(aim.to_degrees_string())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    input
+        .set(
+            "aim_vector",
+            lua.create_function(|lua, player: Option<u32>| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let aim = state.input.player(player.unwrap_or(0) as usize).aim;
+                Ok(LuaVec2(aim.to_unit_vector()))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    input
+        .set(
+            "held",
+            lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let bit = button_bit(&button)?;
+                Ok(state.input.player(player.unwrap_or(0) as usize).held(bit))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    input
+        .set(
+            "pressed",
+            lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let bit = button_bit(&button)?;
+                let index = player.unwrap_or(0) as usize;
+                Ok(state
+                    .input
+                    .player(index)
+                    .pressed(&state.previous_input.player(index), bit))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    input
+        .set(
+            "released",
+            lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let bit = button_bit(&button)?;
+                let index = player.unwrap_or(0) as usize;
+                Ok(state
+                    .previous_input
+                    .player(index)
+                    .pressed(&state.input.player(index), bit))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    env.set("input", input).map_err(err)?;
+
+    // tween: cosmetic motion, measured in ticks like everything else.
+    let tween = lua.create_table().map_err(err)?;
+    tween
+        .set(
+            "to",
+            lua.create_function(
+                |lua,
+                 (node, property, target, ticks, easing): (
+                    NodeHandle,
+                    String,
+                    mlua::Value,
+                    u32,
+                    Option<String>,
+                )| {
+                    let easing = match easing.as_deref() {
+                        None => crate::tween::Easing::Linear,
+                        Some(name) => crate::tween::Easing::parse(name).ok_or_else(|| {
+                            mlua::Error::runtime(format!(
+                                "no easing called {name:?}; \
+                                 try linear, ease_in, ease_out or ease_in_out"
+                            ))
+                        })?,
+                    };
+                    let target = from_lua(target)?;
+                    let state = shared(lua)?;
+                    let mut state = state.borrow_mut();
+                    let id = resolve(&state, node.0)?;
+                    let from = read_property(&state, id, &property).ok_or_else(|| {
+                        mlua::Error::runtime(format!(
+                            "{property:?} is not a property of this node, \
+                             so there is nothing to tween from"
+                        ))
+                    })?;
+                    if !crate::tween::can_tween(&from, &target) {
+                        return Err(mlua::Error::runtime(format!(
+                            "{property:?} is a {}, and the target is a {}",
+                            from.type_name(),
+                            target.type_name()
+                        )));
+                    }
+                    // Starting a second tween on a property replaces the
+                    // first. Two tweens fighting over one number is never
+                    // what anybody meant.
+                    let list = state.tweens.entry(node.0).or_default();
+                    list.retain(|t| t.property != property);
+                    list.push(crate::tween::Tween {
+                        property,
+                        from,
+                        to: target,
+                        elapsed: 0,
+                        ticks,
+                        easing,
+                    });
+                    Ok(())
+                },
+            )
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    tween
+        .set(
+            "cancel",
+            lua.create_function(|lua, (node, property): (NodeHandle, Option<String>)| {
+                let state = shared(lua)?;
+                let mut state = state.borrow_mut();
+                match property {
+                    Some(property) => {
+                        if let Some(list) = state.tweens.get_mut(&node.0) {
+                            list.retain(|t| t.property != property);
+                            if list.is_empty() {
+                                state.tweens.remove(&node.0);
                             }
                         }
-                        None => {
-                            state.tweens.remove(&node.0);
-                        }
                     }
+                    None => {
+                        state.tweens.remove(&node.0);
+                    }
+                }
+                Ok(())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    tween
+        .set(
+            "running",
+            lua.create_function(|lua, (node, property): (NodeHandle, Option<String>)| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let Some(list) = state.tweens.get(&node.0) else {
+                    return Ok(false);
+                };
+                Ok(match property {
+                    Some(property) => list.iter().any(|t| t.property == property),
+                    None => !list.is_empty(),
+                })
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    env.set("tween", tween).map_err(err)?;
+
+    // anim: frame playback over the clips the importer produced.
+    let anim = lua.create_table().map_err(err)?;
+    anim.set(
+        "play",
+        lua.create_function(|lua, (node, clip): (NodeHandle, String)| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            let entry = state
+                .anim
+                .entry(node.0)
+                .or_insert_with(|| crate::state::AnimState {
+                    clip: clip.clone(),
+                    frame: 0,
+                    ticks_in_frame: 0,
+                    playing: true,
+                    finished: false,
+                });
+            // Playing the clip that is already playing does not restart it,
+            // so `anim.play(self, "walk")` every tick is harmless.
+            if entry.clip != clip {
+                entry.clip = clip;
+                entry.frame = 0;
+                entry.ticks_in_frame = 0;
+            }
+            entry.playing = true;
+            entry.finished = false;
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    anim.set(
+        "stop",
+        lua.create_function(|lua, node: NodeHandle| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            if let Some(entry) = state.anim.get_mut(&node.0) {
+                entry.playing = false;
+            }
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    anim.set(
+        "frame",
+        lua.create_function(|lua, node: NodeHandle| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(state.anim.get(&node.0).map(|a| a.frame))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    anim.set(
+        "playing",
+        lua.create_function(|lua, node: NodeHandle| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(state
+                .anim
+                .get(&node.0)
+                .map(|a| a.playing && !a.finished)
+                .unwrap_or(false))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    anim.set(
+        "finished",
+        lua.create_function(|lua, node: NodeHandle| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(state.anim.get(&node.0).map(|a| a.finished).unwrap_or(false))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    env.set("anim", anim).map_err(err)?;
+
+    // rng: named streams only. There is no unseeded path.
+    let rng = lua.create_table().map_err(err)?;
+    rng.set(
+        "range",
+        lua.create_function(|lua, (stream, lo, hi): (String, i32, i32)| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            Ok(state.rng.stream(&stream).range_i32(lo, hi))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    rng.set(
+        "chance",
+        lua.create_function(|lua, (stream, n, d): (String, u32, u32)| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            Ok(state.rng.stream(&stream).chance(n, d))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    rng.set(
+        "unit",
+        lua.create_function(|lua, stream: String| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            Ok(LuaFx(state.rng.stream(&stream).unit_fx()))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    env.set("rng", rng).map_err(err)?;
+
+    // log: collected, never printed from inside a tick. Printing from in here
+    // would interleave with whatever the host is writing and would happen on a
+    // rolled-back tick as readily as a kept one; the runner decides what to do
+    // with the lines once the tick is over.
+    let log_table = lua.create_table().map_err(err)?;
+    for level in ["info", "warn", "error"] {
+        let sink = log.clone();
+        let source = path.to_string();
+        log_table
+            .set(
+                level,
+                lua.create_function(move |_, args: Variadic<String>| {
+                    sink.borrow_mut()
+                        .push(format!("{level}: {source}: {}", args.join(" ")));
                     Ok(())
                 })
                 .map_err(err)?,
             )
             .map_err(err)?;
-        tween
-            .set(
-                "running",
-                lua.create_function(|lua, (node, property): (NodeHandle, Option<String>)| {
-                    let state = shared(lua)?;
-                    let state = state.borrow();
-                    let Some(list) = state.tweens.get(&node.0) else {
-                        return Ok(false);
-                    };
-                    Ok(match property {
-                        Some(property) => list.iter().any(|t| t.property == property),
-                        None => !list.is_empty(),
-                    })
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
-        env.set("tween", tween).map_err(err)?;
+    }
+    env.set("log", log_table).map_err(err)?;
 
-        // anim: frame playback over the clips the importer produced.
-        let anim = lua.create_table().map_err(err)?;
-        anim.set(
-            "play",
-            lua.create_function(|lua, (node, clip): (NodeHandle, String)| {
-                let state = shared(lua)?;
-                let mut state = state.borrow_mut();
-                let entry = state
-                    .anim
-                    .entry(node.0)
-                    .or_insert_with(|| crate::state::AnimState {
-                        clip: clip.clone(),
-                        frame: 0,
-                        ticks_in_frame: 0,
-                        playing: true,
-                        finished: false,
-                    });
-                // Playing the clip that is already playing does not restart it,
-                // so `anim.play(self, "walk")` every tick is harmless.
-                if entry.clip != clip {
-                    entry.clip = clip;
-                    entry.frame = 0;
-                    entry.ticks_in_frame = 0;
-                }
-                entry.playing = true;
-                entry.finished = false;
-                Ok(())
-            })
-            .map_err(err)?,
-        )
+    // require(path): another script's returned table, evaluated once.
+    let registry = modules.clone();
+    let sink = log.clone();
+    let require = lua
+        .create_function(move |lua, name: String| {
+            require_module(lua, tick_rate, &registry, &sink, &name)
+        })
         .map_err(err)?;
-        anim.set(
-            "stop",
-            lua.create_function(|lua, node: NodeHandle| {
-                let state = shared(lua)?;
-                let mut state = state.borrow_mut();
-                if let Some(entry) = state.anim.get_mut(&node.0) {
-                    entry.playing = false;
-                }
-                Ok(())
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        anim.set(
-            "frame",
-            lua.create_function(|lua, node: NodeHandle| {
-                let state = shared(lua)?;
-                let state = state.borrow();
-                Ok(state.anim.get(&node.0).map(|a| a.frame))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        anim.set(
-            "playing",
-            lua.create_function(|lua, node: NodeHandle| {
-                let state = shared(lua)?;
-                let state = state.borrow();
-                Ok(state
-                    .anim
-                    .get(&node.0)
-                    .map(|a| a.playing && !a.finished)
-                    .unwrap_or(false))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        anim.set(
-            "finished",
-            lua.create_function(|lua, node: NodeHandle| {
-                let state = shared(lua)?;
-                let state = state.borrow();
-                Ok(state.anim.get(&node.0).map(|a| a.finished).unwrap_or(false))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        env.set("anim", anim).map_err(err)?;
+    env.set("require", require).map_err(err)?;
 
-        // rng: named streams only. There is no unseeded path.
-        let rng = lua.create_table().map_err(err)?;
-        rng.set(
-            "range",
-            lua.create_function(|lua, (stream, lo, hi): (String, i32, i32)| {
-                let state = shared(lua)?;
-                let mut state = state.borrow_mut();
-                Ok(state.rng.stream(&stream).range_i32(lo, hi))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        rng.set(
-            "chance",
-            lua.create_function(|lua, (stream, n, d): (String, u32, u32)| {
-                let state = shared(lua)?;
-                let mut state = state.borrow_mut();
-                Ok(state.rng.stream(&stream).chance(n, d))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        rng.set(
-            "unit",
-            lua.create_function(|lua, stream: String| {
-                let state = shared(lua)?;
-                let mut state = state.borrow_mut();
-                Ok(LuaFx(state.rng.stream(&stream).unit_fx()))
-            })
-            .map_err(err)?,
-        )
-        .map_err(err)?;
-        env.set("rng", rng).map_err(err)?;
+    Ok(())
+}
 
-        // log: collected, never printed from inside a tick.
-        let log = lua.create_table().map_err(err)?;
-        for level in ["info", "warn", "error"] {
-            log.set(
-                level,
-                lua.create_function(move |_, args: Variadic<String>| {
-                    Ok(format!("{}: {}", level, args.join(" ")))
-                })
-                .map_err(err)?,
-            )
-            .map_err(err)?;
+/// Evaluate a module, or hand back the one already evaluated.
+///
+/// A module is an ordinary project script that ends in a `return`, required by
+/// the project-relative path a scene would write after `script:` — so
+/// `require("scripts/spellbook.lua")`, with the extension, and one spelling
+/// rather than several to guess between.
+///
+/// What comes back is frozen. A module's table is not part of `SimState`: it is
+/// not hashed, not snapshotted, and not rewound. Anything written into it would
+/// survive a rollback that rewound everything around it, which is a divergence
+/// that shows up hours later in a replay rather than at the write. So the engine
+/// refuses the write instead — a module holds constants and pure functions, and
+/// state lives in node variables, where the hash can see it.
+fn require_module(
+    lua: &Lua,
+    tick_rate: u32,
+    modules: &Rc<RefCell<Modules>>,
+    log: &Rc<RefCell<Vec<String>>>,
+    name: &str,
+) -> mlua::Result<mlua::Value> {
+    if let Some(cached) = modules.borrow().cache.get(name).cloned() {
+        return Ok(cached);
+    }
+    let source = {
+        let m = modules.borrow();
+        if let Some(at) = m.loading.iter().position(|p| p == name) {
+            let mut chain: Vec<&str> = m.loading[at..].iter().map(String::as_str).collect();
+            chain.push(name);
+            return Err(mlua::Error::runtime(format!(
+                "module cycle: {}",
+                chain.join(" -> ")
+            )));
         }
-        env.set("log", log).map_err(err)?;
+        match m.sources.get(name) {
+            Some(source) => source.clone(),
+            None => {
+                return Err(mlua::Error::runtime(format!(
+                    "unknown module {name:?}; require takes a project-relative \
+                     script path, such as \"scripts/spellbook.lua\""
+                )));
+            }
+        }
+    };
 
-        Ok(())
+    modules.borrow_mut().loading.push(name.to_string());
+    let evaluated = build_environment(lua, tick_rate, modules, log, name)
+        .map_err(|d| mlua::Error::runtime(d.message))
+        .and_then(|env| {
+            lua.load(&source)
+                .set_name(name)
+                .set_environment(env)
+                .eval::<mlua::Value>()
+        });
+    modules.borrow_mut().loading.pop();
+
+    let value = freeze(lua, evaluated?)?;
+    modules
+        .borrow_mut()
+        .cache
+        .insert(name.to_string(), value.clone());
+    Ok(value)
+}
+
+/// Make a value read-only, all the way down.
+///
+/// A metatable on the table itself would not do it: `__newindex` fires only for
+/// a key that is *absent*, so `spells.bolt = nil` — overwriting something the
+/// module actually defines, which is the write worth stopping — would go
+/// straight through. What comes back instead is an empty proxy whose metatable
+/// forwards reads to a private copy. Every key is absent from the proxy, so
+/// every write reaches the guard. `rawset` would still walk past it, which is
+/// why the sandbox does not have `rawset`.
+///
+/// This catches writes through the table. It cannot catch a module function
+/// that closes over a local and mutates that — Lua upvalues are not reachable
+/// from here. A module that does so is holding simulation state outside the
+/// hash, and no amount of freezing would tell you; that one is on whoever
+/// writes it, which is why the rule is "constants and pure functions" rather
+/// than "whatever the engine lets you get away with".
+fn freeze(lua: &Lua, value: mlua::Value) -> mlua::Result<mlua::Value> {
+    freeze_into(lua, value, &mut Vec::new())
+}
+
+/// `seen` maps a source table to the proxy already made for it, so a module
+/// that refers to itself terminates and comes out with one proxy rather than an
+/// infinite regress of them. It is a list because a module has a handful of
+/// tables in it, not thousands.
+fn freeze_into(
+    lua: &Lua,
+    value: mlua::Value,
+    seen: &mut Vec<(*const std::ffi::c_void, Table)>,
+) -> mlua::Result<mlua::Value> {
+    let mlua::Value::Table(source) = &value else {
+        return Ok(value);
+    };
+    if is_frozen(source)? {
+        return Ok(value);
+    }
+    let key = source.to_pointer();
+    if let Some((_, proxy)) = seen.iter().find(|(p, _)| *p == key) {
+        return Ok(mlua::Value::Table(proxy.clone()));
+    }
+
+    let backing = lua.create_table()?;
+    let proxy = lua.create_table()?;
+    seen.push((key, proxy.clone()));
+
+    let guard = lua.create_table()?;
+    guard.set("__index", backing.clone())?;
+    guard.set(
+        "__newindex",
+        lua.create_function(|_, (_, key): (Table, mlua::Value)| -> mlua::Result<()> {
+            Err(mlua::Error::runtime(format!(
+                "a module is read-only, and {} cannot be assigned: a module is \
+                 not simulation state, so a write here would not be hashed and \
+                 would survive a rollback that rewound everything around it",
+                describe_key(&key)
+            )))
+        })?,
+    )?;
+    let len_of = backing.clone();
+    guard.set(
+        "__len",
+        lua.create_function(move |_, _: Table| Ok(len_of.raw_len()))?,
+    )?;
+    let pairs_of = backing.clone();
+    guard.set(
+        "__pairs",
+        lua.create_function(move |lua, _: Table| {
+            Ok((
+                lua.globals().get::<mlua::Value>("next")?,
+                pairs_of.clone(),
+                mlua::Value::Nil,
+            ))
+        })?,
+    )?;
+    guard.set("__metatable", FROZEN)?;
+    proxy.set_metatable(Some(guard));
+
+    let entries: Vec<(mlua::Value, mlua::Value)> =
+        source.pairs().collect::<mlua::Result<Vec<_>>>()?;
+    for (k, v) in entries {
+        let frozen = freeze_into(lua, v, seen)?;
+        backing.raw_set(k, frozen)?;
+    }
+    Ok(mlua::Value::Table(proxy))
+}
+
+/// True when this table is already a module proxy.
+fn is_frozen(table: &Table) -> mlua::Result<bool> {
+    match table.metatable() {
+        Some(meta) => Ok(meta.get::<Option<String>>("__metatable")?.as_deref() == Some(FROZEN)),
+        None => Ok(false),
+    }
+}
+
+/// Name a rejected key the way the script wrote it.
+fn describe_key(key: &mlua::Value) -> String {
+    match key {
+        mlua::Value::String(s) => match s.to_str() {
+            Ok(s) => format!("`{s}`"),
+            Err(_) => "that key".to_string(),
+        },
+        mlua::Value::Integer(i) => format!("index {i}"),
+        other => format!("a {} key", other.type_name()),
     }
 }
 
@@ -1334,11 +1606,49 @@ impl ScriptHost for LuaHost {
         result.map(|_| ()).map_err(|e| runtime_error(script, e))
     }
 
+    fn take_log(&mut self) -> Vec<String> {
+        std::mem::take(&mut *self.log.borrow_mut())
+    }
+
     fn reload(&mut self, path: &str, source: &str) -> Result<(), Diagnostic> {
         // A fresh environment, so a function the new source deleted is gone
         // rather than lingering from the old one. Node variables are untouched:
         // they live in `SimState`, not in here.
-        self.load(path, source)
+        //
+        // Every *other* script is re-run too, and the module cache is dropped.
+        // A script that required this path holds the table it returned, and
+        // reloading only the file that changed would leave it reading last
+        // version's constants — a hot reload that appears to do nothing, which
+        // is worse than one that does not work. Which scripts those are is not
+        // tracked, because re-running a project's scripts is a keystroke's
+        // worth of work on a save and a dependency graph is a thing to get
+        // wrong.
+        {
+            let mut modules = self.modules.borrow_mut();
+            modules.sources.insert(path.to_string(), source.to_string());
+            modules.cache.clear();
+        }
+        let sources: Vec<(String, String)> = {
+            let modules = self.modules.borrow();
+            let mut paths: Vec<&str> = self.scripts.keys().map(String::as_str).collect();
+            if !self.scripts.contains_key(path) {
+                paths.push(path);
+            }
+            paths
+                .into_iter()
+                .filter_map(|p| modules.sources.get(p).map(|s| (p.to_string(), s.clone())))
+                .collect()
+        };
+        let mut first = None;
+        for (p, source) in sources {
+            if let Err(d) = self.load(&p, &source) {
+                first.get_or_insert(d);
+            }
+        }
+        match first {
+            Some(d) => Err(d),
+            None => Ok(()),
+        }
     }
 }
 

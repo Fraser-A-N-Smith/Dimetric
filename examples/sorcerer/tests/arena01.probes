@@ -26,3 +26,16 @@ tick 900 /Arena01 var:room < 5
 
 # The player survived the run.
 tick 2599 /Arena01/Player exists == true
+
+# The room has walls, and this run leans on them. Without them the player left
+# the floor entirely: at the last tick they were 93 pixels above the room,
+# alive and fighting nothing that was still in it. The north wall's inner face
+# is y = 0 and the player's radius is 6, so 6 is as far as they get.
+tick 900 /Arena01/Player pos.y >= 6.0
+tick 2599 /Arena01/Player pos.y >= 6.0
+tick 2599 /Arena01/Player pos.y <= 250.0
+tick 2599 /Arena01/Player pos.x >= 6.0
+tick 2599 /Arena01/Player pos.x <= 378.0
+
+# The enemies are held by the same walls, on the same layer.
+tick 2599 /Arena01/WallNorth exists == true

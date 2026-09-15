@@ -86,10 +86,13 @@ impl Harness {
         assert!(!diagnostics.has_errors(), "{diagnostics}");
 
         let mut host = LuaHost::new(60).expect("lua");
-        for (path, source) in &project.scripts {
-            host.load(path, source)
-                .unwrap_or_else(|d| panic!("{path}: {d}"));
-        }
+        let diags = host.load_all(
+            project
+                .scripts
+                .iter()
+                .map(|(p, s)| (p.as_str(), s.as_str())),
+        );
+        assert!(diags.is_empty(), "{}", diags[0]);
 
         let log: Log = Log::default();
         let speaker = Speaker::with_backend(&project, Box::new(Mock::with_log(log.clone())));
@@ -227,10 +230,13 @@ fn a_missing_clip_is_a_warning_rather_than_silence_with_no_explanation() {
     let _ = project.load_scripts();
 
     let mut host = LuaHost::new(60).expect("lua");
-    for (path, source) in &project.scripts {
-        host.load(path, source)
-            .unwrap_or_else(|d| panic!("{path}: {d}"));
-    }
+    let diags = host.load_all(
+        project
+            .scripts
+            .iter()
+            .map(|(p, s)| (p.as_str(), s.as_str())),
+    );
+    assert!(diags.is_empty(), "{}", diags[0]);
     let log: Log = Log::default();
     let mut speaker = Speaker::with_backend(&project, Box::new(Mock::with_log(log)));
     let mut sim = Sim::new(scene, 1, Box::new(host), SimConfig::default());

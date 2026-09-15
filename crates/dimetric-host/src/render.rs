@@ -191,10 +191,13 @@ pub fn capture(
     diagnostics.extend(project.load_scripts());
 
     let mut host = LuaHost::new(SimConfig::default().tick_rate).map_err(one)?;
-    for (path, source) in &project.scripts {
-        if let Err(d) = host.load(path, source) {
-            diagnostics.push(d);
-        }
+    for d in host.load_all(
+        project
+            .scripts
+            .iter()
+            .map(|(p, s)| (p.as_str(), s.as_str())),
+    ) {
+        diagnostics.push(d);
     }
 
     let (atlas, asset_diagnostics) = build_atlas(project, &scene);

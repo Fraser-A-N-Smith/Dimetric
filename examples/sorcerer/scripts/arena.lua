@@ -9,6 +9,8 @@
 -- spawned, which means a room is a wave rather than a file and a run is a
 -- sequence of them.
 
+local spells = require("scripts/spellbook.lua")
+
 local HUNDRED = 100
 
 -- The run: five rooms, each a wave. Enemies are placed on a ring around the
@@ -36,10 +38,6 @@ local function cached(self, key, path)
   local found = scene.find(path)
   if found then self[key] = found:id() end
   return found
-end
-
-local function book(self)
-  return cached(self, "book_id", "/Arena01/Spellbook")
 end
 
 local function player(self)
@@ -73,25 +71,21 @@ end
 -- The spell a run is casting: an evolution when two bases combine, otherwise
 -- the first base held.
 local function active_spell(self)
-  local b = book(self)
-  if not b then return nil end
   local held = self.held or {}
-  local definitions = b.base
-  if not definitions then return nil end
 
   local spell
   if #held >= 2 then
     local a, c = held[1], held[2]
     if a > c then a, c = c, a end
-    spell = b.evolutions[a .. "+" .. c]
+    spell = spells.evolutions[a .. "+" .. c]
     self.evolved = spell and spell.name or ""
   end
   if not spell and #held >= 1 then
-    spell = definitions[held[1]]
+    spell = spells.base[held[1]]
     self.evolved = ""
   end
   if not spell then return nil end
-  return apply_modifiers(spell, self.mods or {}, b.modifiers)
+  return apply_modifiers(spell, self.mods or {}, spells.modifiers)
 end
 
 -- -- casting -----------------------------------------------------------
@@ -205,9 +199,7 @@ end
 -- Offer three choices from the *upgrade* stream. A stream of its own, so
 -- firing one fewer spell does not shift which upgrade a run is offered.
 local function offer(self)
-  local b = book(self)
-  if not b then return end
-  local order, mods = b.offer_order, b.modifier_order
+  local order, mods = spells.offer_order, spells.modifier_order
   local choices = {}
   for i = 1, 3 do
     if rng.chance("upgrade", 1, 2) then
@@ -220,9 +212,7 @@ local function offer(self)
 end
 
 local function pick(self, choice)
-  local b = book(self)
-  if not b then return end
-  if b.base[choice] then
+  if spells.base[choice] then
     local held = self.held or {}
     for i = 1, #held do
       if held[i] == choice then return end

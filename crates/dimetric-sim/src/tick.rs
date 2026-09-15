@@ -96,6 +96,17 @@ pub trait ScriptHost {
     fn reload(&mut self, _path: &str, _source: &str) -> Result<(), dimetric_core::Diagnostic> {
         Ok(())
     }
+
+    /// Take the lines scripts logged, leaving the buffer empty.
+    ///
+    /// Output rather than state: the lines are not in `SimState`, so they are
+    /// not hashed and a rollback does not unwrite them. Whoever is driving the
+    /// simulation decides what to do with them — a run prints them, a rolled
+    /// back tick's are simply already printed, the way anything written to a
+    /// terminal is.
+    fn take_log(&mut self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// A host that runs nothing. Physics-only simulations use this.
@@ -231,6 +242,11 @@ impl Sim {
     /// Diagnostics raised so far.
     pub fn diagnostics(&self) -> &Diagnostics {
         &self.diagnostics
+    }
+
+    /// Take the lines scripts logged since this was last called.
+    pub fn take_log(&mut self) -> Vec<String> {
+        self.scripts.take_log()
     }
 
     /// Take the diagnostics raised so far.

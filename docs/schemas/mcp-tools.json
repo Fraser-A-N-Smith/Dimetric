@@ -917,7 +917,7 @@
             "type": "string"
           },
           "ticks": {
-            "description": "Ticks to simulate",
+            "description": "Ticks to simulate. With an input log, defaults to the log's length",
             "type": "string"
           },
           "watch": {

@@ -1,13 +1,15 @@
 -- Every spell in the game, as data.
 --
--- Balance tuning is editing this file and reloading: `dim run --watch` picks it
--- up at the next tick boundary, and the node variables the arena reads are
--- rebuilt from `on_ready`. Nothing here is compiled into the engine.
+-- A module: `require("scripts/spellbook.lua")` and you have the tables below.
+-- What comes back is frozen, which is the right shape for this file — none of
+-- it is state, so none of it belongs in the state hash. It used to be a node
+-- that published these as script variables, back when the sandbox had no
+-- `require`, and that put every number here into the snapshot and the hash of
+-- every tick.
 --
--- Why a node rather than a module: the script sandbox has no `require`, so two
--- scripts cannot share a table directly. A node can publish one, because script
--- variables are engine state and any script can read another node's. See
--- `docs/ENGINE-GAPS.md` — this is the workaround, not the intended shape.
+-- Balance tuning is editing this file and reloading: `dim run --watch` picks it
+-- up at the next tick boundary, and reloading a module re-runs the scripts that
+-- required it. Nothing here is compiled into the engine.
 
 -- Base spells. `shape` is what the arena does with a cast; everything else is
 -- numbers the projectile carries.
@@ -231,11 +233,11 @@ local EVOLUTIONS = {
 local OFFER_ORDER = { "bolt", "nova", "chain", "ward", "summon", "frost" }
 local MODIFIER_ORDER = { "fierce", "swift", "wide", "lasting", "heavy" }
 
-function on_ready(self)
-  self.base = BASE
-  self.modifiers = MODIFIERS
-  self.evolutions = EVOLUTIONS
-  self.offer_order = OFFER_ORDER
-  self.modifier_order = MODIFIER_ORDER
-  self.spell_count = #OFFER_ORDER
-end
+return {
+  base = BASE,
+  modifiers = MODIFIERS,
+  evolutions = EVOLUTIONS,
+  offer_order = OFFER_ORDER,
+  modifier_order = MODIFIER_ORDER,
+  spell_count = #OFFER_ORDER,
+}

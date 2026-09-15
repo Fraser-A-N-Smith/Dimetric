@@ -12,9 +12,9 @@ arguing about — whether it belongs in a reusable engine.
 
 The first pass at the slice logged these; later passes built them, and the slice
 was rewritten on top. Everything transient is now spawned — a room is a wave
-rather than a file, and a run is five of them. The last two entries were found
-later still, by declaring node kinds and by packaging a game and listening to
-it.
+rather than a file, and a run is five of them. The last entries were found later
+still, by declaring node kinds, by packaging a game and listening to it, and by
+coming back to close what this list had left open.
 
 **A Lua array could not be stored.** `self.order = { "bolt", "nova" }` came back
 as an empty map: the conversion only accepted string keys, so every entry was
@@ -90,29 +90,71 @@ sound bookkeeping from one of them.
 broadphase the simulation already builds. See the performance section below:
 the first version of this was most of a frame budget on its own.
 
-## Open: probably game-specific
+**Scripts can share a table.** The sandbox had no `require`, so the spell
+definitions lived on a `Spellbook` node that published them as script variables
+— which any script could read, and which put every one of those numbers into
+the snapshot and the hash of every tick. `require("scripts/spellbook.lua")`
+now runs that script once and hands back what it returned.
 
-**No module system for scripts.** The sandbox has no `require`, so two scripts
-cannot share a table. The spell definitions live on a `Spellbook` node that
-publishes them as node variables, which any script can read. Slightly odd, works
-fine, and adding a module loader means deciding what a module's identity is when
-a script is hot-reloaded — a real design cost for something one node solves.
+The design cost the first note worried about was hot reload, and it is real but
+smaller than it looked: a script that required a module holds the table it
+returned, so reloading just the file that changed would leave it reading the
+previous version's constants — a hot reload that appears to work and does
+nothing. Reloading anything therefore re-runs every script and drops the module
+cache. Which scripts depend on which is not tracked, because re-running a
+project's scripts costs nothing on a keystroke and a dependency graph is a thing
+to get wrong.
+
+What was *not* obvious is that a module has to be read-only. A module's table is
+not in `SimState`: not hashed, not snapshotted, not rewound. A script that wrote
+to one would have state that survived a rollback rewinding everything around it,
+and the divergence would surface hours later in a replay rather than at the
+write. So `require` freezes what it returns, all the way down. A metatable on
+the table would not have done it — `__newindex` fires only for keys that are
+*absent*, so overwriting something the module actually defines, which is the
+write worth stopping, goes straight through. What comes back is an empty proxy
+forwarding reads to a private copy, and `rawset` left the sandbox because it
+walks past exactly that guard.
+
+The freeze stops writes through the table. It cannot stop a module function that
+closes over a local and mutates it, because Lua upvalues are not reachable from
+the host — that one is on whoever writes the module, and it is now the only way
+left to hide state from the hash.
+
+Moving the spellbook off a node took the arena's tick-5 state dump from 9,621
+bytes to 6,037. Constants had been a third of the state.
+
+**`log.info` logged.** It had not been. The three functions built a string,
+returned it, and dropped it; the `Vec<String>` meant to hold the lines was never
+written to and never read. A documented API doing nothing is worse than a
+missing one, because a script author reads the table in `API.md`, calls it, sees
+no output, and goes looking for the bug in their own code. Nothing in the slice
+called `log`, which is how it survived this long.
+
+The lines are output, so they are kept out of `SimState` entirely rather than in
+a field the hash skips — same argument as sounds, one fewer thing to get wrong
+later. `dim run` prints them with the tick they came from, and a test pins that
+a script which logs hashes identically to one that does not.
+
+**The arena has walls.** It had none, so the player could walk out of the room
+and fight nothing. Four static colliders, authored in the scene.
+
+## Open: probably game-specific
 
 **No way for one script to call a function on another.** Damage is written into
 the target's own variables (`other.pending_damage = ...`) and read on its next
 tick. That is arguably better than a direct call — it keeps the ordering
 explicit and survives the target being destroyed mid-frame — so this is probably
-not a gap at all.
+not a gap at all. Shared *behaviour*, as opposed to a message, is what modules
+are for now: a function two scripts both need goes in one and is required by
+both.
 
 **No scene loading from a script.** Still true, and it turned out not to
 matter: a room is a wave the arena spawns, not a file it loads, so a run of five
 rooms lives in one scene. Loading a scene mid-tick would mean the tick was not a
 pure function of the state it started from (I8), so this is probably right as
-it stands.
-
-**No walls.** The arena has no bounds, so the player can walk out of it. A
-tilemap collision layer exists; the fixture simply does not use one. Not an
-engine gap, a scene that was never finished.
+it stands. `scene.spawn` is the useful half of it and already lands on a phase
+boundary for that reason.
 
 ## Not a gap, but worth writing down
 

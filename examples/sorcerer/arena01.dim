@@ -15,13 +15,6 @@ name = "Arena01"
 script = "script:scripts/arena.lua"
 
 [[node]]
-id = "n_book0001"
-kind = "Node"
-name = "Spellbook"
-parent = "n_root0000"          # /Arena01
-script = "script:scripts/spellbook.lua"
-
-[[node]]
 id = "n_floor000"
 kind = "TileLayer"
 name = "Floor"
@@ -57,6 +50,54 @@ kind = "Camera2D"
 name = "View"
 parent = "n_player00"          # /Arena01/Player
 current = true
+
+# ── Walls ─────────────────────────────────────────
+#
+# The room had no bounds, so the player could walk off the floor and fight
+# nothing. Four static bodies on the floor's painted extent (0,0)-(384,256),
+# sixteen thick and overlapping at the corners so there is no gap to slip
+# through diagonally. Layer 1, which is what the player and the enemies already
+# test against; projectiles are on mask 2 and still fly over, which is what a
+# spell should do.
+[[node]]
+id = "n_wallw000"
+kind = "Collider"
+name = "WallWest"
+parent = "n_root0000"          # /Arena01
+pos = [-8.0, 128.0]
+tags = ["wall"]
+is_static = true
+size = [16.0, 288.0]
+
+[[node]]
+id = "n_walle000"
+kind = "Collider"
+name = "WallEast"
+parent = "n_root0000"          # /Arena01
+pos = [392.0, 128.0]
+tags = ["wall"]
+is_static = true
+size = [16.0, 288.0]
+
+[[node]]
+id = "n_walln000"
+kind = "Collider"
+name = "WallNorth"
+parent = "n_root0000"          # /Arena01
+pos = [192.0, -8.0]
+tags = ["wall"]
+is_static = true
+size = [416.0, 16.0]
+
+[[node]]
+id = "n_walls000"
+kind = "Collider"
+name = "WallSouth"
+parent = "n_root0000"          # /Arena01
+pos = [192.0, 264.0]
+tags = ["wall"]
+is_static = true
+size = [416.0, 16.0]
 
 [[chunk]]
 layer = "n_floor000"           # /Arena01/Floor

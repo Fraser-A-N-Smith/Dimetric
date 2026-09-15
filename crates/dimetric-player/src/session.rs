@@ -55,10 +55,13 @@ impl Session {
 
         let sim_config = SimConfig::default();
         let mut host = LuaHost::new(sim_config.tick_rate).map_err(|d| Diagnostics(vec![d]))?;
-        for (path, source) in &project.scripts {
-            if let Err(d) = host.load(path, source) {
-                diagnostics.push(d);
-            }
+        for d in host.load_all(
+            project
+                .scripts
+                .iter()
+                .map(|(p, s)| (p.as_str(), s.as_str())),
+        ) {
+            diagnostics.push(d);
         }
 
         let (atlas, asset_diagnostics) = build_atlas(project, &scene);

@@ -279,8 +279,9 @@ Scripts see exactly these globals and nothing else.
 | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |
 | `vec2` | `vec2(x, y)`, building a fixed-point vector |
 | `fx` | `new`, `parse`, `sin`, `cos`, `from_angle` |
-| `log` | `info`, `warn`, `error` |
+| `log` | `info`, `warn`, `error` — collected per tick, never hashed |
 | `tween` | `to(node, property, target, ticks, easing)`, `cancel(node, property)`, `running(node, property)` |
+| `require` | `require(path)`, another script's returned table |
 | `anim` | `play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |
 
 A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,
@@ -332,14 +333,38 @@ would change how it plays and a run recorded with audio on would diverge from
 one played with it off. `dim run` reports how many sounds a headless run asked
 for.
 
+### Modules
+
+`require("scripts/spellbook.lua")` runs that script once and hands back
+what it returned — the project-relative path a scene would write after
+`script:`, one spelling rather than several to guess between. Every
+script in a project is loaded before any of them runs, so requiring one
+does not depend on where its name falls in the alphabet, and a cycle is
+an error naming the loop.
+
+What comes back is **read-only, all the way down**. A module's table is
+not part of the state: it is not hashed, not snapshotted and not
+rewound, so anything written into it would survive a rollback that
+rewound everything around it — a divergence that surfaces hours later
+in a replay rather than at the write. A module holds constants and pure
+functions; state belongs in node variables, where the hash can see it.
+The engine enforces the first part and not the second: a module
+function that closes over a local and mutates it is out of reach of any
+guard, and is the one way left to hide state from the hash.
+
+Reloading a module re-runs every script, because a script that required
+it is holding the table it returned and reloading one file would leave
+that script reading the previous version's constants.
+
 ### The rule that matters
 
 Lua numbers are `f64`. Gameplay arithmetic done in raw Lua numbers and written
 into simulation state is the easiest way to break replay. Use `vec2` and `fx`
 values, which do their arithmetic in fixed point.
 
-The sandbox has no `os`, `io`, `require`, `dofile`, `load` or `package`, and no
+The sandbox has no `os`, `io`, `dofile`, `load` or `package`, and no
 `math.random` — randomness comes from a seeded `rng` stream. `math.sin` and the
 other transcendental functions are also absent, because platform maths libraries
 do not agree with each other; use `fx.sin` and `fx.cos`, which read committed
-lookup tables.
+lookup tables. `rawset` is absent too: it writes past a `__newindex`, which is
+the guard holding a required module read-only.

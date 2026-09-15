@@ -174,13 +174,16 @@ Two rules make this safe to replay:
 
 **Script state lives in Rust.** `self.health = 40` writes into simulation state,
 not a Lua global. A Lua table cannot be snapshotted bit-for-bit, so anything
-kept there would drop silently out of rollback and out of the state hash.
+kept there would drop silently out of rollback and out of the state hash. This
+is also why `require` hands back a table the engine has frozen: a module is
+constants and pure functions, and a module you could write to would be a place
+for state to hide from the hash.
 
 **Arithmetic goes through `fx` and `vec2`.** Lua numbers are `f64`, and floats
 written into simulation state are the easiest way to break replay. The sandbox
-has no `os`, `io`, `require` or `math.random`, and no `math.sin` either —
-platform maths libraries do not agree with each other, so `fx.sin` reads a
-committed lookup table instead.
+has no `os`, `io` or `math.random`, and no `math.sin` either — platform maths
+libraries do not agree with each other, so `fx.sin` reads a committed lookup
+table instead.
 
 ## Layout
 

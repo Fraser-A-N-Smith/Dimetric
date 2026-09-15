@@ -375,9 +375,9 @@ pub struct RunArgs {
     /// is the window.
     #[arg(long, default_value_t = true)]
     pub headless: bool,
-    /// Ticks to simulate.
-    #[arg(long, default_value_t = 60)]
-    pub ticks: u64,
+    /// Ticks to simulate. With an input log, defaults to the log's length.
+    #[arg(long)]
+    pub ticks: Option<u64>,
     /// Run seed.
     #[arg(long, default_value_t = 0)]
     pub seed: u64,

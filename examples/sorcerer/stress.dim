@@ -18,13 +18,6 @@ name = "Stress"
 script = "script:scripts/stress.lua"
 
 [[node]]
-id = "n_strbook0"
-kind = "Node"
-name = "Spellbook"
-parent = "n_strroot0"          # /Stress
-script = "script:scripts/spellbook.lua"
-
-[[node]]
 id = "n_strplay0"
 kind = "Collider"
 name = "Player"
