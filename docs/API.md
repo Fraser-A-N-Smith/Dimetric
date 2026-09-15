@@ -213,6 +213,59 @@ message. Codes are never reused for a different meaning.
 | `DIM0801` | error | The command exists but this build does not implement it yet |
 | `DIM0802` | error | A command-line argument could not be parsed |
 
+## MCP tools
+
+`dim mcp` serves the CLI over the Model Context Protocol. The tools are read
+from the CLI itself, so this list is what the binary answers `tools/list` with.
+`project`, `scene`, `json` and `id_seed` are global and omitted from the
+arguments column.
+
+| Tool | Arguments | What it does |
+|---|---|---|
+| `api_codes` | — | Print every diagnostic code |
+| `api_commands` | — | Print the command set |
+| `api_kinds` | — | Print every registered node kind and its properties |
+| `api_schema` | — | Print the JSON schema for the command set |
+| `api_tools` | — | Print the MCP tool list, which is this CLI seen from the other side |
+| `asset_import` | `path`* | Import one asset |
+| `asset_info` | `name`* | Describe one asset: its id, its hash, and what it imported to |
+| `asset_list` | `stale` | List the project's source assets and their import state |
+| `asset_reimport` | `all` | Import everything whose cache is behind its source |
+| `build` | `target`* | Package the project for a platform |
+| `frame_capture` | `ambient`, `height`, `input`, `internal`, `no_integer_upscale`, `png`*, `seed`, `tick`, `width` | Render one frame to a PNG |
+| `node_clear` | `key`*, `path`* | Clear one property, restoring its default |
+| `node_create` | `id`, `kind`*, `name`*, `parent`*, `set` | Add a node |
+| `node_delete` | `path`* | Remove a node and its subtree |
+| `node_get` | `path`* | Print one node's properties |
+| `node_rename` | `name`*, `path`* | Rename a node |
+| `node_reparent` | `parent`*, `path`* | Move a node under a new parent |
+| `node_set` | `key`*, `path`*, `value`* | Set one property |
+| `override_clear` | `instance`*, `key`*, `target`* | Clear one override |
+| `override_list` | `instance`* | List the overrides on an instance |
+| `override_set` | `instance`*, `key`*, `target`*, `value`* | Set one override |
+| `prefab_instance` | `id`, `name`*, `parent`*, `pos`, `source`* | Add an instance of another scene |
+| `replay` | `assert`, `hashes`, `input`*, `ticks` | Replay a recorded run and check it |
+| `run` | `headless`, `input`, `record`, `seed`, `ticks`, `watch` | Run the simulation headlessly |
+| `scene_check` | — | Report the scene's validation diagnostics |
+| `scene_fmt` | `check` | Rewrite the scene in canonical form |
+| `scene_query` | `path`* | Look up one node by path |
+| `scene_resolve` | — | Resolve every prefab instance and print the runtime tree |
+| `scene_tree` | — | Print the node tree |
+| `script_check` | `path`* | Check a script without writing it |
+| `script_list` | — | List the project's scripts |
+| `script_write` | `path`*, `source` | Write a script file, reporting syntax errors structurally |
+| `signal_connect` | `from`*, `method`*, `signal`*, `to`* | Connect a signal to a method |
+| `signal_disconnect` | `from`*, `method`*, `signal`*, `to`* | Remove a connection |
+| `signal_list` | — | List the scene's connections |
+| `state_dump` | `input`, `seed`, `tick` | Run to a tick and dump the state there |
+| `state_hash` | `seed`, `tick` | Print the state hash at a tick |
+| `tile_fill` | `layer`*, `rect`*, `tile`* | Fill a rectangle |
+| `tile_get` | `at`*, `layer`* | Read one tile |
+| `tile_import_ldtk` | `dry_run`, `into`, `level`, `path`*, `tileset` | Import an LDtk level, baking it to native chunks |
+| `tile_set` | `at`*, `layer`*, `tile`* | Set one tile |
+
+An argument marked `*` is required.
+
 ## Lua API
 
 Scripts see exactly these globals and nothing else.

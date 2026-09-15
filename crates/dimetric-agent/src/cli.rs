@@ -74,6 +74,8 @@ pub enum Top {
     /// Print the engine's diagnostic codes, node kinds and command set.
     #[command(subcommand)]
     Api(ApiCmd),
+    /// Serve the same commands as MCP tools over stdin and stdout.
+    Mcp,
 }
 
 /// Scene-level operations.
@@ -487,4 +489,6 @@ pub enum ApiCmd {
     Commands,
     /// Print the JSON schema for the command set.
     Schema,
+    /// Print the MCP tool list, which is this CLI seen from the other side.
+    Tools,
 }
