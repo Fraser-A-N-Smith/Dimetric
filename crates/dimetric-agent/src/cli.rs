@@ -370,7 +370,9 @@ pub enum AssetCmd {
 /// Headless run arguments.
 #[derive(Parser, Debug)]
 pub struct RunArgs {
-    /// Run without a window. The only mode this build supports.
+    /// Run without a window. Always on, and accepted so that written-down
+    /// commands keep working: `dim run` is the headless one, and `dim-play`
+    /// is the window.
     #[arg(long, default_value_t = true)]
     pub headless: bool,
     /// Ticks to simulate.

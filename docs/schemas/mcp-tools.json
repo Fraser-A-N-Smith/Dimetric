@@ -885,7 +885,7 @@
       "inputSchema": {
         "properties": {
           "headless": {
-            "description": "Run without a window. The only mode this build supports",
+            "description": "Run without a window. Always on, and accepted so that written-down commands keep working: `dim run` is the headless one, and `dim-play` is the window",
             "type": "boolean"
           },
           "id_seed": {

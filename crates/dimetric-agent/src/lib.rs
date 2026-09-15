@@ -1049,13 +1049,6 @@ fn read_log(project: &Project, path: &str) -> Result<dimetric_sim::InputLog, Dia
 }
 
 fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnostics> {
-    if !args.headless {
-        return Err(one(Diagnostic::new(
-            Code::NOT_IMPLEMENTED,
-            "this build has no windowed mode; run with --headless",
-        )
-        .with_field("milestone", "M3")));
-    }
     let log = match &args.input {
         Some(path) => read_log(project, path)?,
         None => dimetric_sim::InputLog::new(args.seed, env!("CARGO_PKG_VERSION"), 1),
