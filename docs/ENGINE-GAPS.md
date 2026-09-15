@@ -40,6 +40,27 @@ the state rather than drawn from the RNG, so it is the same on every machine,
 the same again after a rollback, and spawning one fewer projectile does not
 shift every gameplay roll after it. The pool of 64 authored projectiles is gone.
 
+**A project can declare its own node kinds.** §12 asks for enemy variants as
+instances with property overrides. An override reaches a node's *properties*,
+and a project could not declare a property of its own — so the numbers that made
+a wraith a wraith had nowhere to live, and ended up in a Lua table where no
+designer would look. A `kinds.toml` in the project root now declares them:
+`Enemy extends Collider`, plus `max_health`, `speed` and `touch_damage`. They
+validate, canonicalise, document and override like any built-in property,
+because they go through the same machinery.
+
+Declaring a kind exposed a second thing. The simulation and the renderer asked
+what a node was by comparing its `kind` string, so an `Enemy` was not a
+collider, was never swept, and enemies stood still while the run reported no
+kills. A kind now carries the built-in it behaves as, and every one of those
+comparisons goes through that instead. It is the kind of bug an extension point
+has exactly once.
+
+**A probe against a variable that does not exist used to pass a `!=` check.**
+`var:missing != true` read `<not found>`, which is not `true`, so it passed and
+looked like it had verified something. A probe that cannot find its field now
+fails whatever it was comparing.
+
 **A sensor moves.** An `Area` was skipped by the sweep entirely. Areas are now
 moved where they were told and report what they passed through rather than
 being resolved out of it, which is what a projectile wants.
@@ -102,14 +123,37 @@ Three things were wrong with it, and they came off in order:
 | Bodies carry a bloom filter over their tags, so a tagged query skips most candidates on an integer test | 20 |
 
 Seven times faster, and still above a 60Hz budget at that density — the slice
-itself peaks around 35 live projectiles and costs well under a millisecond. What
-is left is the two broadphase builds a tick and the per-candidate confirmation
-after a bloom hit. A per-tag index would take the next chunk; it is not built,
-because the game does not need it yet and the stress scene now exists to tell
-us when it does.
+itself peaks around 35 live projectiles and costs well under a millisecond. A
+per-tag index would take the next chunk; it is not built, because the game does
+not need it yet and the stress scene now exists to tell us when it does.
+
+The column is one afternoon on one machine, so read the ratios rather than the
+absolutes: the same scene measured again later, over runs of six hundred ticks,
+comes in at 12.7 ms.
 
 The lesson is the one the stress scene was for. `sort_by_key(|u| u.body().to_string())`
 looks like nothing. At four hundred calls a tick it was half the frame.
+
+### One that was tried and thrown away
+
+A tick builds the broadphase twice: once before the scripts run, so every query
+sees the same world, and once after, to sweep. The second build re-reads every
+node to arrive at what the first one already had, which looked like free money.
+Moving the existing bodies instead — the set cannot change inside a tick, since
+spawns and destroys land on a phase boundary — is a walk and an assignment.
+
+It is not equivalent. An invisible node is not a body, so a script hiding a
+collider has to reach the same tick's sweep; a cache carried over from before
+the scripts ran is a tick behind. Guarding that is doable: stamp the scene
+whenever a node changes in any way but its position, and rebuild when the stamp
+moves.
+
+Then the measurement came in. 12.7 ms a tick either way, on the stress scene,
+over three runs of six hundred ticks each, with the cache confirmed to be hit on
+every tick. The second build is not where the time goes. So the cache is gone
+and the scene has no stamp on it. What survives is
+`crates/dimetric-sim/tests/visibility.rs`, which pins the behaviour the cache
+would have broken, for whoever has this idea next.
 
 ## Still open, and known
 
@@ -117,8 +161,3 @@ looks like nothing. At four hundred calls a tick it was half the frame.
 appending to it shifts every later choice — the fixture had to be re-recorded
 after the acceptance test added `frost`. That is correct behaviour rather than a
 bug, and it is worth knowing before wondering why a replay stopped reproducing.
-
-**A probe against a variable that does not exist passes a `!=` check.**
-`var:missing != true` reads `<not found>`, which is not `true`, so it passes and
-looks like it verified something. A probe that cannot find its field should
-probably say so rather than comparing the absence.

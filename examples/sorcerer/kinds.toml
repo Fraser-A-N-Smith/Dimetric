@@ -1,0 +1,36 @@
+# Node kinds this game declares for itself.
+#
+# The engine knows what a Collider is. It has never heard of a wraith, so the
+# numbers that make one a wraith go here — and from here into the scene, where
+# an instance override can reach them and a designer can find them.
+
+[[kind]]
+name = "Enemy"
+extends = "Collider"
+doc = "Something that walks at the player and can be killed."
+
+# Required rather than defaulted: an enemy whose stats were forgotten is a
+# mistake, and a default would hide it. It also keeps all three variants
+# readable in their prefabs, since canonical form drops a property that only
+# repeats its default.
+
+[[kind.property]]
+name = "max_health"
+type = "int"
+required = true
+min = 1
+doc = "Health at spawn. Four bolts kill a skeleton."
+
+[[kind.property]]
+name = "speed"
+type = "scalar"
+required = true
+min = 0.0
+doc = "Units a second, walking toward the player."
+
+[[kind.property]]
+name = "touch_damage"
+type = "int"
+required = true
+min = 0
+doc = "Damage dealt to the player on contact."

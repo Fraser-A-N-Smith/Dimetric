@@ -35,9 +35,11 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<Output, Diagnostics> {
     // The API group describes the engine rather than a project, so it runs
-    // before any scene is opened.
+    // before any scene is opened — but it is told where the project is, because
+    // a project declares node kinds of its own and an agent asking what it can
+    // build should be told about those too.
     if let Top::Api(cmd) = &cli.command {
-        return api(cmd);
+        return api(cmd, cli.project.as_deref());
     }
 
     let root = cli.project.clone().unwrap_or_else(|| ".".to_string());
@@ -1401,7 +1403,7 @@ fn build_command(args: BuildArgs) -> Result<Output, Diagnostics> {
 
 // -- generated reference ------------------------------------------------
 
-fn api(cmd: &ApiCmd) -> Result<Output, Diagnostics> {
+fn api(cmd: &ApiCmd, project: Option<&str>) -> Result<Output, Diagnostics> {
     match cmd {
         ApiCmd::Codes => {
             let list: Vec<serde_json::Value> = dimetric_core::diag::CODES
@@ -1422,7 +1424,13 @@ fn api(cmd: &ApiCmd) -> Result<Output, Diagnostics> {
             Ok(Output::new(json!({ "codes": list }), text))
         }
         ApiCmd::Kinds => {
-            let registry = dimetric_scene::KindRegistry::with_builtins();
+            // The project's registry when there is one, so `kinds.toml` shows
+            // up beside the built-ins rather than an agent having to know that
+            // the two lists exist separately.
+            let registry = match project {
+                Some(root) => Project::open(root, 0).registry,
+                None => dimetric_scene::KindRegistry::with_builtins(),
+            };
             let list: Vec<serde_json::Value> = registry
                 .iter()
                 .map(|k| {

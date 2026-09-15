@@ -123,7 +123,7 @@ pub fn scene_camera(scene: &Scene, viewport: (u32, u32)) -> Camera {
         .walk()
         .into_iter()
         .filter_map(|id| scene.get(id).map(|n| (id, n)))
-        .filter(|(_, node)| node.kind == "Camera2D")
+        .filter(|(_, node)| node.base == "Camera2D")
         .find(|(_, node)| {
             node.get("current")
                 .and_then(Value::as_bool)

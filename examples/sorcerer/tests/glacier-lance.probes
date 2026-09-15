@@ -6,7 +6,9 @@
 
 # The evolution is registered and the trial found it.
 tick 10 /Arena01 var:spell_name == Glacier Lance
-tick 10 /Arena01 var:missing != true
+# There used to be a `var:missing != true` here. It passed because the field
+# was not there at all, which is no longer how a probe behaves. The name above
+# is the assertion that was doing the work.
 
 # It fires.
 tick 60 /Arena01 var:fired > 0

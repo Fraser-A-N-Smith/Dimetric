@@ -1,8 +1,8 @@
 -- An enemy that walks at the player and dies when its health runs out.
 --
 -- One script for every variant. What differs between a skeleton, a wraith and a
--- brute is numbers, and those come from the prefab's overrides rather than from
--- three near-identical files.
+-- brute is numbers, and those are properties of the project's `Enemy` kind —
+-- authored in the prefab, overridable per instance, and never in here.
 
 local function find_player(self)
   if self.player_id then
@@ -14,31 +14,13 @@ local function find_player(self)
   return player
 end
 
--- The three variants, by the tag their prefab carries.
---
--- The stats are here rather than on the node because an instance override
--- reaches a node's *properties*, and a project cannot declare a property of its
--- own on a node kind — so authored per-instance numbers have nowhere to live.
--- Overrides still differentiate the variants visually (radius, tint); the
--- numbers come from a tag. See `docs/ENGINE-GAPS.md`.
-local VARIANTS = {
-  skeleton = { health = 40, speed = 35, touch = 4 },
-  wraith = { health = 22, speed = 62, touch = 6 },
-  brute = { health = 110, speed = 20, touch = 12 },
-}
-
-local function variant(self)
-  for name, stats in pairs(VARIANTS) do
-    if self:has_tag(name) then return stats end
-  end
-  return VARIANTS.skeleton
-end
-
 function on_ready(self)
-  local stats = variant(self)
-  self.health = stats.health
-  self.speed = stats.speed
-  self.touch_damage = stats.touch
+  -- The numbers live on the node. A skeleton, a wraith and a brute are the
+  -- same prefab shape with different authored properties, and an instance in a
+  -- scene can override any of them without touching this file.
+  self.health = self:get("max_health")
+  self.speed = self:get("speed")
+  self.touch_damage = self:get("touch_damage")
   self.hits = 0
   self.pending_damage = 0
 end

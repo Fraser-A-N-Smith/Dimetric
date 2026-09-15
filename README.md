@@ -96,7 +96,7 @@ change, not a fifty-line re-indentation, and because two branches adding nodes
 in different places should touch different regions of the file. Canonical form
 orders nodes depth-first, so it still reads as a tree.
 
-Three things about the format are worth knowing:
+Four things about the format are worth knowing:
 
 - **Loading and saving an unedited scene reproduces it byte for byte**, comments
   included. Edits patch the parsed document rather than re-rendering it, so
@@ -108,6 +108,11 @@ Three things about the format are worth knowing:
 - **Numbers are read from the literal text, not from a float.** `0.1` is not
   exactly representable in fixed point, so it is refused (`DIM0203`) rather than
   silently rounded. Silent rounding is how replay determinism dies quietly.
+- **A project can add node kinds of its own.** A `kinds.toml` in the project
+  root declares them — `Enemy extends Collider`, with `max_health` and
+  `speed` — and they validate, canonicalise and override exactly like the
+  built-ins, because it is the same machinery. The engine treats a kind as
+  whatever it extends, so an `Enemy` collides.
 
 ## Scripting
 

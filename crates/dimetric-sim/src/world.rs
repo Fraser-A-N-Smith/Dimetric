@@ -116,8 +116,8 @@ impl PhysicsWorld {
             if !node.visible {
                 continue;
             }
-            let is_area = node.kind == "Area";
-            if node.kind != "Collider" && !is_area {
+            let is_area = node.base == "Area";
+            if node.base != "Collider" && !is_area {
                 continue;
             }
             if is_area && !prop_bool(node, "monitoring", true) {

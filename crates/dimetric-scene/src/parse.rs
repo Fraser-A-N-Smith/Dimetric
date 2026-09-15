@@ -397,6 +397,7 @@ fn parse_node(
     };
 
     let mut node = Node::new(uid, kind.clone(), name);
+    node.base = schema.base.clone();
     node.transform = Transform {
         pos: table
             .get("pos")

@@ -101,7 +101,7 @@ pub fn extract(
         };
         let pos = interpolated(node.uid, world.pos, previous, alpha);
 
-        match node.kind.as_str() {
+        match node.base.as_str() {
             "Sprite2D" | "AnimatedSprite2D" => {
                 if let Some(item) = sprite(node, pos, world.rot, camera, atlas) {
                     sprites.push(item);

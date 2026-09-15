@@ -129,7 +129,7 @@ fn graft(
     // takes its place, wearing its name, transform and id, so that a reference
     // to the instance still resolves and `/Arena01/Skeleton_01` addresses what
     // a designer expects it to.
-    let anchor = if node.kind == "Instance" {
+    let anchor = if node.base == "Instance" {
         expand_instance(
             src, src_id, dst_parent, out, sources, registry, diags, stack, depth,
         )?

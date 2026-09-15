@@ -27,6 +27,7 @@ pub mod instance;
 pub mod kinds;
 pub mod node;
 pub mod parse;
+pub mod project_kinds;
 pub mod schema;
 pub mod tree;
 pub mod value;
