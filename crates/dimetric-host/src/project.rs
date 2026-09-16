@@ -37,7 +37,18 @@ pub struct Project {
     /// Loaded scripts, by project-relative path.
     pub scripts: BTreeMap<String, String>,
     /// Tick rate the project's animation clips are baked against.
+    ///
+    /// Mirrors `settings.tick_rate`; kept as its own field because the asset
+    /// importer takes it directly.
     pub tick_rate: u32,
+    /// What `project.toml` declares about how this project runs.
+    pub settings: crate::settings::Settings,
+    /// Anything wrong with `project.toml`.
+    ///
+    /// Held rather than returned for the same reason the kind diagnostics are:
+    /// opening a project is infallible, and a broken settings file should
+    /// surface where it matters rather than as a panic on startup.
+    pub settings_diagnostics: Diagnostics,
     /// The asset catalogue as of the last scan.
     catalog: Catalog,
     /// What the last import produced, if one has run.
@@ -67,14 +78,17 @@ impl Project {
                 &kinds_path.display().to_string(),
             );
         }
+        let (settings, settings_diagnostics) = crate::settings::Settings::load(&root);
         Project {
+            tick_rate: settings.tick_rate,
+            settings,
+            settings_diagnostics,
             root,
             registry,
             kind_diagnostics,
             open: None,
             bus: CommandBus::new(),
             scripts: BTreeMap::new(),
-            tick_rate: DEFAULT_TICK_RATE,
             catalog: Catalog::default(),
             imported: None,
             ids: Rng::new(id_seed, 0x1d1e),

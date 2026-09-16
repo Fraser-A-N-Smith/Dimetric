@@ -1,0 +1,31 @@
+# How this project runs.
+#
+# Everything here is part of the replay contract rather than a preference: two
+# people running the same input log have to agree on these or they are not
+# playing the same game. That is why they are committed with the project
+# instead of living in a settings file on somebody's machine.
+
+[sim]
+# Ticks per second. Changing it changes what every recorded run means.
+tick_rate = 60
+
+[ui]
+# The virtual resolution the UI is laid out against, scaled to whatever window
+# the game gets. Not the window's own size: layout decides which control a
+# click lands on, so a canvas that moved with the window would make a recorded
+# click land on a different button on a different monitor.
+canvas = [320, 180]
+
+# Keys to actions. Declaring this section replaces the defaults entirely, so
+# every action the game uses has to appear. Key names come from the window
+# library; one this build does not recognise simply never fires.
+[input]
+up = ["KeyW", "ArrowUp"]
+down = ["KeyS", "ArrowDown"]
+left = ["KeyA", "ArrowLeft"]
+right = ["KeyD", "ArrowRight"]
+fire = ["Space", "Mouse0"]
+alt = ["Mouse1"]
+dash = ["ShiftLeft"]
+use = ["KeyE"]
+pause = ["Escape"]

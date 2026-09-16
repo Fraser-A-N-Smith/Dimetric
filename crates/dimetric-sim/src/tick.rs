@@ -131,11 +131,21 @@ pub struct SimConfig {
     /// Ticks per second. Part of the replay contract: changing it changes
     /// every recorded run's meaning.
     pub tick_rate: u32,
+    /// The virtual resolution the UI is laid out against.
+    ///
+    /// Also part of the contract. Less obviously so than the tick rate, which
+    /// is why it is worth saying: layout decides which control a click lands
+    /// on, so two players whose canvases differ disagree about which button
+    /// was pressed. See `dimetric_scene::ui`.
+    pub canvas: dimetric_scene::ui::Canvas,
 }
 
 impl Default for SimConfig {
     fn default() -> SimConfig {
-        SimConfig { tick_rate: 60 }
+        SimConfig {
+            tick_rate: 60,
+            canvas: dimetric_scene::ui::Canvas::default(),
+        }
     }
 }
 
@@ -174,6 +184,10 @@ impl Sim {
     /// Start a simulation over an already-resolved scene.
     pub fn new(scene: Scene, seed: u64, scripts: Box<dyn ScriptHost>, config: SimConfig) -> Sim {
         let mut state = SimState::new(scene, seed);
+        // The canvas is copied into state rather than read from the config on
+        // demand, because the layout that decides what a click hit has to be
+        // part of what a snapshot restores.
+        state.canvas = config.canvas;
         state.scene.update_world_transforms();
         Sim {
             state: Rc::new(RefCell::new(state)),

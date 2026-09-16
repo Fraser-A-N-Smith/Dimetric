@@ -320,6 +320,9 @@ message. Codes are never reused for a different meaning.
 | `DIM0703` | error | Input log was recorded against a different scene or engine version |
 | `DIM0801` | error | The command is implemented but something this build needs is missing |
 | `DIM0802` | error | A command-line argument could not be parsed |
+| `DIM0901` | error | project.toml exists but could not be read or parsed |
+| `DIM0902` | error | A project setting is out of range or the wrong shape |
+| `DIM0903` | error | An input binding names an action the engine does not have |
 
 ## MCP tools
 

@@ -196,3 +196,104 @@ fn aim_is_untouched_by_the_pointer() {
         Angle::from_degrees_str("90.0").unwrap()
     );
 }
+
+// -- Bindings from a project ----------------------------------------------
+
+use dimetric_player::bindings::Bindings;
+
+#[test]
+fn a_project_that_says_nothing_gets_the_defaults() {
+    // Not an empty binding table: a project with no `[input]` section has not
+    // asked for a game nobody can control.
+    let (bindings, problems) = Bindings::from_declared(&[], false);
+    assert!(problems.is_empty());
+    assert_eq!(bindings.action("KeyW"), Some(Action::Up));
+    assert_eq!(bindings.action("Space"), Some(Action::Fire));
+}
+
+#[test]
+fn a_declared_table_replaces_the_defaults_rather_than_adding_to_them() {
+    // Rebinding is the point. A project that moves fire to the right mouse
+    // button should not find it still on the left as well.
+    let declared = vec![("fire".to_string(), vec!["Mouse1".to_string()])];
+    let (bindings, problems) = Bindings::from_declared(&declared, true);
+    assert!(problems.is_empty());
+    assert_eq!(bindings.action("Mouse1"), Some(Action::Fire));
+    assert_eq!(
+        bindings.action("Mouse0"),
+        None,
+        "the default should be gone"
+    );
+    assert_eq!(bindings.action("KeyW"), None);
+}
+
+#[test]
+fn several_keys_can_share_one_action() {
+    let declared = vec![(
+        "up".to_string(),
+        vec![
+            "KeyW".to_string(),
+            "ArrowUp".to_string(),
+            "KeyK".to_string(),
+        ],
+    )];
+    let (bindings, _) = Bindings::from_declared(&declared, true);
+    for key in ["KeyW", "ArrowUp", "KeyK"] {
+        assert_eq!(bindings.action(key), Some(Action::Up), "{key}");
+    }
+}
+
+#[test]
+fn an_unknown_action_is_an_error_naming_the_ones_that_exist() {
+    // A player who mistyped `fier` and got silence would conclude the binding
+    // system does not work, which is worse than being told about the typo.
+    let declared = vec![("fier".to_string(), vec!["Space".to_string()])];
+    let (_, problems) = Bindings::from_declared(&declared, true);
+    assert_eq!(problems.len(), 1);
+    let text = problems[0].to_string();
+    assert!(text.contains("DIM0903"), "{text}");
+    assert!(text.contains("fier"), "{text}");
+    assert!(
+        text.contains("fire"),
+        "it should list the real ones: {text}"
+    );
+}
+
+#[test]
+fn an_unknown_key_name_is_allowed_and_simply_never_fires() {
+    // Key names belong to the window library and differ by platform. Refusing
+    // one this build has not heard of would make a binding file unportable for
+    // no benefit.
+    let declared = vec![(
+        "fire".to_string(),
+        vec!["Space".to_string(), "PlaystationTriangle".to_string()],
+    )];
+    let (bindings, problems) = Bindings::from_declared(&declared, true);
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(bindings.action("Space"), Some(Action::Fire));
+    assert_eq!(bindings.action("PlaystationTriangle"), Some(Action::Fire));
+}
+
+#[test]
+fn every_action_has_a_name_that_round_trips() {
+    // The binding file writes these, so a name that did not parse back would
+    // be an action nobody could bind.
+    for action in Action::ALL {
+        assert_eq!(
+            Action::from_name(action.name()),
+            Some(*action),
+            "{} did not round trip",
+            action.name()
+        );
+    }
+}
+
+#[test]
+fn a_project_can_deliberately_bind_nothing() {
+    // Declaring `[input]` with no actions under it is a choice, and different
+    // from not declaring it at all.
+    let (bindings, problems) = Bindings::from_declared(&[], true);
+    assert!(problems.is_empty());
+    assert_eq!(bindings.action("KeyW"), None);
+    assert_eq!(bindings.pairs().count(), 0);
+}

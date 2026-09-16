@@ -10,7 +10,7 @@
 
 use std::collections::BTreeSet;
 
-use dimetric_core::{Angle, Fx, Vec2Fx};
+use dimetric_core::{Angle, Code, Diagnostic, Fx, Vec2Fx};
 use dimetric_sim::input::buttons;
 use dimetric_sim::PlayerInput;
 
@@ -49,6 +49,24 @@ impl Action {
             Action::Pause => buttons::PAUSE,
             _ => return None,
         })
+    }
+
+    /// Every action, in the order they are documented.
+    pub const ALL: &'static [Action] = &[
+        Action::Up,
+        Action::Down,
+        Action::Left,
+        Action::Right,
+        Action::Fire,
+        Action::Alt,
+        Action::Dash,
+        Action::Use,
+        Action::Pause,
+    ];
+
+    /// The action a binding file names, if it is one.
+    pub fn from_name(name: &str) -> Option<Action> {
+        Action::ALL.iter().copied().find(|a| a.name() == name)
     }
 
     /// The name used in bindings and in diagnostics.
@@ -144,6 +162,49 @@ impl Bindings {
                 ("Escape".into(), Action::Pause),
             ],
         }
+    }
+
+    /// Bindings a project declared, or the defaults when it declared none.
+    ///
+    /// An unknown action name is an error rather than a warning, and rather
+    /// than being quietly dropped: a player who mistyped `fier` and got no
+    /// error would conclude the engine's binding system does not work, which
+    /// is worse than being told about the typo.
+    ///
+    /// Key names are *not* validated. The set of them belongs to whatever
+    /// window library is underneath, it differs by platform, and refusing a key
+    /// this build has never heard of would make a binding file unportable for
+    /// no benefit — an unrecognised key simply never fires.
+    pub fn from_declared(
+        declared: &[(String, Vec<String>)],
+        declared_any: bool,
+    ) -> (Bindings, Vec<Diagnostic>) {
+        if !declared_any {
+            return (Bindings::wasd(), Vec::new());
+        }
+        let mut pairs = Vec::new();
+        let mut problems = Vec::new();
+        for (action, keys) in declared {
+            match Action::from_name(action) {
+                Some(action) => {
+                    for key in keys {
+                        pairs.push((key.clone(), action));
+                    }
+                }
+                None => problems.push(Diagnostic::new(
+                    Code::BINDING_UNKNOWN,
+                    format!(
+                        "no action called `{action}`. The engine has: {}",
+                        Action::ALL
+                            .iter()
+                            .map(|a| a.name())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                )),
+            }
+        }
+        (Bindings { pairs }, problems)
     }
 
     /// What a key does, if anything.

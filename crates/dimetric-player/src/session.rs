@@ -11,7 +11,7 @@ use dimetric_core::{Angle, Code, Diagnostic, Diagnostics, Fx, Vec2Fx};
 use dimetric_host::render::{build_atlas, scene_camera};
 use dimetric_host::speaker::Speaker;
 use dimetric_host::Project;
-use dimetric_render::{extract, Atlas, Camera, Frame, Interpolation, RenderSettings};
+use dimetric_render::{Atlas, Camera, Frame, Interpolation, RenderSettings};
 use dimetric_sim::{InputFrame, InputLog, LuaHost, PlayerInput, Sim, SimConfig, SimState};
 
 /// How to start a session.
@@ -53,7 +53,14 @@ impl Session {
         let (scene, mut diagnostics) = project.runtime_scene()?;
         diagnostics.extend(project.load_scripts());
 
-        let sim_config = SimConfig::default();
+        // The project's declared settings. A session that ran on the defaults
+        // while the project asked for something else would produce recordings
+        // the project itself could not replay.
+        diagnostics.extend(project.settings_diagnostics.clone());
+        let sim_config = SimConfig {
+            tick_rate: project.settings.tick_rate,
+            canvas: project.settings.canvas,
+        };
         let mut host = LuaHost::new(sim_config.tick_rate).map_err(|d| Diagnostics(vec![d]))?;
         for d in host.load_all(
             project
@@ -113,6 +120,15 @@ impl Session {
         self.settings
     }
 
+    /// The canvas the UI is laid out against.
+    ///
+    /// The window needs it to turn a cursor position into the canvas pixel the
+    /// simulation will hit-test, and getting a different one here than the
+    /// simulation uses would put every click in the wrong place.
+    pub fn canvas(&self) -> dimetric_scene::ui::Canvas {
+        self.sim.config().canvas
+    }
+
     /// The atlas the renderer was built against.
     pub fn atlas(&self) -> &Atlas {
         &self.atlas
@@ -149,7 +165,10 @@ impl Session {
     pub fn frame(&self, alpha: f32, viewport: (u32, u32)) -> Frame {
         let state = self.sim.state();
         let camera = self.camera(viewport);
-        extract(
+        // The simulation's canvas, not the renderer's default: these two lay
+        // the same UI out, and if they disagree the button a player sees is
+        // not the button the tick decided they clicked.
+        dimetric_render::extract_with_canvas(
             &state.scene,
             &self.atlas,
             &camera,
@@ -157,6 +176,7 @@ impl Session {
                 previous: &p.scene,
                 alpha: alpha.clamp(0.0, 1.0),
             }),
+            self.sim.config().canvas,
         )
     }
 

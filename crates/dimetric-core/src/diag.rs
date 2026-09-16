@@ -156,6 +156,11 @@ codes! {
     // 08xx — tooling
     NOT_IMPLEMENTED   = "DIM0801", Error,   "The command is implemented but something this build needs is missing";
     BAD_ARGUMENT      = "DIM0802", Error,   "A command-line argument could not be parsed";
+
+    // 09xx — project settings
+    SETTINGS_UNREADABLE = "DIM0901", Error, "project.toml exists but could not be read or parsed";
+    SETTINGS_INVALID    = "DIM0902", Error, "A project setting is out of range or the wrong shape";
+    BINDING_UNKNOWN     = "DIM0903", Error, "An input binding names an action the engine does not have";
 }
 
 /// Look up a registered code.

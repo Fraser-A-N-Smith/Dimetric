@@ -18,6 +18,7 @@ pub mod reload;
 pub mod render;
 pub mod replay;
 pub mod run;
+pub mod settings;
 pub mod speaker;
 pub mod template;
 

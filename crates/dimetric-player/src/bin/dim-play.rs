@@ -82,6 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut project = Project::open(&root, 0);
+    let project_settings = project.settings.clone();
     let session = Session::open(
         &mut project,
         SessionConfig {
@@ -101,6 +102,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("{d}");
     }
 
+    // The project's bindings, or the defaults when it declares none. Read
+    // before the window opens so a typo in an action name is reported next to
+    // the other startup diagnostics rather than the first time somebody
+    // presses the key that does nothing.
+    let (bindings, binding_problems) = Bindings::from_declared(
+        &project_settings.bindings,
+        project_settings.bindings_declared,
+    );
+    for d in &binding_problems {
+        eprintln!("{d}");
+    }
+
     let event_loop = EventLoop::new().map_err(|e| {
         format!("cannot open a display: {e}\n`dim-play` needs a desktop session; for a machine without one, `dim run --headless` simulates and `dim frame capture` draws.")
     })?;
@@ -109,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App {
         clock: Clock::new(session.tick_rate()),
         session,
-        bindings: Bindings::wasd(),
+        bindings,
         held: Held::new(),
         window: None,
         gpu: None,
@@ -308,7 +321,7 @@ impl App {
                 self.held.point_at(dimetric_player::pad::window_to_canvas(
                     (self.cursor.0 as f64, self.cursor.1 as f64),
                     self.window_size(),
-                    dimetric_scene::ui::Canvas::default(),
+                    self.session.canvas(),
                 ));
                 let input = self.held.player_input();
                 self.session.step(input);

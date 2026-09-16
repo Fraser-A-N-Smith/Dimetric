@@ -249,7 +249,7 @@ pub fn capture(
 
     let state = sim.state();
     let camera = scene_camera(&state.scene, request.settings.internal_resolution);
-    let frame = extract(
+    let frame = dimetric_render::extract_with_canvas(
         &state.scene,
         &atlas,
         &camera,
@@ -257,6 +257,7 @@ pub fn capture(
             previous: &p.scene,
             alpha: 0.0,
         }),
+        sim.config().canvas,
     );
 
     let instance = headless_instance();

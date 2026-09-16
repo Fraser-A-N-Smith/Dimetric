@@ -179,6 +179,21 @@
       "code": "DIM0802",
       "severity": "error",
       "summary": "A command-line argument could not be parsed"
+    },
+    {
+      "code": "DIM0901",
+      "severity": "error",
+      "summary": "project.toml exists but could not be read or parsed"
+    },
+    {
+      "code": "DIM0902",
+      "severity": "error",
+      "summary": "A project setting is out of range or the wrong shape"
+    },
+    {
+      "code": "DIM0903",
+      "severity": "error",
+      "summary": "An input binding names an action the engine does not have"
     }
   ]
 }

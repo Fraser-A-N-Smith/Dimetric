@@ -1019,9 +1019,17 @@ fn build_sim(
     let (scene, mut diags) = project.runtime_scene()?;
     diags.extend(template_diags);
     diags.extend(project.load_scripts());
-    let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
+    // The project's own settings, not the defaults: the tick rate and the
+    // canvas are both part of what a recorded run means, so a run started from
+    // the CLI has to use the same ones the game will.
+    let settings = project.settings.clone();
+    diags.extend(project.settings_diagnostics.clone());
+    let mut host = dimetric_sim::LuaHost::new(settings.tick_rate).map_err(one)?;
     diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
-    let config = dimetric_sim::SimConfig::default();
+    let config = dimetric_sim::SimConfig {
+        tick_rate: settings.tick_rate,
+        canvas: settings.canvas,
+    };
     Ok((
         dimetric_sim::Sim::new(scene, seed, Box::new(host), config)
             .with_clips(clips)
@@ -1388,7 +1396,16 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
         clips,
         templates,
     };
-    let report = replay.run(scene, Box::new(host), dimetric_sim::SimConfig::default());
+    // Same settings the run used: replaying a log under a different tick rate
+    // or canvas is not replaying it.
+    let report = replay.run(
+        scene,
+        Box::new(host),
+        dimetric_sim::SimConfig {
+            tick_rate: project.settings.tick_rate,
+            canvas: project.settings.canvas,
+        },
+    );
 
     let mut text = format!("replayed {} ticks from seed {}", report.ticks, report.seed);
     for probe in &report.probes {
