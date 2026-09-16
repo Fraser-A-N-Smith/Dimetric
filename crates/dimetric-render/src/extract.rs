@@ -415,17 +415,19 @@ fn label(
     atlas: &Atlas,
     out: &mut Vec<DrawItem>,
 ) {
-    let Some(key) = node
+    // A label that names no font, or names one that is not in the atlas, falls
+    // back to the built-in rather than drawing nothing. Before there was a
+    // built-in the honest answer was an empty space — a magenta checkerboard
+    // the size of a font page says less than a gap does. Now that the engine
+    // always has a font, showing the words in it beats showing nothing.
+    let named = node
         .get("font")
         .and_then(Value::as_ref_value)
-        .map(|r| r.target().to_string())
-    else {
-        return;
+        .map(|r| r.target().to_string());
+    let key = match named {
+        Some(key) if atlas.font(&key).is_some() && atlas.region(&key).is_some() => key,
+        _ => dimetric_assets::builtin_font::BUILTIN_FONT.to_string(),
     };
-    // Unlike a sprite, a label with no font draws nothing rather than a
-    // placeholder: a magenta checkerboard where a sentence should be is not
-    // more informative than an empty space, and it would be the size of the
-    // whole font page.
     let (Some(font), Some(region)) = (atlas.font(&key), atlas.region(&key)) else {
         return;
     };

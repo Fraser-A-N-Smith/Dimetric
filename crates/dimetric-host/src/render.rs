@@ -91,7 +91,23 @@ pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
     // A font is two things and they have to travel together: the page is in
     // the atlas, and without the metrics beside it nothing knows where one
     // glyph ends and the next begins.
+    // The built-in font first, so a project with no font asset can still draw
+    // text — a debug overlay, a frame counter, or the message explaining that
+    // the real font failed to load. A project that imports one under the same
+    // name wins, because the insert below overwrites it: this is a fallback,
+    // not a reservation.
     let mut fonts = std::collections::BTreeMap::new();
+    {
+        let (font, page) = dimetric_assets::builtin_font::builtin();
+        fonts.insert(
+            dimetric_assets::builtin_font::BUILTIN_FONT.to_string(),
+            font,
+        );
+        sources.push(Framed {
+            image: page,
+            frames: 1,
+        });
+    }
     if let Some(imported) = imported {
         for (name, artifact) in &imported.artifacts {
             if let dimetric_assets::Artifact::Font { font, .. } = artifact {

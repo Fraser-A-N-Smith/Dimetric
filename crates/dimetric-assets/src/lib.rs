@@ -35,6 +35,7 @@
 #![warn(missing_docs)]
 
 pub mod aseprite;
+pub mod builtin_font;
 pub mod cache;
 pub mod clip;
 pub mod font;

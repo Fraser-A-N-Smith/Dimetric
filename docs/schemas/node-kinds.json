@@ -521,10 +521,10 @@
       "kind": "Label",
       "properties": [
         {
-          "default": null,
-          "doc": "Font to draw with.",
+          "default": "\"asset:builtin\"",
+          "doc": "Font to draw with. Defaults to the engine's built-in.",
           "name": "font",
-          "required": true,
+          "required": false,
           "type": "asset-ref"
         },
         {

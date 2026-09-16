@@ -169,7 +169,7 @@ A run of text drawn from a baked font.
 
 | Property | Type | Default | Notes |
 |---|---|---|---|
-| `font` | `asset-ref` | **required** | Font to draw with. |
+| `font` | `asset-ref` | `"asset:builtin"` | Font to draw with. Defaults to the engine's built-in. |
 | `text` | `string` | `""` | What to draw. A newline starts a new line. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
 | `align` | `enum(Left | Center | Right)` | `"Left"` | Horizontal alignment of each line about the node origin. |

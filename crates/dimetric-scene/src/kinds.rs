@@ -429,7 +429,18 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
         "Label",
         "A run of text drawn from a baked font.",
         vec![
-            prop("font", PropertyType::AssetRef, None, "Font to draw with.").required(),
+            // Optional now that the engine carries a font of its own. It was
+            // required when the alternative was a label that drew nothing;
+            // making somebody import a typeface before they can print a frame
+            // counter is a worse default than a small one that always works.
+            prop(
+                "font",
+                PropertyType::AssetRef,
+                Some(Value::Ref(crate::value::Reference::Asset(
+                    "builtin".to_string(),
+                ))),
+                "Font to draw with. Defaults to the engine's built-in.",
+            ),
             prop(
                 "text",
                 PropertyType::Str,

@@ -30,8 +30,15 @@ otherwise drift between machines.
 A `Label` is a `Node2D`, useful before there is any UI to put it in. A font is
 baked at one size; import it twice if you need two.
 
-**Not built:** no built-in fallback font, so a project with no font asset still
-cannot draw text. No rich text, no shaping for complex scripts, no BiDi.
+A font is also built in, drawn by hand at five by eight pixels, so a project
+with no font asset can still print a frame counter or the message explaining
+that the real font failed to load. It is authored rather than generated: at
+seven pixels a rasteriser is guessing, and the first attempt closed up the bowl
+of a `?` and filled in an `e`. Drawn as rows of `#` in the source, so a change
+to a letter shows in a diff as that letter changing shape. `Label.font` is
+optional as a result.
+
+**Not built:** no rich text, no shaping for complex scripts, no BiDi.
 
 ### M12: UI
 
@@ -44,10 +51,27 @@ with the window would make a click's outcome depend on the window, and two
 players on different monitors would diverge. **Moves the state hash** by way of
 M13's pointer field.
 
-**Not built:** the canvas size is a constant rather than a project setting. No
-containers, no widgets beyond a panel, no focus traversal, no themes. Scripts
-cannot yet ask whether a button was pressed — the geometry and the pointer are
-both in place, and joining them is the next step.
+Interaction runs *inside the tick*, in a `UiUpdate` phase before scripts. It
+would be less work to hit-test at the render boundary, where the pointer and
+the rectangles both already exist — and it would mean a run replayed headlessly
+had nothing to decide a click with. Press capture works the way every toolbar
+has for thirty years: sliding off a button before letting go cancels the click.
+
+`Button`, `VBox` and `HBox` are built. A button's interaction state reaches the
+renderer as a node property, because `dimetric-render` does not depend on
+`dimetric-sim` and should not start.
+
+**Not built:** no themes, and no focus *traversal policy* — the engine tracks
+focus and offers the order, but which key walks a menu is a game's decision.
+Nothing here scrolls or clips: a list longer than its container overflows.
+
+### Project settings
+
+`project.toml` holds what changes the *meaning* of a recorded run: the tick
+rate, the UI canvas, and (as a convenience, since it is where people will look)
+the key bindings. A missing file is every default; a file that exists but is
+wrong is reported, because a typo in a tick rate silently falling back to 60 is
+how a project spends a week wondering why its recordings drift.
 
 ### M13: input breadth
 
@@ -70,8 +94,12 @@ A log written before this reads back with the pointer at zero rather than being
 refused, so old recordings still replay, but their hashes will not match. All
 committed fixtures were re-recorded.
 
-**Not built:** no touch, because there is no platform with one yet. Bindings
-are still a table in code rather than a file a project can edit.
+Bindings come from `project.toml`. Declaring `[input]` replaces the defaults
+rather than adding to them, since rebinding is the point. An unknown *action*
+name is an error listing the real ones; an unknown *key* name is allowed,
+because key names belong to the window library and differ by platform.
+
+**Not built:** no touch, because there is no platform with one yet.
 
 ## 0.1.0
 

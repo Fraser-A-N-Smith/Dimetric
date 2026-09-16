@@ -885,3 +885,108 @@ state = 1
     assert!(r > 0x11, "hover should lighten the fill, got {r:#04x}");
     assert!(r < 0x40, "and not replace it, got {r:#04x}");
 }
+
+// -- The built-in font ----------------------------------------------------
+
+/// An atlas holding only what the engine itself provides: no project assets.
+fn bare_atlas() -> Atlas {
+    let (font, page) = dimetric_assets::builtin_font::builtin();
+    let mut fonts = std::collections::BTreeMap::new();
+    fonts.insert(
+        dimetric_assets::builtin_font::BUILTIN_FONT.to_string(),
+        font,
+    );
+    Atlas::pack(
+        vec![
+            dimetric_render::atlas::Source {
+                name: dimetric_assets::builtin_font::BUILTIN_FONT.to_string(),
+                width: page.width,
+                height: page.height,
+                pixels: page.pixels,
+            },
+            dimetric_render::atlas::solid(dimetric_scene::Color::WHITE),
+        ],
+        512,
+    )
+    .with_fonts(fonts)
+}
+
+#[test]
+fn a_label_with_no_font_draws_in_the_built_in_one() {
+    // The point of having a built-in: a project with no font asset can still
+    // put words on the screen.
+    let camera = Camera::new((64, 64));
+    let frame = extract(
+        &ui_scene(
+            r#"
+[[node]]
+id = "n_text0000"
+kind = "Label"
+name = "Text"
+parent = "n_root0000"
+text = "OK"
+"#,
+        ),
+        &bare_atlas(),
+        &camera,
+        None,
+    );
+    assert_eq!(frame.sprites.len(), 2, "two letters, two quads");
+}
+
+#[test]
+fn a_label_naming_a_font_that_is_not_there_falls_back_rather_than_vanishing() {
+    // Before there was a built-in the honest answer was to draw nothing. Now
+    // that the engine always has a font, showing the words beats showing a
+    // gap where a sentence should be.
+    let camera = Camera::new((64, 64));
+    let frame = extract(
+        &ui_scene(
+            r#"
+[[node]]
+id = "n_text0000"
+kind = "Label"
+name = "Text"
+parent = "n_root0000"
+font = "asset:fonts/nothing-here"
+text = "OK"
+"#,
+        ),
+        &bare_atlas(),
+        &camera,
+        None,
+    );
+    assert_eq!(frame.sprites.len(), 2);
+}
+
+#[test]
+fn a_project_font_still_wins_over_the_built_in() {
+    // The fallback must not shadow a real asset.
+    let (font, page) = dimetric_assets::builtin_font::builtin();
+    let (block, block_page) = block_font();
+    let mut fonts = std::collections::BTreeMap::new();
+    fonts.insert(
+        dimetric_assets::builtin_font::BUILTIN_FONT.to_string(),
+        font,
+    );
+    fonts.insert("fonts/block".to_string(), block);
+    let atlas = Atlas::pack(
+        vec![
+            dimetric_render::atlas::Source {
+                name: dimetric_assets::builtin_font::BUILTIN_FONT.to_string(),
+                width: page.width,
+                height: page.height,
+                pixels: page.pixels,
+            },
+            block_page,
+            dimetric_render::atlas::solid(dimetric_scene::Color::WHITE),
+        ],
+        512,
+    )
+    .with_fonts(fonts);
+
+    let camera = Camera::new((64, 64));
+    let frame = extract(&label_scene("AB", "Left"), &atlas, &camera, None);
+    // The block font's glyphs are 4 wide; the built-in's are 5.
+    assert_eq!(frame.sprites[0].size.x, dimetric_core::Fx::from_int(4));
+}
