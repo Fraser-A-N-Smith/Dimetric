@@ -1532,6 +1532,60 @@ fn install_api(
         .map_err(err)?;
     env.set("profile", profile_table).map_err(err)?;
 
+    // camera: the view, and the inverse of it.
+    //
+    // In fixed point off the same `Projection` the renderer draws with, so a
+    // picked cell is exact and identical everywhere. A copy of this arithmetic
+    // in Lua would drift, and the symptom would be clicks landing one cell off
+    // at certain camera positions.
+    let camera = lua.create_table().map_err(err)?;
+    camera
+        .set(
+            "to_world",
+            lua.create_function(|lua, point: LuaVec2| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let view = crate::camera::view_of(&state.scene);
+                Ok(LuaVec2(crate::camera::to_world(
+                    view,
+                    state.canvas,
+                    state.resolution,
+                    point.0,
+                )))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    camera
+        .set(
+            "to_canvas",
+            lua.create_function(|lua, world: LuaVec2| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let view = crate::camera::view_of(&state.scene);
+                Ok(LuaVec2(crate::camera::to_canvas(
+                    view,
+                    state.canvas,
+                    state.resolution,
+                    world.0,
+                )))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    camera
+        .set(
+            "center",
+            lua.create_function(|lua, ()| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                Ok(LuaVec2(crate::camera::view_of(&state.scene).center))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    env.set("camera", camera).map_err(err)?;
+
     // tween: cosmetic motion, measured in ticks like everything else.
     let tween = lua.create_table().map_err(err)?;
     tween

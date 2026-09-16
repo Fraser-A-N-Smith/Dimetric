@@ -60,6 +60,7 @@ impl Session {
         let sim_config = SimConfig {
             tick_rate: project.settings.tick_rate,
             canvas: project.settings.canvas,
+            resolution: project.settings.resolution,
         };
         let mut host = LuaHost::new(sim_config.tick_rate).map_err(|d| Diagnostics(vec![d]))?;
         for d in host.load_all(

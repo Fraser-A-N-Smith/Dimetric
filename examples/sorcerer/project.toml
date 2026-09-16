@@ -16,6 +16,14 @@ tick_rate = 60
 # click land on a different button on a different monitor.
 canvas = [320, 180]
 
+[render]
+# The resolution the world is drawn at, before upscaling. In the contract
+# rather than in a preferences file because a wider viewport shows *more world*
+# at the same zoom, so `camera.to_world` — how a script turns a pointer into a
+# world cell — depends on it. Two players whose resolutions differed would
+# click different cells from the same pointer.
+resolution = [480, 270]
+
 # Keys to actions. Declaring this section replaces the defaults entirely, so
 # every action the game uses has to appear. Key names come from the window
 # library; one this build does not recognise simply never fires.

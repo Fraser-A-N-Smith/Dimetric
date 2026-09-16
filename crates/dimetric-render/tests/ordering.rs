@@ -1,6 +1,7 @@
 //! Projection and draw ordering.
 
 use dimetric_core::{Fx, NodeUid, Vec2Fx};
+use dimetric_render::ProjectionRender as _;
 use dimetric_render::{build, Blend, Camera, DrawItem, Projection, SortKey};
 
 fn uid(s: &str) -> NodeUid {

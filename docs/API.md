@@ -395,6 +395,7 @@ Scripts see exactly these globals and nothing else.
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)` |
 | `profile` | `get(key)`, `put(key, value)`, `clear(key)` — across runs, and **never** in the state hash |
+| `camera` | `to_world(canvas_point)`, `to_canvas(world_point)`, `center()` — the view's inverse, in fixed point |
 | `tick` | `count()`, `dt()`, `rate` |
 | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |
 | `vec2` | `vec2(x, y)`, building a fixed-point vector |

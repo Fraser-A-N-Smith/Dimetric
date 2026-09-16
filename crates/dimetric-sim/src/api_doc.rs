@@ -53,6 +53,11 @@ pub const GLOBALS: &[Global] = &[
                 **never** in the state hash",
     },
     Global {
+        name: "camera",
+        about: "`to_world(canvas_point)`, `to_canvas(world_point)`, `center()` — the \
+                view\'s inverse, in fixed point",
+    },
+    Global {
         name: "tick",
         about: "`count()`, `dt()`, `rate`",
     },

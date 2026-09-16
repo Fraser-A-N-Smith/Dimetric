@@ -1029,6 +1029,7 @@ fn build_sim(
     let config = dimetric_sim::SimConfig {
         tick_rate: settings.tick_rate,
         canvas: settings.canvas,
+        resolution: settings.resolution,
     };
     Ok((
         dimetric_sim::Sim::new(scene, seed, Box::new(host), config)
@@ -1480,6 +1481,7 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     let replay_config = dimetric_sim::SimConfig {
         tick_rate: project.settings.tick_rate,
         canvas: project.settings.canvas,
+        resolution: project.settings.resolution,
     };
     let report = replay.run_in(Some(project), scene, Box::new(host), replay_config);
 

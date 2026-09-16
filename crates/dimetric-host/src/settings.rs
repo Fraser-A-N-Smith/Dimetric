@@ -35,6 +35,14 @@ pub struct Settings {
     /// click hits, so two players whose canvases differ disagree about which
     /// button was pressed. See `dimetric_scene::ui`.
     pub canvas: Canvas,
+    /// The resolution the world is drawn at, before upscaling.
+    ///
+    /// Part of the replay contract, and not obviously so. A wider viewport
+    /// shows *more world* at the same zoom, so unprojecting a canvas pixel to
+    /// a world position depends on it — and since a script can pick a cell
+    /// that way, two players whose resolutions differed would click different
+    /// cells from the same pointer. See `dimetric_core::Projection`.
+    pub resolution: (u32, u32),
     /// What each action is bound to, as `(action, keys)` in declaration order.
     ///
     /// Raw strings rather than a validated table, because the names of both
@@ -56,6 +64,7 @@ impl Default for Settings {
         Settings {
             tick_rate: DEFAULT_TICK_RATE,
             canvas: Canvas::default(),
+            resolution: (480, 270),
             bindings: Vec::new(),
             bindings_declared: false,
         }
@@ -129,6 +138,21 @@ impl Settings {
                     _ => diagnostics.push(Diagnostic::new(
                         Code::SETTINGS_INVALID,
                         format!("{origin}: ui.canvas must be two positive whole numbers, as [width, height]"),
+                    )),
+                }
+            }
+        }
+
+        if let Some(render) = doc.get("render") {
+            if let Some(value) = render.get("resolution") {
+                match pair(value) {
+                    Some((w, h)) if w > 0 && h > 0 => out.resolution = (w as u32, h as u32),
+                    _ => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!(
+                            "{origin}: render.resolution must be two positive whole numbers, \
+                             as [width, height]"
+                        ),
                     )),
                 }
             }

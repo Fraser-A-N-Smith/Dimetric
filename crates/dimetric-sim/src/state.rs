@@ -163,6 +163,8 @@ pub struct SimState {
     /// decides what a click hit. A window size here would make the game
     /// different on a different monitor; a declared constant does not.
     pub canvas: dimetric_scene::ui::Canvas,
+    /// The resolution the world is drawn at, which picking depends on.
+    pub resolution: (u32, u32),
     /// `Sound` nodes that have already started themselves.
     ///
     /// Not hashed, for the same reason, but snapshotted with everything else —
@@ -197,6 +199,7 @@ impl SimState {
             sounds: Vec::new(),
             ui: crate::ui::UiState::default(),
             canvas: dimetric_scene::ui::Canvas::default(),
+            resolution: (480, 270),
             autoplayed: Vec::new(),
         }
     }
@@ -285,7 +288,9 @@ impl HashState for SimState {
         self.ui.hash_state(h);
         h.tag("canvas")
             .u64(self.canvas.width as u64)
-            .u64(self.canvas.height as u64);
+            .u64(self.canvas.height as u64)
+            .u64(self.resolution.0 as u64)
+            .u64(self.resolution.1 as u64);
 
         self.previous_input.hash_state(h);
         h.tag("spawns").u64(self.spawn_count);

@@ -14,6 +14,38 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: canvas-to-world unprojection (`camera.to_world`)
+
+```lua
+camera.to_world(canvas_point)   -- vec2 in world space
+camera.to_canvas(world_point)   -- vec2 in canvas space
+camera.center()                 -- where the current camera is looking
+```
+
+In fixed point, off the same `Projection` the renderer draws with. A copy of
+this arithmetic in Lua would be a second version of the renderer's maths that
+nothing keeps in sync, and when it drifted the symptom would be clicks landing
+one cell off at certain camera positions — a bug that reproduces for nobody.
+The round trip is tested across projections, camera positions and zooms.
+
+Two structural consequences.
+
+`Projection` **moved to `dimetric-core`**, because the simulation now needs it.
+Its float methods did not come along: they are `dimetric_render::ProjectionRender`
+now, an extension trait. The I3 lint covers `dimetric-core`, and rather than
+excusing three `f32` signatures line by line, the exact maths went in the exact
+crate and the presentation maths stayed at the presentation boundary. The lint
+is what pointed this out.
+
+The **render resolution is now part of the replay contract**, declared as
+`[render] resolution` in `project.toml`. It had been pure presentation; it
+stopped being so the moment a script could pick a world cell from a pointer,
+because a wider viewport shows more world at the same zoom. There is a test
+asserting the two differ, which is the justification for moving it.
+
+**Moves the state hash** — the resolution is hashed with the canvas. All
+fixtures re-recorded.
+
 ### Added: saving a run, and a profile that is nowhere near the hash
 
 Two different things, and conflating them was the bug to avoid.

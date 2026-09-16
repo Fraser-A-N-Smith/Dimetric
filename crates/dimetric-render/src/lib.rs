@@ -31,6 +31,6 @@ pub use batch::{batch_group, build, Batch, Blend, DrawItem};
 pub use capture::{headless_instance, read_png, write_png, Capture};
 pub use extract::{extract, extract_with_canvas, Frame, Interpolation, LightItem};
 pub use gpu::{GpuError, Renderer, Target};
-pub use projection::{Camera, Projection};
+pub use projection::{Camera, Projection, ProjectionRender};
 pub use settings::RenderSettings;
 pub use sort::SortKey;

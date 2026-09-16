@@ -8,30 +8,37 @@
 //!
 //! Everything here is presentation. It reads simulation state and never writes
 //! it (I7), which is why floats are allowed below this line and nowhere above.
+use dimetric_core::Vec2Fx;
 
-use dimetric_core::{Fx, Vec2Fx};
-use serde::{Deserialize, Serialize};
+// The projection itself lives in `dimetric-core` now, because a script
+// picking a world cell from a canvas pixel has to invert it, and a second copy
+// of the maths in Lua would drift — the symptom being clicks landing one cell
+// off at certain camera positions, which reproduces for nobody. Re-exported
+// here so this module still reads as "projection and the camera".
+pub use dimetric_core::Projection;
 
-/// How world space maps to screen space.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum Projection {
-    /// World units are screen pixels. The identity.
-    #[default]
-    TopDown,
-    /// The 2:1 shear the pixel-art genre actually ships.
+/// The float side of a projection: everything the drawing path needs.
+///
+/// An extension trait rather than inherent methods, because [`Projection`]
+/// lives in `dimetric-core` now and that crate is covered by the I3 lint. An
+/// `f32` there would need excusing line by line; here it needs no excuse at
+/// all, because this is the render boundary and that is what the boundary is
+/// for.
+pub trait ProjectionRender {
+    /// Map a world position to screen space.
+    fn to_screen(self, world: Vec2Fx) -> (f32, f32);
+    /// Map a screen position back to world space.
     ///
-    /// Despite what it is universally called, this is not isometric. True
-    /// isometric projection puts 120° between all three axes; a 2:1 tile ratio
-    /// is *dimetric*, where one axis foreshortens differently from the others.
-    /// The engine is named for the projection it really uses; the enum keeps
-    /// the name people search for.
-    Isometric,
+    /// Used by the editor for picking, where a float is fine because nothing
+    /// downstream of it is hashed. A *script* picking a cell uses
+    /// `Projection::unproject`, which is exact.
+    fn to_world(self, screen: (f32, f32)) -> (f32, f32);
+    /// The 2x2 part of the projection, row-major.
+    fn matrix(self) -> [f32; 4];
 }
 
-impl Projection {
-    /// Map a world position to screen space.
-    pub fn to_screen(self, world: Vec2Fx) -> (f32, f32) {
+impl ProjectionRender for Projection {
+    fn to_screen(self, world: Vec2Fx) -> (f32, f32) {
         // I3-exempt: render boundary.
         let (x, y) = world.to_f32_pair();
         match self {
@@ -40,12 +47,7 @@ impl Projection {
         }
     }
 
-    /// Map a screen position back to world space.
-    ///
-    /// The inverse exists so that picking — clicking a tile in the editor —
-    /// is one function call rather than a second, subtly different, matrix
-    /// somebody wrote from memory.
-    pub fn to_world(self, screen: (f32, f32)) -> (f32, f32) {
+    fn to_world(self, screen: (f32, f32)) -> (f32, f32) {
         // I3-exempt: render boundary.
         let (sx, sy) = screen;
         match self {
@@ -54,23 +56,10 @@ impl Projection {
         }
     }
 
-    /// The 2x2 part of the projection, row-major.
-    pub fn matrix(self) -> [f32; 4] {
+    fn matrix(self) -> [f32; 4] {
         match self {
             Projection::TopDown => [1.0, 0.0, 0.0, 1.0],
             Projection::Isometric => [1.0, -1.0, 0.5, 0.5],
-        }
-    }
-
-    /// Depth ordering for a world position under this projection.
-    ///
-    /// Y-sorting is the default for both projections: in top-down, something
-    /// further down the screen is nearer; in dimetric, so is something further
-    /// along both axes.
-    pub fn depth_of(self, world: Vec2Fx) -> Fx {
-        match self {
-            Projection::TopDown => world.y,
-            Projection::Isometric => world.x + world.y,
         }
     }
 }

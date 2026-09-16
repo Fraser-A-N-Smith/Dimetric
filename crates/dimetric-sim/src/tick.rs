@@ -149,6 +149,12 @@ pub struct SimConfig {
     /// on, so two players whose canvases differ disagree about which button
     /// was pressed. See `dimetric_scene::ui`.
     pub canvas: dimetric_scene::ui::Canvas,
+    /// The resolution the world is drawn at, before upscaling.
+    ///
+    /// In the simulation's config, despite being a render setting, because
+    /// unprojecting a canvas pixel to a world position depends on it and a
+    /// script can do that. See `dimetric_core::Projection`.
+    pub resolution: (u32, u32),
 }
 
 impl Default for SimConfig {
@@ -156,6 +162,7 @@ impl Default for SimConfig {
         SimConfig {
             tick_rate: 60,
             canvas: dimetric_scene::ui::Canvas::default(),
+            resolution: (480, 270),
         }
     }
 }
@@ -199,6 +206,7 @@ impl Sim {
         // demand, because the layout that decides what a click hit has to be
         // part of what a snapshot restores.
         state.canvas = config.canvas;
+        state.resolution = config.resolution;
         state.scene.update_world_transforms();
         Sim {
             state: Rc::new(RefCell::new(state)),
