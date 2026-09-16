@@ -990,3 +990,102 @@ fn a_project_font_still_wins_over_the_built_in() {
     // The block font's glyphs are 4 wide; the built-in's are 5.
     assert_eq!(frame.sprites[0].size.x, dimetric_core::Fx::from_int(4));
 }
+
+#[test]
+fn ui_draws_in_tree_order_so_the_eye_and_the_hit_test_agree() {
+    // A regression, and the kind worth writing down. Every unit test passed
+    // while the actual menu came out with two of its three buttons missing:
+    // the items sorted by node uid, which put a full-canvas backdrop in the
+    // middle of the list and painted over everything declared before it.
+    //
+    // Tree order is the only thing that may decide what draws on top, because
+    // the hit test already says later siblings win. A backdrop that covered
+    // the buttons it was declared *before* would be invisible to the eye and
+    // still clickable, which is the worst of both.
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let frame = extract(
+        &ui_scene(
+            r##"
+[[node]]
+id = "n_back0000"
+kind = "Panel"
+name = "Backdrop"
+parent = "n_root0000"
+anchor_right = 1.0
+anchor_bottom = 1.0
+modulate = "#101018ff"
+
+[[node]]
+id = "n_zzz00000"
+kind = "Panel"
+name = "First"
+parent = "n_root0000"
+offset_bottom = 16.0
+offset_right = 40.0
+modulate = "#ff0000ff"
+
+[[node]]
+id = "n_aaa00000"
+kind = "Panel"
+name = "Second"
+parent = "n_root0000"
+offset_top = 20.0
+offset_bottom = 36.0
+offset_right = 40.0
+modulate = "#00ff00ff"
+"##,
+        ),
+        &atlas,
+        &camera,
+        None,
+    );
+
+    // Declaration order, whatever the uids sort to. The ids above are chosen
+    // so that uid order and tree order disagree.
+    let names: Vec<[u8; 4]> = frame.ui.iter().map(|i| i.modulate).collect();
+    assert_eq!(
+        names,
+        vec![
+            [0x10, 0x10, 0x18, 0xff],
+            [0xff, 0x00, 0x00, 0xff],
+            [0x00, 0xff, 0x00, 0xff],
+        ],
+        "the backdrop must draw first, then each panel in the order declared"
+    );
+}
+
+#[test]
+fn a_caption_draws_on_top_of_the_button_it_sits_on() {
+    // Falls out of the depth-first walk, but it is the whole reason a button
+    // with a label child is usable, so it is asserted rather than assumed.
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let frame = extract(
+        &ui_scene(
+            r#"
+[[node]]
+id = "n_btn00000"
+kind = "Button"
+name = "Go"
+parent = "n_root0000"
+offset_right = 60.0
+offset_bottom = 20.0
+
+[[node]]
+id = "n_cap00000"
+kind = "Label"
+name = "Caption"
+parent = "n_btn00000"
+font = "asset:fonts/block"
+text = "AB"
+"#,
+        ),
+        &atlas,
+        &camera,
+        None,
+    );
+    assert_eq!(frame.ui.len(), 3, "a button and two glyphs");
+    // The button is the wide one; the glyphs follow it.
+    assert!(frame.ui[0].size.x > frame.ui[1].size.x);
+}

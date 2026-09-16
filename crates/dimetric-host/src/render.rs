@@ -61,6 +61,13 @@ pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
 
     let imported = project.imported();
     for name in required {
+        // The built-in font is not a file. A scene that uses it names it like
+        // any other asset, which is the point — but looking for it on disk
+        // would warn about a missing `builtin.png` in every project that draws
+        // a word.
+        if name == dimetric_assets::builtin_font::BUILTIN_FONT {
+            continue;
+        }
         // The cache first. It holds animation strips as well as stills, and it
         // holds them already decoded — and it knows how many frames a strip
         // has, which is what lets the renderer slice one.

@@ -156,30 +156,37 @@ pub fn extract_with_canvas(
         }
     }
 
+    // One walk for the whole UI, panels and captions together, with the walk's
+    // own index standing in for depth.
+    //
+    // Tree order is the *only* thing that may decide what draws on top, because
+    // the hit test already says later siblings win and the two have to agree —
+    // a backdrop that painted over the buttons it was declared before would be
+    // invisible to the eye and still clickable. Sorting these by node uid put
+    // a full-canvas backdrop in the middle of the menu and swallowed two of
+    // three buttons, which is exactly that bug.
+    //
+    // Depth-first also puts a caption after the button it sits on, for free.
     let mut ui = Vec::new();
-    for id in scene.walk() {
+    for (order, id) in scene.walk().into_iter().enumerate() {
         let Some(node) = scene.get(id) else { continue };
-        let Some(rect) = ui_layout.get(&id) else {
-            continue;
-        };
         if !visible(scene, id) {
             continue;
         }
-        if node.kind == "Panel" || node.kind == "Button" {
-            panel(node, *rect, atlas, &mut ui);
-        }
-    }
-    // A label parented into the UI tree draws in canvas pixels, from its
-    // parent control's top-left corner.
-    for id in scene.walk() {
-        let Some(node) = scene.get(id) else { continue };
-        if node.base != "Label" || !visible(scene, id) {
+        let depth = Fx::from_int(order as i32);
+        if let Some(rect) = ui_layout.get(&id) {
+            if node.kind == "Panel" || node.kind == "Button" {
+                panel(node, *rect, depth, atlas, &mut ui);
+            }
             continue;
         }
-        let Some(parent) = node.parent().and_then(|p| ui_layout.get(&p)) else {
-            continue;
-        };
-        label(node, parent.pos, Fx::ZERO, atlas, &mut ui);
+        // A label parented into the UI tree draws in canvas pixels, from its
+        // parent control's top-left corner.
+        if node.base == "Label" {
+            if let Some(parent) = node.parent().and_then(|p| ui_layout.get(&p)) {
+                label(node, parent.pos, depth, atlas, &mut ui);
+            }
+        }
     }
     let ui_batches = crate::batch::build(&mut ui);
 
@@ -218,7 +225,13 @@ fn shade(c: Color, num: u32, den: u32) -> Color {
 }
 
 /// A `Panel` fills its rectangle with a colour.
-fn panel(node: &dimetric_scene::Node, rect: Rect, atlas: &Atlas, out: &mut Vec<DrawItem>) {
+fn panel(
+    node: &dimetric_scene::Node,
+    rect: Rect,
+    depth: Fx,
+    atlas: &Atlas,
+    out: &mut Vec<DrawItem>,
+) {
     if rect.size.x <= Fx::ZERO || rect.size.y <= Fx::ZERO {
         return;
     }
@@ -258,11 +271,11 @@ fn panel(node: &dimetric_scene::Node, rect: Rect, atlas: &Atlas, out: &mut Vec<D
         },
     };
     out.push(DrawItem {
-        // Depth zero for every panel: UI is ordered by the tree, not by where
-        // it sits in a world it is not in.
+        // The walk index, not a position: UI is ordered by the tree, not by
+        // where it sits in a world it is not in.
         key: SortKey::new(
             node.layer,
-            Fx::ZERO,
+            depth,
             crate::batch::batch_group(0, 0, Blend::Alpha),
             node.uid,
         ),

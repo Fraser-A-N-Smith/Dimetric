@@ -1,0 +1,92 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Menu"
+
+[[node]]
+id = "n_back0000"
+kind = "Panel"
+name = "Backdrop"
+parent = "n_root0000"          # /Menu
+anchor_bottom = 1.0
+anchor_right = 1.0
+catches_input = false
+modulate = "#101018ff"
+
+[[node]]
+id = "n_title000"
+kind = "Label"
+name = "Title"
+parent = "n_root0000"          # /Menu
+pos = [24.0, 20.0]
+text = "DIMETRIC"
+
+[[node]]
+id = "n_col00000"
+kind = "VBox"
+name = "Buttons"
+parent = "n_root0000"          # /Menu
+offset_bottom = 140.0
+offset_left = 24.0
+offset_right = 140.0
+offset_top = 40.0
+spacing = 4.0
+
+[[node]]
+id = "n_play0000"
+kind = "Button"
+name = "Play"
+parent = "n_col00000"          # /Menu/Buttons
+focusable = true
+modulate = "#3a5a8aff"
+offset_bottom = 16.0
+state = 1
+
+[[node]]
+id = "n_playtxt0"
+kind = "Label"
+name = "Caption"
+parent = "n_play0000"          # /Menu/Buttons/Play
+offset = [6.0, 5.0]
+text = "Play"
+
+[[node]]
+id = "n_opts0000"
+kind = "Button"
+name = "Options"
+parent = "n_col00000"          # /Menu/Buttons
+focusable = true
+modulate = "#3a5a8aff"
+offset_bottom = 16.0
+
+[[node]]
+id = "n_optstxt0"
+kind = "Label"
+name = "Caption"
+parent = "n_opts0000"          # /Menu/Buttons/Options
+offset = [6.0, 5.0]
+text = "Options"
+
+[[node]]
+id = "n_quit0000"
+kind = "Button"
+name = "Quit"
+parent = "n_col00000"          # /Menu/Buttons
+focusable = true
+modulate = "#3a5a8aff"
+offset_bottom = 16.0
+state = 2
+
+[[node]]
+id = "n_quittxt0"
+kind = "Label"
+name = "Caption"
+parent = "n_quit0000"          # /Menu/Buttons/Quit
+offset = [6.0, 5.0]
+text = "Quit"
