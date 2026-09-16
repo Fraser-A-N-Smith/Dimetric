@@ -1621,6 +1621,22 @@ fn api(cmd: &ApiCmd, project: Option<&str>) -> Result<Output, Diagnostics> {
             let list: Vec<serde_json::Value> = tools.iter().map(mcp::Tool::describe).collect();
             Ok(Output::new(json!({ "tools": list }), text))
         }
+        // The Lua half of I10. `docs/API.md`'s table of globals was a literal
+        // in xtask and drifted by a whole global; it is generated from this
+        // now, and `dimetric-sim` has a test comparing the manifest against a
+        // real sandbox so it cannot drift again.
+        ApiCmd::Globals => {
+            let globals: Vec<serde_json::Value> = dimetric_sim::api_doc::GLOBALS
+                .iter()
+                .map(|g| json!({ "name": g.name, "about": g.about }))
+                .collect();
+            let text = dimetric_sim::api_doc::GLOBALS
+                .iter()
+                .map(|g| g.name)
+                .collect::<Vec<_>>()
+                .join("\n");
+            Ok(Output::new(json!({ "globals": globals }), text))
+        }
     }
 }
 

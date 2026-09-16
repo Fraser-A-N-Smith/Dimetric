@@ -748,7 +748,6 @@ fn build_environment(
         "tonumber",
         "tostring",
         "type",
-        "unpack",
         "xpcall",
         "rawequal",
         "rawget",
@@ -794,6 +793,29 @@ fn build_environment(
         .map_err(|e| runtime_error(path, e))?;
     install_api(lua, tick_rate, modules, log, &env, path)?;
     Ok(env)
+}
+
+/// The names a script's environment actually holds.
+///
+/// Exists so the reference's table of globals can be *checked* rather than
+/// maintained by hand. `docs/API.md` went a whole milestone claiming the
+/// sandbox had ten globals while it had eleven, because that table was a
+/// string literal; this is what stops the next one.
+///
+/// Sorted, so a caller comparing against [`crate::api_doc`] does not depend on
+/// Lua's hash order (I4) — and this is a build-time question, not a simulation
+/// one, but it is the same discipline and costs nothing.
+pub fn sandbox_globals() -> Result<Vec<String>, Diagnostic> {
+    let lua = Lua::new();
+    let modules = Rc::new(RefCell::new(Modules::default()));
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let env = build_environment(&lua, 60, &modules, &log, "<introspection>")?;
+    let mut names: Vec<String> = env
+        .pairs::<String, mlua::Value>()
+        .filter_map(|p: mlua::Result<(String, mlua::Value)>| p.ok().map(|(k, _)| k))
+        .collect();
+    names.sort();
+    Ok(names)
 }
 
 fn install_api(

@@ -335,6 +335,7 @@ arguments column.
 |---|---|---|
 | `api_codes` | — | Print every diagnostic code |
 | `api_commands` | — | Print the command set |
+| `api_globals` | — | Print the Lua sandbox's globals |
 | `api_kinds` | — | Print every registered node kind and its properties |
 | `api_schema` | — | Print the JSON schema for the command set |
 | `api_tools` | — | Print the MCP tool list, which is this CLI seen from the other side |
@@ -386,14 +387,17 @@ Scripts see exactly these globals and nothing else.
 |---|---|
 | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)` |
 | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
+| `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)` |
 | `tick` | `count()`, `dt()`, `rate` |
 | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |
 | `vec2` | `vec2(x, y)`, building a fixed-point vector |
 | `fx` | `new`, `parse`, `sin`, `cos`, `from_angle` |
 | `log` | `info`, `warn`, `error` — collected per tick, never hashed |
 | `tween` | `to(node, property, target, ticks, easing)`, `cancel(node, property)`, `running(node, property)` |
-| `require` | `require(path)`, another script's returned table |
 | `anim` | `play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |
+| `require` | `require(path)`, another script's returned table |
+
+Plus the parts of the Lua standard library the sandbox re-exports: `assert`, `error`, `ipairs`, `next`, `pairs`, `pcall`, `select`, `tonumber`, `tostring`, `type`, `xpcall`, `rawequal`, `rawget`, `rawlen`, `setmetatable`, `getmetatable`, `string`, `table`, and a reduced `math` holding only the exactly-defined integer operations. `rawset` is deliberately absent: it writes past the `__newindex` that keeps a required module read-only.
 
 A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,
 `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,
@@ -414,6 +418,30 @@ projectile does not shift every gameplay roll after it.
 `scene.near` and `scene.nearest` read the broadphase as it stood at the
 *start* of the tick, so every script sees the same world and what one finds
 does not depend on whether another has run yet.
+
+### UI
+
+`ui` reads what the pointer is doing to the interface, worked out inside the
+tick — layout and hit testing run in a `UiUpdate` phase before scripts, so a
+click on a menu is replayable like any other input. `ui.clicked(node)` is true
+on the one tick a press and a release completed on that control; sliding off
+before letting go cancels it.
+
+**`ui.pointer()` is a canvas pixel, not a world position.** The canvas is the
+fixed virtual resolution the project declares in `project.toml`, scaled to
+whatever window the game gets — so the value is the same on every monitor,
+which is what makes a recorded click land on the same button when it replays.
+Getting from there to a world position means inverting the camera; see
+`camera.to_world`.
+
+`ui.captured()` is reported rather than enforced: the engine will not silently
+swallow a click that landed on a control, because a script that never asked
+would have no way to find out why its fire button stopped working over a menu.
+
+Focus is tracked, not driven. `ui.focus_next(step)` walks the focusable
+controls in tree order, and *which key* walks a menu is the game's decision —
+binding it here would mean the engine deciding that pressing Down in a menu
+can never also move the player.
 
 ### Tweens and animation
 

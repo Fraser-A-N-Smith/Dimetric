@@ -53,6 +53,32 @@
       "name": "api_commands"
     },
     {
+      "description": "Print the Lua sandbox's globals",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "api_globals"
+    },
+    {
       "description": "Print every registered node kind and its properties",
       "inputSchema": {
         "properties": {

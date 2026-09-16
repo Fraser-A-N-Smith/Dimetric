@@ -14,6 +14,34 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: `docs/API.md` omitted a whole Lua global
+
+The reference said "scripts see exactly these globals and nothing else" and
+listed ten. There were eleven — M12's entire `ui` surface was missing.
+
+The cause is the interesting part. The command, kind and diagnostic tables in
+`API.md` are generated from the engine, so they cannot drift; the Lua section
+was a string literal in `xtask/src/gen_docs.rs`. I10 held everywhere except the
+one section a script author actually reads.
+
+It is generated now, from a manifest in `dimetric_sim::api_doc`, via a new
+`dim api globals --json` — the same route the other three tables take, rather
+than giving `xtask` a dependency on the engine it deliberately does not have.
+What makes it stay fixed is `crates/dimetric-sim/tests/api_doc.rs`, which
+introspects a real sandbox and compares it against the manifest in both
+directions: a global with no entry fails, and an entry with no global fails.
+
+That test found a second thing on its first run. The sandbox's list of Lua
+standard names to re-export included `unpack`, which Lua 5.4 moved to
+`table.unpack`; the copy loop skips names the host does not have, so it had
+been asking for a function that was not there and silently getting nothing.
+Removed — scripts reach it through `table` either way.
+
+Also documented, because it is the whole of a separate request: **`ui.pointer()`
+returns a canvas pixel, not a world position.**
+
+Does not move the state hash.
+
 Three milestones from the Godot-parity table, in order. Each is the core of
 its milestone rather than the whole estimate — what is built and what is not is
 stated per entry.

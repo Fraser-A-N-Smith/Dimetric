@@ -518,4 +518,6 @@ pub enum ApiCmd {
     Schema,
     /// Print the MCP tool list, which is this CLI seen from the other side.
     Tools,
+    /// Print the Lua sandbox's globals.
+    Globals,
 }

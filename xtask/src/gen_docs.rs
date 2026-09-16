@@ -23,13 +23,14 @@ pub fn run() -> Result<(), String> {
     let kinds = dim(&root, &["api", "kinds", "--json"])?;
     let commands = dim(&root, &["api", "schema", "--json"])?;
     let tools = dim(&root, &["api", "tools", "--json"])?;
+    let lua_globals = dim(&root, &["api", "globals", "--json"])?;
 
     write_json(&schemas.join("diagnostics.json"), &codes)?;
     write_json(&schemas.join("node-kinds.json"), &kinds)?;
     write_json(&schemas.join("commands.json"), &commands)?;
     write_json(&schemas.join("mcp-tools.json"), &tools)?;
 
-    let markdown = render_markdown(&codes, &kinds, &commands, &tools)?;
+    let markdown = render_markdown(&codes, &kinds, &commands, &tools, &lua_globals)?;
     let path = docs.join("API.md");
     std::fs::write(&path, markdown).map_err(|e| format!("writing {}: {e}", path.display()))?;
     eprintln!("xtask: wrote docs/API.md and docs/schemas/");
@@ -72,6 +73,7 @@ fn render_markdown(
     kinds: &serde_json::Value,
     commands: &serde_json::Value,
     tools: &serde_json::Value,
+    lua_globals: &serde_json::Value,
 ) -> Result<String, String> {
     let mut out = String::new();
     out.push_str(
@@ -265,21 +267,32 @@ fn render_markdown(
     }
     out.push_str("\nAn argument marked `*` is required.\n");
 
+    // Generated from the manifest in `dimetric_sim::api_doc`, not typed here.
+    // This section used to be a literal, and it drifted: M12 added the whole
+    // `ui` global and the reference went on listing ten of eleven. A test in
+    // `dimetric-sim` compares that manifest against a real sandbox, so the
+    // table below cannot claim an API that does not exist, or miss one that
+    // does.
+    out.push_str("\n## Lua API\n\nScripts see exactly these globals and nothing else.\n\n");
+    out.push_str("| Global | What it gives you |\n|---|---|\n");
+    for global in lua_globals["globals"].as_array().into_iter().flatten() {
+        let _ = writeln!(
+            out,
+            "| `{}` | {} |",
+            global["name"].as_str().unwrap_or_default(),
+            global["about"].as_str().unwrap_or_default()
+        );
+    }
     out.push_str(
-        "\n## Lua API\n\n\
-         Scripts see exactly these globals and nothing else.\n\n\
-         | Global | What it gives you |\n|---|---|\n\
-         | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)` |\n\
-         | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |\n\
-         | `tick` | `count()`, `dt()`, `rate` |\n\
-         | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |\n\
-         | `vec2` | `vec2(x, y)`, building a fixed-point vector |\n\
-         | `fx` | `new`, `parse`, `sin`, `cos`, `from_angle` |\n\
-         | `log` | `info`, `warn`, `error` — collected per tick, never hashed |\n\
-         | `tween` | `to(node, property, target, ticks, easing)`, `cancel(node, property)`, `running(node, property)` |\n\
-         | `require` | `require(path)`, another script's returned table |\n\
-         | `anim` | `play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |\n\n\
-         A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,\n\
+        "\nPlus the parts of the Lua standard library the sandbox re-exports: \
+         `assert`, `error`, `ipairs`, `next`, `pairs`, `pcall`, `select`, `tonumber`, \
+         `tostring`, `type`, `xpcall`, `rawequal`, `rawget`, `rawlen`, `setmetatable`, \
+         `getmetatable`, `string`, `table`, and a reduced `math` holding only the \
+         exactly-defined integer operations. `rawset` is deliberately absent: it writes \
+         past the `__newindex` that keeps a required module read-only.\n\n",
+    );
+    out.push_str(
+        "A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,\n\
          `destroy`, `set_velocity`, `velocity`, `world_pos`, `has_tag`, `name`, `path`,\n\
          `kind`, `valid`, and — on a `Sound` node — `play` and `stop`. Indexing a handle\n\
          reads and writes script variables, except for `pos`, `rot` and `visible`, which\n\
@@ -295,6 +308,25 @@ fn render_markdown(
          `scene.near` and `scene.nearest` read the broadphase as it stood at the\n\
          *start* of the tick, so every script sees the same world and what one finds\n\
          does not depend on whether another has run yet.\n\n\
+         ### UI\n\n\
+         `ui` reads what the pointer is doing to the interface, worked out inside the\n\
+         tick — layout and hit testing run in a `UiUpdate` phase before scripts, so a\n\
+         click on a menu is replayable like any other input. `ui.clicked(node)` is true\n\
+         on the one tick a press and a release completed on that control; sliding off\n\
+         before letting go cancels it.\n\n\
+         **`ui.pointer()` is a canvas pixel, not a world position.** The canvas is the\n\
+         fixed virtual resolution the project declares in `project.toml`, scaled to\n\
+         whatever window the game gets — so the value is the same on every monitor,\n\
+         which is what makes a recorded click land on the same button when it replays.\n\
+         Getting from there to a world position means inverting the camera; see\n\
+         `camera.to_world`.\n\n\
+         `ui.captured()` is reported rather than enforced: the engine will not silently\n\
+         swallow a click that landed on a control, because a script that never asked\n\
+         would have no way to find out why its fire button stopped working over a menu.\n\n\
+         Focus is tracked, not driven. `ui.focus_next(step)` walks the focusable\n\
+         controls in tree order, and *which key* walks a menu is the game\'s decision —\n\
+         binding it here would mean the engine deciding that pressing Down in a menu\n\
+         can never also move the player.\n\n\
          ### Tweens and animation\n\n\
          Tweens and animation are simulation state, not presentation. They advance on\n\
          ticks, they are snapshotted, and they are in the state hash — a tween outside\n\

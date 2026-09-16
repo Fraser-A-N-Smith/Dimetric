@@ -13,6 +13,7 @@
 #![warn(missing_docs)]
 
 pub mod anim;
+pub mod api_doc;
 pub mod input;
 pub mod phase;
 pub mod script;
