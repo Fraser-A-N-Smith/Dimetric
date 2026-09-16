@@ -23,6 +23,7 @@ pub mod state;
 pub mod sweep;
 pub mod tick;
 pub mod tween;
+pub mod ui;
 pub mod world;
 
 pub use input::{InputFrame, InputLog, PlayerInput};

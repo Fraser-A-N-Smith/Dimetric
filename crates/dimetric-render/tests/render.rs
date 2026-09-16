@@ -812,3 +812,76 @@ fn ui_reaches_the_target_above_the_world_and_unlit() {
         "expected opaque red, found {px:?}"
     );
 }
+
+#[test]
+fn a_button_draws_the_colour_its_state_asks_for() {
+    // The other end of the property the simulation writes: extraction reads it
+    // and picks one of three colours. Nothing here knows a simulation exists,
+    // which is the point of routing it through a node property.
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let button = |state: i64| {
+        format!(
+            r##"
+[[node]]
+id = "n_btn00000"
+kind = "Button"
+name = "Go"
+parent = "n_root0000"
+offset_right = 40.0
+offset_bottom = 20.0
+modulate = "#112233ff"
+modulate_hover = "#445566ff"
+modulate_pressed = "#778899ff"
+state = {state}
+"##
+        )
+    };
+    let colour_of = |state: i64| {
+        let frame = extract(&ui_scene(&button(state)), &atlas, &camera, None);
+        frame.ui[0].modulate
+    };
+
+    let idle = colour_of(0);
+    let hover = colour_of(1);
+    let pressed = colour_of(2);
+    assert_ne!(idle, hover, "hover must not look like idle");
+    assert_ne!(hover, pressed, "pressed must not look like hover");
+
+    // And the actual values, so a mixed-up lookup shows as a wrong colour
+    // rather than merely a different one.
+    assert_eq!(idle[0], 0x11);
+    assert_eq!(hover[0], 0x44);
+    assert_eq!(pressed[0], 0x77);
+}
+
+#[test]
+fn a_button_with_no_hover_colour_falls_back_to_its_fill() {
+    // A scene that sets only `modulate` should get a button that works, not an
+    // invisible one.
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let frame = extract(
+        &ui_scene(
+            r##"
+[[node]]
+id = "n_btn00000"
+kind = "Button"
+name = "Go"
+parent = "n_root0000"
+offset_right = 40.0
+offset_bottom = 20.0
+modulate = "#112233ff"
+state = 1
+"##,
+        ),
+        &atlas,
+        &camera,
+        None,
+    );
+    // Lightened rather than the engine's own grey: a button that set one
+    // colour should look like that colour, not like the default theme.
+    let r = frame.ui[0].modulate[0];
+    assert!(r > 0x11, "hover should lighten the fill, got {r:#04x}");
+    assert!(r < 0x40, "and not replace it, got {r:#04x}");
+}

@@ -296,3 +296,222 @@ anchor_bottom = 0.5
     assert_eq!(rect.pos.x, Fx::from_int(160));
     assert_eq!(rect.size, Vec2Fx::from_ints(160, 90));
 }
+
+// -- Containers -----------------------------------------------------------
+
+#[test]
+fn a_vbox_stacks_its_children_and_fills_the_width() {
+    let scene = scene_of(
+        r#"
+[[node]]
+id = "n_menu0000"
+kind = "VBox"
+name = "Menu"
+parent = "n_root0000"
+offset_left = 100.0
+offset_top = 50.0
+offset_right = 220.0
+offset_bottom = 170.0
+spacing = 4.0
+padding = 6.0
+
+[[node]]
+id = "n_one00000"
+kind = "Panel"
+name = "One"
+parent = "n_menu0000"
+offset_bottom = 20.0
+
+[[node]]
+id = "n_two00000"
+kind = "Panel"
+name = "Two"
+parent = "n_menu0000"
+offset_bottom = 30.0
+
+[[node]]
+id = "n_three000"
+kind = "Panel"
+name = "Three"
+parent = "n_menu0000"
+offset_bottom = 20.0
+"#,
+    );
+    let out = layout(&scene, canvas());
+    let one = out[&find(&scene, "/Root/Menu/One")];
+    let two = out[&find(&scene, "/Root/Menu/Two")];
+    let three = out[&find(&scene, "/Root/Menu/Three")];
+
+    // Inside the padding, filling the width: 120 wide less 6 either side.
+    assert_eq!(one.pos, Vec2Fx::from_ints(106, 56));
+    assert_eq!(one.size, Vec2Fx::from_ints(108, 20));
+
+    // Each child starts after the last one and the spacing.
+    assert_eq!(two.pos.y, Fx::from_int(56 + 20 + 4));
+    assert_eq!(two.size.y, Fx::from_int(30));
+    assert_eq!(three.pos.y, Fx::from_int(56 + 20 + 4 + 30 + 4));
+
+    // All the same width: that is what being in a box buys you.
+    assert_eq!(one.size.x, two.size.x);
+    assert_eq!(two.size.x, three.size.x);
+}
+
+#[test]
+fn an_hbox_stacks_across_and_fills_the_height() {
+    let scene = scene_of(
+        r#"
+[[node]]
+id = "n_row00000"
+kind = "HBox"
+name = "Row"
+parent = "n_root0000"
+offset_right = 200.0
+offset_bottom = 40.0
+spacing = 5.0
+
+[[node]]
+id = "n_a0000000"
+kind = "Panel"
+name = "A"
+parent = "n_row00000"
+offset_right = 30.0
+
+[[node]]
+id = "n_b0000000"
+kind = "Panel"
+name = "B"
+parent = "n_row00000"
+offset_right = 50.0
+"#,
+    );
+    let out = layout(&scene, canvas());
+    let a = out[&find(&scene, "/Root/Row/A")];
+    let b = out[&find(&scene, "/Root/Row/B")];
+
+    assert_eq!(a.pos, Vec2Fx::ZERO);
+    assert_eq!(a.size, Vec2Fx::from_ints(30, 40));
+    assert_eq!(b.pos.x, Fx::from_int(35));
+    assert_eq!(b.size, Vec2Fx::from_ints(50, 40));
+}
+
+#[test]
+fn a_child_of_a_box_ignores_its_own_anchors() {
+    // Putting a control in a box is handing the box its position. A child that
+    // still honoured its anchors would sit wherever it liked and overlap its
+    // siblings, which is not a container.
+    let body = |anchors: &str| {
+        format!(
+            r#"
+[[node]]
+id = "n_col00000"
+kind = "VBox"
+name = "Col"
+parent = "n_root0000"
+offset_right = 100.0
+offset_bottom = 100.0
+
+[[node]]
+id = "n_kid00000"
+kind = "Panel"
+name = "Kid"
+parent = "n_col00000"
+offset_bottom = 20.0
+{anchors}
+"#
+        )
+    };
+    let plain = scene_of(&body(""));
+    let anchored = scene_of(&body("anchor_left = 0.5\nanchor_top = 0.75"));
+
+    let a = layout(&plain, canvas())[&find(&plain, "/Root/Col/Kid")];
+    let b = layout(&anchored, canvas())[&find(&anchored, "/Root/Col/Kid")];
+    assert_eq!(a, b);
+}
+
+#[test]
+fn a_box_nested_in_a_box_stacks_within_its_slot() {
+    let scene = scene_of(
+        r#"
+[[node]]
+id = "n_outer000"
+kind = "VBox"
+name = "Outer"
+parent = "n_root0000"
+offset_right = 200.0
+offset_bottom = 200.0
+
+[[node]]
+id = "n_head0000"
+kind = "Panel"
+name = "Head"
+parent = "n_outer000"
+offset_bottom = 10.0
+
+[[node]]
+id = "n_inner000"
+kind = "HBox"
+name = "Inner"
+parent = "n_outer000"
+offset_bottom = 40.0
+
+[[node]]
+id = "n_left0000"
+kind = "Panel"
+name = "Left"
+parent = "n_inner000"
+offset_right = 60.0
+"#,
+    );
+    let out = layout(&scene, canvas());
+    let inner = out[&find(&scene, "/Root/Outer/Inner")];
+    let left = out[&find(&scene, "/Root/Outer/Inner/Left")];
+
+    // The inner box takes its slot under the header.
+    assert_eq!(inner.pos.y, Fx::from_int(10));
+    assert_eq!(inner.size, Vec2Fx::from_ints(200, 40));
+    // And its own child stacks inside that, not inside the outer box.
+    assert_eq!(left.pos, Vec2Fx::from_ints(0, 10));
+    assert_eq!(left.size, Vec2Fx::from_ints(60, 40));
+}
+
+#[test]
+fn an_empty_box_lays_out_without_complaint() {
+    let scene = scene_of(
+        r#"
+[[node]]
+id = "n_empty000"
+kind = "VBox"
+name = "Empty"
+parent = "n_root0000"
+offset_right = 50.0
+offset_bottom = 50.0
+"#,
+    );
+    let out = layout(&scene, canvas());
+    assert_eq!(
+        out[&find(&scene, "/Root/Empty")].size,
+        Vec2Fx::from_ints(50, 50)
+    );
+}
+
+#[test]
+fn a_button_is_hit_like_any_other_control() {
+    let scene = scene_of(
+        r#"
+[[node]]
+id = "n_btn00000"
+kind = "Button"
+name = "Go"
+parent = "n_root0000"
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 60.0
+offset_bottom = 30.0
+"#,
+    );
+    let out = layout(&scene, canvas());
+    assert_eq!(
+        hit(&scene, &out, Vec2Fx::from_ints(30, 20)),
+        Some(find(&scene, "/Root/Go"))
+    );
+}

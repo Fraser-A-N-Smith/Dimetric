@@ -71,6 +71,27 @@ A trigger volume. Reports overlaps and blocks nothing.
 | `collision_mask` | `int` | `1` | Bitmask of layers this body tests against. |
 | `monitoring` | `bool` | `true` | Report overlaps. A disabled area costs nothing in the broadphase. |
 
+### `Button`
+
+A control that reacts to the pointer. Its caption is a Label child.
+
+| Property | Type | Default | Notes |
+|---|---|---|---|
+| `anchor_left` | `scalar` | `0.0` | Left edge as a fraction of the parent's width. |
+| `anchor_top` | `scalar` | `0.0` | Top edge as a fraction of the parent's height. |
+| `anchor_right` | `scalar` | `0.0` | Right edge as a fraction of the parent's width. |
+| `anchor_bottom` | `scalar` | `0.0` | Bottom edge as a fraction of the parent's height. |
+| `offset_left` | `scalar` | `0.0` | Pixels from the left anchor. |
+| `offset_top` | `scalar` | `0.0` | Pixels from the top anchor. |
+| `offset_right` | `scalar` | `0.0` | Pixels from the right anchor. |
+| `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
+| `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
+| `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `state` | `int` | `0` | Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect. |
+| `modulate` | `color` | `"#303040ff"` | Fill colour when idle. |
+| `modulate_hover` | `color` | `"#00000000"` | Fill when hovered. Transparent means lighten the fill. |
+| `modulate_pressed` | `color` | `"#00000000"` | Fill when held. Transparent means darken the fill. |
+
 ### `Camera2D`
 
 A view onto the world.
@@ -114,6 +135,27 @@ A rectangle in UI space, positioned by anchors and offsets. Draws nothing itself
 | `offset_right` | `scalar` | `0.0` | Pixels from the right anchor. |
 | `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
 | `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
+| `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `state` | `int` | `0` | Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect. |
+
+### `HBox`
+
+Stacks its control children left to right. A child keeps its own width and fills the height.
+
+| Property | Type | Default | Notes |
+|---|---|---|---|
+| `anchor_left` | `scalar` | `0.0` | Left edge as a fraction of the parent's width. |
+| `anchor_top` | `scalar` | `0.0` | Top edge as a fraction of the parent's height. |
+| `anchor_right` | `scalar` | `0.0` | Right edge as a fraction of the parent's width. |
+| `anchor_bottom` | `scalar` | `0.0` | Bottom edge as a fraction of the parent's height. |
+| `offset_left` | `scalar` | `0.0` | Pixels from the left anchor. |
+| `offset_top` | `scalar` | `0.0` | Pixels from the top anchor. |
+| `offset_right` | `scalar` | `0.0` | Pixels from the right anchor. |
+| `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
+| `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
+| `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `spacing` | `scalar` | `0.0` | Pixels between one child and the next. |
+| `padding` | `scalar` | `0.0` | Pixels between the container's edge and its children. |
 
 ### `Instance`
 
@@ -173,6 +215,8 @@ A control filled with a colour.
 | `offset_right` | `scalar` | `0.0` | Pixels from the right anchor. |
 | `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
 | `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
+| `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `state` | `int` | `0` | Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect. |
 | `modulate` | `color` | `"#000000a0"` | Fill colour. |
 
 ### `Sound`
@@ -212,6 +256,25 @@ A grid of tiles, stored as run-length encoded chunks.
 | `cell` | `vec2i` | `[16, 16]` | Tile size in pixels. |
 | `collision` | `bool` | `false` | Feed this layer into the collision grid. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
+
+### `VBox`
+
+Stacks its control children top to bottom. A child keeps its own height and fills the width.
+
+| Property | Type | Default | Notes |
+|---|---|---|---|
+| `anchor_left` | `scalar` | `0.0` | Left edge as a fraction of the parent's width. |
+| `anchor_top` | `scalar` | `0.0` | Top edge as a fraction of the parent's height. |
+| `anchor_right` | `scalar` | `0.0` | Right edge as a fraction of the parent's width. |
+| `anchor_bottom` | `scalar` | `0.0` | Bottom edge as a fraction of the parent's height. |
+| `offset_left` | `scalar` | `0.0` | Pixels from the left anchor. |
+| `offset_top` | `scalar` | `0.0` | Pixels from the top anchor. |
+| `offset_right` | `scalar` | `0.0` | Pixels from the right anchor. |
+| `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
+| `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
+| `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `spacing` | `scalar` | `0.0` | Pixels between one child and the next. |
+| `padding` | `scalar` | `0.0` | Pixels between the container's edge and its children. |
 
 ## Diagnostic codes
 

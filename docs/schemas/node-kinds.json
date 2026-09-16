@@ -125,6 +125,110 @@
       ]
     },
     {
+      "doc": "A control that reacts to the pointer. Its caption is a Label child.",
+      "kind": "Button",
+      "properties": [
+        {
+          "default": "0.0",
+          "doc": "Left edge as a fraction of the parent's width.",
+          "name": "anchor_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Top edge as a fraction of the parent's height.",
+          "name": "anchor_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Right edge as a fraction of the parent's width.",
+          "name": "anchor_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Bottom edge as a fraction of the parent's height.",
+          "name": "anchor_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the left anchor.",
+          "name": "offset_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the top anchor.",
+          "name": "offset_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the right anchor.",
+          "name": "offset_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the bottom anchor.",
+          "name": "offset_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "true",
+          "doc": "Whether a pointer over this control hits it. False makes it scenery.",
+          "name": "catches_input",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Whether keyboard or pad focus can land on this control.",
+          "name": "focusable",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "0",
+          "doc": "Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect.",
+          "name": "state",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": "\"#303040ff\"",
+          "doc": "Fill colour when idle.",
+          "name": "modulate",
+          "required": false,
+          "type": "color"
+        },
+        {
+          "default": "\"#00000000\"",
+          "doc": "Fill when hovered. Transparent means lighten the fill.",
+          "name": "modulate_hover",
+          "required": false,
+          "type": "color"
+        },
+        {
+          "default": "\"#00000000\"",
+          "doc": "Fill when held. Transparent means darken the fill.",
+          "name": "modulate_pressed",
+          "required": false,
+          "type": "color"
+        }
+      ]
+    },
+    {
       "doc": "A view onto the world.",
       "kind": "Camera2D",
       "properties": [
@@ -300,6 +404,110 @@
           "name": "catches_input",
           "required": false,
           "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Whether keyboard or pad focus can land on this control.",
+          "name": "focusable",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "0",
+          "doc": "Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect.",
+          "name": "state",
+          "required": false,
+          "type": "int"
+        }
+      ]
+    },
+    {
+      "doc": "Stacks its control children left to right. A child keeps its own width and fills the height.",
+      "kind": "HBox",
+      "properties": [
+        {
+          "default": "0.0",
+          "doc": "Left edge as a fraction of the parent's width.",
+          "name": "anchor_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Top edge as a fraction of the parent's height.",
+          "name": "anchor_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Right edge as a fraction of the parent's width.",
+          "name": "anchor_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Bottom edge as a fraction of the parent's height.",
+          "name": "anchor_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the left anchor.",
+          "name": "offset_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the top anchor.",
+          "name": "offset_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the right anchor.",
+          "name": "offset_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the bottom anchor.",
+          "name": "offset_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "true",
+          "doc": "Whether a pointer over this control hits it. False makes it scenery.",
+          "name": "catches_input",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Whether keyboard or pad focus can land on this control.",
+          "name": "focusable",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels between one child and the next.",
+          "name": "spacing",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels between the container's edge and its children.",
+          "name": "padding",
+          "required": false,
+          "type": "scalar"
         }
       ]
     },
@@ -475,6 +683,20 @@
           "type": "bool"
         },
         {
+          "default": "false",
+          "doc": "Whether keyboard or pad focus can land on this control.",
+          "name": "focusable",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "0",
+          "doc": "Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect.",
+          "name": "state",
+          "required": false,
+          "type": "int"
+        },
+        {
           "default": "\"#000000a0\"",
           "doc": "Fill colour.",
           "name": "modulate",
@@ -617,6 +839,96 @@
           "name": "modulate",
           "required": false,
           "type": "color"
+        }
+      ]
+    },
+    {
+      "doc": "Stacks its control children top to bottom. A child keeps its own height and fills the width.",
+      "kind": "VBox",
+      "properties": [
+        {
+          "default": "0.0",
+          "doc": "Left edge as a fraction of the parent's width.",
+          "name": "anchor_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Top edge as a fraction of the parent's height.",
+          "name": "anchor_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Right edge as a fraction of the parent's width.",
+          "name": "anchor_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Bottom edge as a fraction of the parent's height.",
+          "name": "anchor_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the left anchor.",
+          "name": "offset_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the top anchor.",
+          "name": "offset_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the right anchor.",
+          "name": "offset_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the bottom anchor.",
+          "name": "offset_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "true",
+          "doc": "Whether a pointer over this control hits it. False makes it scenery.",
+          "name": "catches_input",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Whether keyboard or pad focus can land on this control.",
+          "name": "focusable",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels between one child and the next.",
+          "name": "spacing",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels between the container's edge and its children.",
+          "name": "padding",
+          "required": false,
+          "type": "scalar"
         }
       ]
     }

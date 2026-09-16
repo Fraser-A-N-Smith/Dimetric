@@ -1115,6 +1115,140 @@ fn install_api(
         .map_err(err)?;
     env.set("input", input).map_err(err)?;
 
+    // ui: what the player is doing to the interface.
+    //
+    // Everything here reads state the tick computed before scripts ran, so two
+    // scripts asking on the same tick get the same answer regardless of which
+    // runs first.
+    let ui = lua.create_table().map_err(err)?;
+    // Called with a node it answers "is this one hovered", and called with
+    // nothing it hands back whichever is — the same shape as `pressed` and
+    // `clicked`, so a script never has to remember which of the three is the
+    // odd one out.
+    ui.set(
+        "hovered",
+        lua.create_function(|lua, node: Option<NodeHandle>| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(match node {
+                Some(NodeHandle(uid)) => mlua::Value::Boolean(state.ui.hovered == Some(uid)),
+                None => match state.ui.hovered {
+                    Some(uid) => mlua::Value::UserData(lua.create_userdata(NodeHandle(uid))?),
+                    None => mlua::Value::Nil,
+                },
+            })
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    ui.set(
+        "pressed",
+        lua.create_function(|lua, node: Option<NodeHandle>| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(match node {
+                Some(NodeHandle(uid)) => state.ui.pressed == Some(uid),
+                None => state.ui.pressed.is_some(),
+            })
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    ui.set(
+        "clicked",
+        lua.create_function(|lua, node: Option<NodeHandle>| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(match node {
+                Some(NodeHandle(uid)) => state.ui.was_clicked(uid),
+                None => !state.ui.clicked.is_empty(),
+            })
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    ui.set(
+        "captured",
+        lua.create_function(|lua, ()| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(state.ui.captured)
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    ui.set(
+        "pointer",
+        lua.create_function(|lua, ()| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(LuaVec2(crate::ui::pointer(&state.input)))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    ui.set(
+        "focused",
+        lua.create_function(|lua, ()| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(state.ui.focused.map(NodeHandle))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    ui.set(
+        "focus",
+        lua.create_function(|lua, node: Option<NodeHandle>| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            state.ui.focused = node.map(|NodeHandle(uid)| uid);
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    ui.set(
+        "focus_next",
+        lua.create_function(|lua, step: Option<i32>| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            let next = crate::ui::next_focus(
+                &state.scene,
+                state.canvas,
+                state.ui.focused,
+                step.unwrap_or(1),
+            );
+            state.ui.focused = next;
+            Ok(next.map(NodeHandle))
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    ui.set(
+        "rect",
+        lua.create_function(|lua, NodeHandle(uid): NodeHandle| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            let rects = dimetric_scene::ui::layout(&state.scene, state.canvas);
+            let Some(id) = state.scene.by_uid(uid) else {
+                return Ok(None);
+            };
+            Ok(rects.get(&id).map(|r| {
+                let t = lua.create_table()?;
+                t.set("x", LuaFx(r.pos.x))?;
+                t.set("y", LuaFx(r.pos.y))?;
+                t.set("w", LuaFx(r.size.x))?;
+                t.set("h", LuaFx(r.size.y))?;
+                Ok::<_, mlua::Error>(t)
+            }))
+            .and_then(|t: Option<Result<mlua::Table, mlua::Error>>| t.transpose())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    env.set("ui", ui).map_err(err)?;
+
     // tween: cosmetic motion, measured in ticks like everything else.
     let tween = lua.create_table().map_err(err)?;
     tween

@@ -165,7 +165,7 @@ pub fn extract_with_canvas(
         if !visible(scene, id) {
             continue;
         }
-        if node.kind == "Panel" {
+        if node.kind == "Panel" || node.kind == "Button" {
             panel(node, *rect, atlas, &mut ui);
         }
     }
@@ -207,6 +207,16 @@ pub fn extract_with_canvas(
     }
 }
 
+/// Scale a colour's channels by `num/den`, keeping its alpha.
+///
+/// Integer arithmetic on the eight-bit channels, so the result is the same
+/// everywhere. Saturating rather than wrapping: a light button that got
+/// lighter should reach white, not come back round as black.
+fn shade(c: Color, num: u32, den: u32) -> Color {
+    let ch = |v: u8| ((v as u32 * num) / den).min(255) as u8;
+    Color::rgba(ch(c.r), ch(c.g), ch(c.b), c.a)
+}
+
 /// A `Panel` fills its rectangle with a colour.
 fn panel(node: &dimetric_scene::Node, rect: Rect, atlas: &Atlas, out: &mut Vec<DrawItem>) {
     if rect.size.x <= Fx::ZERO || rect.size.y <= Fx::ZERO {
@@ -219,10 +229,34 @@ fn panel(node: &dimetric_scene::Node, rect: Rect, atlas: &Atlas, out: &mut Vec<D
     let Some(region) = atlas.region(crate::atlas::SOLID_NAME) else {
         return;
     };
-    let modulate = node
+    // A button carries three colours and the simulation says which applies,
+    // through the `state` property it writes every tick. Reading a property is
+    // all the renderer has to do, which is why the interaction state travels
+    // that way rather than as an argument this crate would need a dependency
+    // on the simulation to accept.
+    let fill = node
         .get("modulate")
         .and_then(Value::as_color)
         .unwrap_or(Color::WHITE);
+    let state = node.get("state").and_then(Value::as_int).unwrap_or(0);
+    let override_key = match state {
+        1 => Some("modulate_hover"),
+        2 => Some("modulate_pressed"),
+        _ => None,
+    };
+    let modulate = match override_key
+        .and_then(|k| node.get(k))
+        .and_then(Value::as_color)
+    {
+        // Transparent is the sentinel for "not set": derive a shade of the
+        // fill rather than making the button disappear.
+        Some(c) if c.a > 0 => c,
+        _ => match state {
+            1 => shade(fill, 5, 4),
+            2 => shade(fill, 3, 4),
+            _ => fill,
+        },
+    };
     out.push(DrawItem {
         // Depth zero for every panel: UI is ordered by the tree, not by where
         // it sits in a world it is not in.

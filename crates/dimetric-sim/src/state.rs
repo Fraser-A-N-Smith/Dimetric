@@ -134,6 +134,17 @@ pub struct SimState {
     /// with audio on would diverge from one played with it off. See
     /// [`crate::sound`].
     pub sounds: Vec<crate::sound::SoundEvent>,
+    /// What the player is doing to the UI, recomputed every tick.
+    ///
+    /// State rather than something the renderer works out, because a click on
+    /// a menu is an action a replay has to reproduce. See [`crate::ui`].
+    pub ui: crate::ui::UiState,
+    /// The virtual resolution the UI is laid out against.
+    ///
+    /// In simulation state because the layout depends on it and the layout
+    /// decides what a click hit. A window size here would make the game
+    /// different on a different monitor; a declared constant does not.
+    pub canvas: dimetric_scene::ui::Canvas,
     /// `Sound` nodes that have already started themselves.
     ///
     /// Not hashed, for the same reason, but snapshotted with everything else —
@@ -163,6 +174,8 @@ impl SimState {
             destroy_queue: Vec::new(),
             readied: Vec::new(),
             sounds: Vec::new(),
+            ui: crate::ui::UiState::default(),
+            canvas: dimetric_scene::ui::Canvas::default(),
             autoplayed: Vec::new(),
         }
     }
@@ -241,6 +254,11 @@ impl HashState for SimState {
             h.node_uid(*uid);
             a.hash_state(h);
         }
+
+        self.ui.hash_state(h);
+        h.tag("canvas")
+            .u64(self.canvas.width as u64)
+            .u64(self.canvas.height as u64);
 
         self.previous_input.hash_state(h);
         h.tag("spawns").u64(self.spawn_count);

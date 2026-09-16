@@ -70,6 +70,10 @@ fn the_phase_order_is_the_one_that_was_agreed() {
         PHASE_ORDER,
         &[
             Phase::Input,
+            // The UI is laid out and hit-tested before scripts run, so a
+            // script asking whether its button was clicked is asking about
+            // this tick's pointer rather than the last one's.
+            Phase::UiUpdate,
             Phase::ScriptsTick,
             Phase::PhysicsIntegrate,
             Phase::CollisionBroadphase,

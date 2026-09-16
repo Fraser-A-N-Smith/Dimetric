@@ -78,18 +78,98 @@ pub type Layout = BTreeMap<NodeId, Rect>;
 /// needing a root of a special kind.
 pub fn layout(scene: &Scene, canvas: Canvas) -> Layout {
     let mut out: Layout = BTreeMap::new();
+    // Tracks how far down (or across) each container has filled, so a child of
+    // a box is placed after its earlier siblings rather than on top of them.
+    let mut filled: BTreeMap<NodeId, Fx> = BTreeMap::new();
+
     for id in scene.walk() {
         let Some(node) = scene.get(id) else { continue };
         if node.base != "Control" {
             continue;
         }
-        let parent = node
-            .parent()
+        let parent_id = node.parent();
+        let parent = parent_id
             .and_then(|p| out.get(&p).copied())
             .unwrap_or_else(|| canvas.rect());
-        out.insert(id, rect_of(node, parent));
+
+        // A child of a box is stacked, not anchored. The box owns the axis it
+        // stacks along and the child keeps its own extent on the other, which
+        // is the split that makes a row of buttons need only a height each.
+        let axis = parent_id.and_then(|p| scene.get(p)).and_then(box_axis);
+        let rect = match (axis, parent_id) {
+            (Some((axis, spacing, padding)), Some(pid)) => {
+                let used = filled.entry(pid).or_insert(Fx::ZERO);
+                let placed = stacked(node, parent, axis, *used, padding);
+                // The next sibling starts past this one and its gap.
+                *used = *used
+                    + match axis {
+                        Axis::Vertical => placed.size.y,
+                        Axis::Horizontal => placed.size.x,
+                    }
+                    + spacing;
+                placed
+            }
+            _ => rect_of(node, parent),
+        };
+        out.insert(id, rect);
     }
     out
+}
+
+/// Which way a container stacks, and by how much, if it is one.
+fn box_axis(node: &crate::node::Node) -> Option<(Axis, Fx, Fx)> {
+    let axis = match node.kind.as_str() {
+        "VBox" => Axis::Vertical,
+        "HBox" => Axis::Horizontal,
+        _ => return None,
+    };
+    let scalar = |name: &str| {
+        node.get(name)
+            .and_then(Value::as_scalar)
+            .unwrap_or(Fx::ZERO)
+    };
+    Some((axis, scalar("spacing"), scalar("padding")))
+}
+
+/// The direction a container lays its children out in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Axis {
+    /// Top to bottom.
+    Vertical,
+    /// Left to right.
+    Horizontal,
+}
+
+/// One child of a box: placed after its earlier siblings, filling the cross
+/// axis.
+///
+/// A child in a box does not get to choose its position — that is what putting
+/// it in a box means — but it keeps its size along the stacking axis, taken
+/// from its own offsets. So a `VBox` of buttons needs a height on each button
+/// and nothing else, which is the thing a container is supposed to save you.
+fn stacked(node: &crate::node::Node, parent: Rect, axis: Axis, used: Fx, padding: Fx) -> Rect {
+    let scalar = |name: &str| {
+        node.get(name)
+            .and_then(Value::as_scalar)
+            .unwrap_or(Fx::ZERO)
+    };
+    let inner = parent.size - Vec2Fx::new(padding + padding, padding + padding);
+    match axis {
+        Axis::Vertical => {
+            let height = (scalar("offset_bottom") - scalar("offset_top")).max(Fx::ZERO);
+            Rect {
+                pos: Vec2Fx::new(parent.pos.x + padding, parent.pos.y + padding + used),
+                size: Vec2Fx::new(inner.x.max(Fx::ZERO), height),
+            }
+        }
+        Axis::Horizontal => {
+            let width = (scalar("offset_right") - scalar("offset_left")).max(Fx::ZERO);
+            Rect {
+                pos: Vec2Fx::new(parent.pos.x + padding + used, parent.pos.y + padding),
+                size: Vec2Fx::new(width, inner.y.max(Fx::ZERO)),
+            }
+        }
+    }
 }
 
 /// One control's rectangle, given its parent's.

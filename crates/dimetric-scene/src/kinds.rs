@@ -300,15 +300,35 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 boolean(true),
                 "Whether a pointer over this control hits it. False makes it scenery.",
             ),
+            prop(
+                "focusable",
+                PropertyType::Bool,
+                boolean(false),
+                "Whether keyboard or pad focus can land on this control.",
+            ),
         ];
         props.extend(extra);
         props
     };
 
+    // The engine writes this every tick from what the pointer is doing; a
+    // scene that sets it is overwritten. It is a property rather than a
+    // side-channel because that is how everything else the simulation decides
+    // reaches the renderer, and it makes a button's appearance fall out of
+    // ordinary extraction.
+    let interaction = || {
+        prop(
+            "state",
+            PropertyType::Int,
+            int(0),
+            "Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect.",
+        )
+    };
+
     kinds.push(NodeKindSchema::new(
         "Control",
         "A rectangle in UI space, positioned by anchors and offsets. Draws nothing itself.",
-        control_props(vec![]),
+        control_props(vec![interaction()]),
     ));
 
     // Behaves as a `Control`, so layout, hit testing and anything else that
@@ -318,12 +338,89 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
         NodeKindSchema::new(
             "Panel",
             "A control filled with a colour.",
-            control_props(vec![prop(
-                "modulate",
-                PropertyType::Color,
-                color("#000000a0"),
-                "Fill colour.",
-            )]),
+            control_props(vec![
+                interaction(),
+                prop(
+                    "modulate",
+                    PropertyType::Color,
+                    color("#000000a0"),
+                    "Fill colour.",
+                ),
+            ]),
+        )
+        .based_on("Control"),
+    );
+
+    // A button is a panel that knows what the pointer is doing to it. Three
+    // colours rather than a theme lookup: a project that wants one palette
+    // puts the colours in a prefab and instances it, which is a mechanism the
+    // engine already has and does not need a second one for.
+    kinds.push(
+        NodeKindSchema::new(
+            "Button",
+            "A control that reacts to the pointer. Its caption is a Label child.",
+            control_props(vec![
+                interaction(),
+                prop(
+                    "modulate",
+                    PropertyType::Color,
+                    color("#303040ff"),
+                    "Fill colour when idle.",
+                ),
+                // Transparent means "work it out from `modulate`", so a
+                // button needs one colour to look right and three only if
+                // somebody wants three. A literal transparent hover would be
+                // a button that vanishes under the pointer, which nobody
+                // wants, so the sentinel costs nothing.
+                prop(
+                    "modulate_hover",
+                    PropertyType::Color,
+                    color("#00000000"),
+                    "Fill when hovered. Transparent means lighten the fill.",
+                ),
+                prop(
+                    "modulate_pressed",
+                    PropertyType::Color,
+                    color("#00000000"),
+                    "Fill when held. Transparent means darken the fill.",
+                ),
+            ]),
+        )
+        .based_on("Control"),
+    );
+
+    let box_props = |extra: Vec<PropertySchema>| {
+        let mut props = control_props(vec![
+            prop(
+                "spacing",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Pixels between one child and the next.",
+            ),
+            prop(
+                "padding",
+                PropertyType::Scalar,
+                scalar("0.0"),
+                "Pixels between the container's edge and its children.",
+            ),
+        ]);
+        props.extend(extra);
+        props
+    };
+
+    kinds.push(
+        NodeKindSchema::new(
+            "VBox",
+            "Stacks its control children top to bottom. A child keeps its own height and fills the width.",
+            box_props(vec![]),
+        )
+        .based_on("Control"),
+    );
+    kinds.push(
+        NodeKindSchema::new(
+            "HBox",
+            "Stacks its control children left to right. A child keeps its own width and fills the height.",
+            box_props(vec![]),
         )
         .based_on("Control"),
     );

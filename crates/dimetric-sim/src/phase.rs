@@ -9,6 +9,11 @@
 pub enum Phase {
     /// Latch this tick's input.
     Input,
+    /// Lay the UI out and work out what the pointer is doing to it.
+    ///
+    /// Before scripts rather than after, so a script asking whether its button
+    /// was clicked is asking about this tick's pointer and not the last one's.
+    UiUpdate,
     /// `on_tick` on every scripted node.
     ScriptsTick,
     /// Apply velocity to intended positions.
@@ -32,6 +37,7 @@ pub enum Phase {
 /// Every phase, in order. This is the contract.
 pub const PHASE_ORDER: &[Phase] = &[
     Phase::Input,
+    Phase::UiUpdate,
     Phase::ScriptsTick,
     Phase::PhysicsIntegrate,
     Phase::CollisionBroadphase,
@@ -48,6 +54,7 @@ impl Phase {
     pub fn name(self) -> &'static str {
         match self {
             Phase::Input => "input",
+            Phase::UiUpdate => "ui update",
             Phase::ScriptsTick => "scripts on_tick",
             Phase::PhysicsIntegrate => "physics integrate",
             Phase::CollisionBroadphase => "collision broadphase",

@@ -293,6 +293,21 @@ impl Sim {
                 self.dispatch_ready();
                 self.start_autoplaying_sounds();
             }
+            Phase::UiUpdate => {
+                let mut state = self.state.borrow_mut();
+                // Split borrows: the update reads the scene and writes the ui
+                // field, and taking the state apart here is cheaper than
+                // cloning a tree every tick to satisfy the borrow checker.
+                let SimState {
+                    scene,
+                    ui,
+                    input,
+                    previous_input,
+                    canvas,
+                    ..
+                } = &mut *state;
+                crate::ui::update(scene, ui, input, previous_input, *canvas);
+            }
             Phase::ScriptsTick => {
                 // Built before scripts run, so every script queries the same
                 // world and what one finds does not depend on whether another
