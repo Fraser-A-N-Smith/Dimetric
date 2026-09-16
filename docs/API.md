@@ -324,6 +324,8 @@ message. Codes are never reused for a different meaning.
 | `DIM0901` | error | project.toml exists but could not be read or parsed |
 | `DIM0902` | error | A project setting is out of range or the wrong shape |
 | `DIM0903` | error | An input binding names an action the engine does not have |
+| `DIM1001` | error | A save file could not be read or written |
+| `DIM1002` | error | A save was written by a different format or engine version |
 
 ## MCP tools
 
@@ -373,6 +375,8 @@ arguments column.
 | `signal_list` | — | List the scene's connections |
 | `state_dump` | `input`, `seed`, `tick` | Run to a tick and dump the state there |
 | `state_hash` | `seed`, `tick` | Print the state hash at a tick |
+| `state_load` | `from`* | Read a save back and report what is in it |
+| `state_save` | `input`, `out`*, `seed`, `tick` | Run to a tick and write the state out as a resumable save |
 | `tile_fill` | `layer`*, `rect`*, `tile`* | Fill a rectangle |
 | `tile_get` | `at`*, `layer`* | Read one tile |
 | `tile_import_ldtk` | `dry_run`, `into`, `level`, `path`*, `tileset` | Import an LDtk level, baking it to native chunks |
@@ -390,6 +394,7 @@ Scripts see exactly these globals and nothing else.
 | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)` |
+| `profile` | `get(key)`, `put(key, value)`, `clear(key)` — across runs, and **never** in the state hash |
 | `tick` | `count()`, `dt()`, `rate` |
 | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |
 | `vec2` | `vec2(x, y)`, building a fixed-point vector |
@@ -420,6 +425,38 @@ projectile does not shift every gameplay roll after it.
 `scene.near` and `scene.nearest` read the broadphase as it stood at the
 *start* of the tick, so every script sees the same world and what one finds
 does not depend on whether another has run yet.
+
+### Saves and the profile
+
+Two kinds of persistence, and conflating them is the bug.
+
+A **run** is simulation state. `dim state save` writes one and `dim state load`
+reads it back, exactly: the resumed run continues identically, RNG streams
+included, or it is a different run. The tree goes out as canonical `.dim` text
+rather than a second serialisation, because I2 already guarantees that
+round-trips, and a save that is text is a save somebody can read. A save from
+a different engine version is **refused** (`DIM1002`) rather than warned about:
+a log that replays wrong announces itself as a divergence, while a save that
+restores wrong just keeps playing.
+
+A **profile** is what accumulates across runs -- knowledge, awards, unlocks.
+It is reached through `profile.get`, `profile.put` and `profile.clear`, and it
+is **not in `SimState` at all**. Not a field the hasher skips: absent, the way
+the log lines are, because kept-out-entirely is one fewer thing to get wrong.
+Two players on the same seed have different profiles, so a hashed one would
+make their replays diverge for a reason that has nothing to do with the game.
+It is not snapshotted either, so a rollback does not take back an award.
+
+**The hazard this cannot fix.** Keeping the profile out of the hash stops it
+*being* hashed; it does not stop a script reading from it and writing what it
+read into state. A line like `if profile.get(k) then self.spell = 1 end` makes
+two players' simulations differ, and hashing the profile would not help -- it
+would turn a silent divergence into a loud one at the cost of making every
+replay depend on who is playing. So the rule is one a game has to follow: **a
+profile value may decide what is drawn, offered or unlocked, and may not decide
+what the simulation does.** Choose a loadout from it at the menu, before the
+run begins, and carry the choice in through `scene.request_load`, where it is
+hashed like everything else.
 
 ### Tiles
 

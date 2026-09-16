@@ -419,6 +419,30 @@ pub enum StateCmd {
         #[arg(long, default_value_t = 0)]
         seed: u64,
     },
+    /// Run to a tick and write the state out as a resumable save.
+    Save {
+        /// Directory to write into.
+        #[arg(long)]
+        out: String,
+        /// Tick to stop at.
+        #[arg(long, default_value_t = 0)]
+        tick: u64,
+        /// Run seed.
+        #[arg(long, default_value_t = 0)]
+        seed: u64,
+        /// Input log to drive the run.
+        #[arg(long)]
+        input: Option<String>,
+    },
+    /// Read a save back and report what is in it.
+    ///
+    /// The loaded state becomes tick 0 of a fresh session, so this is also how
+    /// a resumed run starts.
+    Load {
+        /// Directory to read.
+        #[arg(long)]
+        from: String,
+    },
 }
 
 /// Frame capture.

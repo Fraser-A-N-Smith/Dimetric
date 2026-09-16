@@ -1383,6 +1383,82 @@
       "name": "state_hash"
     },
     {
+      "description": "Read a save back and report what is in it",
+      "inputSchema": {
+        "properties": {
+          "from": {
+            "description": "Directory to read",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from"
+        ],
+        "type": "object"
+      },
+      "name": "state_load"
+    },
+    {
+      "description": "Run to a tick and write the state out as a resumable save",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "input": {
+            "description": "Input log to drive the run",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "out": {
+            "description": "Directory to write into",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "seed": {
+            "description": "Run seed",
+            "type": "string"
+          },
+          "tick": {
+            "description": "Tick to stop at",
+            "type": "string"
+          }
+        },
+        "required": [
+          "out"
+        ],
+        "type": "object"
+      },
+      "name": "state_save"
+    },
+    {
       "description": "Fill a rectangle",
       "inputSchema": {
         "properties": {

@@ -107,6 +107,17 @@ pub trait ScriptHost {
     fn take_log(&mut self) -> Vec<String> {
         Vec::new()
     }
+
+    /// The profile store, for a host that loads it at startup and writes it
+    /// back when it changes.
+    ///
+    /// On the host rather than in `SimState` because a profile is not part of
+    /// a run: two players on the same seed have different ones, and a field on
+    /// the state is a field a later change starts hashing by accident. See
+    /// [`crate::profile`].
+    fn profile(&mut self) -> Option<&mut crate::profile::Profile> {
+        None
+    }
 }
 
 /// A host that runs nothing. Physics-only simulations use this.

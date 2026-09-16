@@ -640,6 +640,13 @@ pub struct LuaHost {
     /// Keeping the buffer over here rather than in a field the hash skips
     /// means there is nothing to get wrong later.
     log: Rc<RefCell<Vec<String>>>,
+    /// What accumulates across runs.
+    ///
+    /// Beside the log lines and deliberately not in `SimState`: a profile
+    /// differs between two players playing the same seed, so a field on the
+    /// state is a field a later change starts hashing by accident. See
+    /// [`crate::profile`].
+    profile: Rc<RefCell<crate::profile::Profile>>,
 }
 
 impl LuaHost {
@@ -647,6 +654,7 @@ impl LuaHost {
     pub fn new(tick_rate: u32) -> Result<LuaHost, Diagnostic> {
         let lua = Lua::new();
         Ok(LuaHost {
+            profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
             lua,
             scripts: BTreeMap::new(),
             modules: Rc::new(RefCell::new(Modules::default())),
@@ -664,7 +672,14 @@ impl LuaHost {
             .borrow_mut()
             .sources
             .insert(path.to_string(), source.to_string());
-        let env = build_environment(&self.lua, self.tick_rate, &self.modules, &self.log, path)?;
+        let env = build_environment(
+            &self.lua,
+            self.tick_rate,
+            &self.modules,
+            &self.log,
+            &self.profile,
+            path,
+        )?;
         self.lua
             .load(source)
             .set_name(path)
@@ -708,6 +723,20 @@ impl LuaHost {
     }
 
     /// True when a script has been loaded.
+    /// The profile store this host hands to scripts.
+    ///
+    /// Shared with the sandbox, so a host that loads a saved profile into it
+    /// before the first tick — and writes it back when it reports itself
+    /// dirty — is talking to the same table `profile.get` reads.
+    ///
+    /// Deliberately not on `ScriptHost`: the trait cannot hand out a `&mut`
+    /// through an `Rc<RefCell<_>>`, and a trait method that returned a copy
+    /// would be a profile whose writes went nowhere.
+    pub fn profile_handle(&self) -> Rc<RefCell<crate::profile::Profile>> {
+        self.profile.clone()
+    }
+
+    /// Whether a script is loaded.
     pub fn has(&self, path: &str) -> bool {
         self.scripts.contains_key(path)
     }
@@ -732,6 +761,7 @@ fn build_environment(
     tick_rate: u32,
     modules: &Rc<RefCell<Modules>>,
     log: &Rc<RefCell<Vec<String>>>,
+    profile: &Rc<RefCell<crate::profile::Profile>>,
     path: &str,
 ) -> Result<Table, Diagnostic> {
     let env = lua.create_table().map_err(|e| runtime_error(path, e))?;
@@ -791,7 +821,7 @@ fn build_environment(
 
     env.set("_G", env.clone())
         .map_err(|e| runtime_error(path, e))?;
-    install_api(lua, tick_rate, modules, log, &env, path)?;
+    install_api(lua, tick_rate, modules, log, profile, &env, path)?;
     Ok(env)
 }
 
@@ -848,7 +878,8 @@ pub fn sandbox_globals() -> Result<Vec<String>, Diagnostic> {
     let lua = Lua::new();
     let modules = Rc::new(RefCell::new(Modules::default()));
     let log = Rc::new(RefCell::new(Vec::new()));
-    let env = build_environment(&lua, 60, &modules, &log, "<introspection>")?;
+    let profile = Rc::new(RefCell::new(crate::profile::Profile::new()));
+    let env = build_environment(&lua, 60, &modules, &log, &profile, "<introspection>")?;
     let mut names: Vec<String> = env
         .pairs::<String, mlua::Value>()
         .filter_map(|p: mlua::Result<(String, mlua::Value)>| p.ok().map(|(k, _)| k))
@@ -862,6 +893,7 @@ fn install_api(
     tick_rate: u32,
     modules: &Rc<RefCell<Modules>>,
     log: &Rc<RefCell<Vec<String>>>,
+    profile: &Rc<RefCell<crate::profile::Profile>>,
     env: &Table,
     path: &str,
 ) -> Result<(), Diagnostic> {
@@ -1452,6 +1484,54 @@ fn install_api(
         .map_err(err)?;
     env.set("tiles", tiles).map_err(err)?;
 
+    // profile: what accumulates across runs, and never enters the hash.
+    //
+    // Not a field on `SimState` at all, for the reason the log lines are not:
+    // "kept out entirely" is one fewer thing to get wrong than "a field the
+    // hash skips". The hazard this cannot fix — a script branching on a
+    // profile value and writing what it reads into state — is documented on
+    // `crate::profile` and reported by `dim script check --determinism`.
+    let profile_table = lua.create_table().map_err(err)?;
+    let store = profile.clone();
+    profile_table
+        .set(
+            "get",
+            lua.create_function(move |lua, key: String| match store.borrow().get(&key) {
+                Some(v) => to_lua(lua, v),
+                None => Ok(mlua::Value::Nil),
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    let store = profile.clone();
+    profile_table
+        .set(
+            "put",
+            lua.create_function(move |_, (key, value): (String, mlua::Value)| {
+                // Applied immediately rather than deferred to a phase
+                // boundary. Deferring exists to stop one script's write
+                // changing what another sees *within a tick that is hashed*;
+                // nothing here is hashed, so the only thing deferral would buy
+                // is the illusion that this is simulation state.
+                store.borrow_mut().put(&key, from_lua(value)?);
+                Ok(())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    let store = profile.clone();
+    profile_table
+        .set(
+            "clear",
+            lua.create_function(move |_, key: String| {
+                store.borrow_mut().clear(&key);
+                Ok(())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    env.set("profile", profile_table).map_err(err)?;
+
     // tween: cosmetic motion, measured in ticks like everything else.
     let tween = lua.create_table().map_err(err)?;
     tween
@@ -1693,9 +1773,10 @@ fn install_api(
     // require(path): another script's returned table, evaluated once.
     let registry = modules.clone();
     let sink = log.clone();
+    let store = profile.clone();
     let require = lua
         .create_function(move |lua, name: String| {
-            require_module(lua, tick_rate, &registry, &sink, &name)
+            require_module(lua, tick_rate, &registry, &sink, &store, &name)
         })
         .map_err(err)?;
     env.set("require", require).map_err(err)?;
@@ -1721,6 +1802,7 @@ fn require_module(
     tick_rate: u32,
     modules: &Rc<RefCell<Modules>>,
     log: &Rc<RefCell<Vec<String>>>,
+    profile: &Rc<RefCell<crate::profile::Profile>>,
     name: &str,
 ) -> mlua::Result<mlua::Value> {
     if let Some(cached) = modules.borrow().cache.get(name).cloned() {
@@ -1748,7 +1830,7 @@ fn require_module(
     };
 
     modules.borrow_mut().loading.push(name.to_string());
-    let evaluated = build_environment(lua, tick_rate, modules, log, name)
+    let evaluated = build_environment(lua, tick_rate, modules, log, profile, name)
         .map_err(|d| mlua::Error::runtime(d.message))
         .and_then(|env| {
             lua.load(&source)

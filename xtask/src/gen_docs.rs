@@ -308,6 +308,33 @@ fn render_markdown(
          `scene.near` and `scene.nearest` read the broadphase as it stood at the\n\
          *start* of the tick, so every script sees the same world and what one finds\n\
          does not depend on whether another has run yet.\n\n\
+         ### Saves and the profile\n\n\
+         Two kinds of persistence, and conflating them is the bug.\n\n\
+         A **run** is simulation state. `dim state save` writes one and `dim state load`\n\
+         reads it back, exactly: the resumed run continues identically, RNG streams\n\
+         included, or it is a different run. The tree goes out as canonical `.dim` text\n\
+         rather than a second serialisation, because I2 already guarantees that\n\
+         round-trips, and a save that is text is a save somebody can read. A save from\n\
+         a different engine version is **refused** (`DIM1002`) rather than warned about:\n\
+         a log that replays wrong announces itself as a divergence, while a save that\n\
+         restores wrong just keeps playing.\n\n\
+         A **profile** is what accumulates across runs -- knowledge, awards, unlocks.\n\
+         It is reached through `profile.get`, `profile.put` and `profile.clear`, and it\n\
+         is **not in `SimState` at all**. Not a field the hasher skips: absent, the way\n\
+         the log lines are, because kept-out-entirely is one fewer thing to get wrong.\n\
+         Two players on the same seed have different profiles, so a hashed one would\n\
+         make their replays diverge for a reason that has nothing to do with the game.\n\
+         It is not snapshotted either, so a rollback does not take back an award.\n\n\
+         **The hazard this cannot fix.** Keeping the profile out of the hash stops it\n\
+         *being* hashed; it does not stop a script reading from it and writing what it\n\
+         read into state. A line like `if profile.get(k) then self.spell = 1 end` makes\n\
+         two players\' simulations differ, and hashing the profile would not help -- it\n\
+         would turn a silent divergence into a loud one at the cost of making every\n\
+         replay depend on who is playing. So the rule is one a game has to follow: **a\n\
+         profile value may decide what is drawn, offered or unlocked, and may not decide\n\
+         what the simulation does.** Choose a loadout from it at the menu, before the\n\
+         run begins, and carry the choice in through `scene.request_load`, where it is\n\
+         hashed like everything else.\n\n\
          ### Tiles\n\n\
          `tiles` reads and writes a `TileLayer`\'s grid while the game runs, which is\n\
          what a generated map needs: a roguelike builds its floor when you arrive from\n\

@@ -14,6 +14,49 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: saving a run, and a profile that is nowhere near the hash
+
+Two different things, and conflating them was the bug to avoid.
+
+**Run state.** `dim state save --out <dir>` and `dim state load --from <dir>`.
+The save is a directory of text: `scene.dim` written through the canonical
+writer, so it round-trips for exactly the reason a scene file does (I2), plus
+`state.toml` for everything else. A binary savefile would be the one place this
+engine stops being a thing you can read a diff of.
+
+A save carries a format version and the engine that wrote it, and a mismatch on
+either is **refused** (`DIM1002`), not warned about. An input log that replays
+wrong announces itself as a divergence; a save that restores wrong just keeps
+playing.
+
+The test that matters is not that the hash restores — it is that the resumed
+run *continues* identically for the next five ticks, which is what says the RNG
+streams are where they were rather than merely looking like it.
+
+**Profile state.** `profile.get(key)`, `profile.put(key, value)`,
+`profile.clear(key)`, stored as `profile.toml` beside the project.
+
+It is **not a field on `SimState`**. Not one the hasher skips — absent, the way
+the log lines are, because kept-out-entirely is one fewer thing to get wrong.
+Two players on the same seed have different profiles, so a hashed one would
+make their replays diverge for a reason that has nothing to do with the game.
+It is not snapshotted either, so a rollback does not take back an award.
+
+**The hazard this cannot fix, stated plainly.** Keeping the profile out of the
+hash stops it *being* hashed. It does not stop a script reading from it and
+writing what it read into state — `if profile.get(k) then self.spell = 1 end`
+makes two players' simulations differ, and hashing the profile would only turn
+a silent divergence into a loud one at the cost of making every replay depend
+on who is playing. The rule is one the game has to follow: a profile value may
+decide what is drawn, offered or unlocked, not what the simulation does. Pick a
+loadout at the menu and carry it in through `scene.request_load`, where it is
+hashed.
+
+New codes: **`DIM1001`** (a save could not be read or written) and **`DIM1002`**
+(a save from a different format or engine version).
+
+Does not move the state hash.
+
 ### Added: a script can ask for a different scene (`scene.request_load`)
 
 `ENGINE-GAPS.md` had this under *probably game-specific*, reasoning that the

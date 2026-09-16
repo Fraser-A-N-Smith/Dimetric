@@ -1254,6 +1254,64 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
             out.warnings = diags.0;
             Ok(out)
         }
+        StateCmd::Save {
+            out,
+            tick,
+            seed,
+            input,
+        } => {
+            let log = match &input {
+                Some(path) => read_log(project, path)?,
+                None => dimetric_sim::InputLog::new(seed, env!("CARGO_PKG_VERSION"), 1),
+            };
+            let seed = if input.is_some() { log.seed } else { seed };
+            let (mut sim, _) = build_sim(project, seed)?;
+            let mut swaps = Diagnostics::new();
+            for t in 0..tick {
+                sim.step(log.frame(t));
+                dimetric_host::scene_swap::apply_pending_load(project, &mut sim, &mut swaps);
+            }
+            let dir = std::path::Path::new(&out);
+            // The project's registry, not the built-ins: a game that declares
+            // its own kinds would otherwise write a scene its own loader
+            // rejects.
+            dimetric_host::savefile::save(
+                dir,
+                &sim.state(),
+                &project
+                    .open
+                    .as_ref()
+                    .map(|d| d.source_path.clone())
+                    .unwrap_or_default(),
+                &project.registry,
+            )
+            .map_err(one)?;
+            let hash = sim.hash().to_hex();
+            Ok(Output::new(
+                json!({ "saved": out, "tick": tick, "seed": seed, "hash": hash }),
+                format!("saved tick {tick} to {out} (state {hash})"),
+            ))
+        }
+        StateCmd::Load { from } => {
+            let dir = std::path::Path::new(&from);
+            let (state, _) = dimetric_host::savefile::load(dir, &project.registry).map_err(one)?;
+            let hash = state.hash().to_hex();
+            let nodes = state.scene.walk().len();
+            Ok(Output::new(
+                json!({
+                    "loaded": from,
+                    "tick": state.tick.0,
+                    "seed": state.rng.seed(),
+                    "nodes": nodes,
+                    "hash": hash,
+                }),
+                format!(
+                    "loaded tick {} from {from}: {nodes} nodes, seed {} (state {hash})",
+                    state.tick.0,
+                    state.rng.seed()
+                ),
+            ))
+        }
         StateCmd::Hash { tick, seed } => {
             let (mut sim, _) = build_sim(project, seed)?;
             let log = dimetric_sim::InputLog::new(seed, env!("CARGO_PKG_VERSION"), 1);

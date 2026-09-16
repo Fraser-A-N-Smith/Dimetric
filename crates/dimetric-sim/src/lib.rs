@@ -17,6 +17,7 @@ pub mod api_doc;
 pub mod input;
 pub mod load;
 pub mod phase;
+pub mod profile;
 pub mod script;
 pub mod shape;
 pub mod sound;

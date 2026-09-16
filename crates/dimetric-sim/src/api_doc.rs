@@ -48,6 +48,11 @@ pub const GLOBALS: &[Global] = &[
                 `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`",
     },
     Global {
+        name: "profile",
+        about: "`get(key)`, `put(key, value)`, `clear(key)` — across runs, and \
+                **never** in the state hash",
+    },
+    Global {
         name: "tick",
         about: "`count()`, `dt()`, `rate`",
     },

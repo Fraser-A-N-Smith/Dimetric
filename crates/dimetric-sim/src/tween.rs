@@ -23,7 +23,7 @@ use dimetric_core::{Angle, Fx, NodeUid, StateHasher, Vec2Fx};
 use dimetric_scene::{Color, Value};
 
 /// How a tween gets from one value to the other.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Easing {
     /// Constant rate.
     #[default]
@@ -79,7 +79,7 @@ impl Easing {
 }
 
 /// One property on its way from one value to another.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Debug)]
 pub struct Tween {
     /// Property being written.
     pub property: String,

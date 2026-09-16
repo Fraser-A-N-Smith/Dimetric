@@ -162,6 +162,10 @@ codes! {
     SETTINGS_UNREADABLE = "DIM0901", Error, "project.toml exists but could not be read or parsed";
     SETTINGS_INVALID    = "DIM0902", Error, "A project setting is out of range or the wrong shape";
     BINDING_UNKNOWN     = "DIM0903", Error, "An input binding names an action the engine does not have";
+
+    // 10xx — saved state
+    SAVE_UNREADABLE   = "DIM1001", Error,   "A save file could not be read or written";
+    SAVE_VERSION      = "DIM1002", Error,   "A save was written by a different format or engine version";
 }
 
 /// Look up a registered code.

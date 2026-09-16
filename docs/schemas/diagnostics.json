@@ -199,6 +199,16 @@
       "code": "DIM0903",
       "severity": "error",
       "summary": "An input binding names an action the engine does not have"
+    },
+    {
+      "code": "DIM1001",
+      "severity": "error",
+      "summary": "A save file could not be read or written"
+    },
+    {
+      "code": "DIM1002",
+      "severity": "error",
+      "summary": "A save was written by a different format or engine version"
     }
   ]
 }

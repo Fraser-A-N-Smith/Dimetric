@@ -23,7 +23,7 @@ use crate::input::InputFrame;
 /// Counted in ticks, never in wall-clock milliseconds, because a hitbox
 /// activation frame is gameplay. Import converts the artist's millisecond
 /// timings to tick counts once, at import time.
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct AnimState {
     /// Clip currently playing.
     pub clip: String,
