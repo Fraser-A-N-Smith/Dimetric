@@ -37,6 +37,11 @@ pub const GLOBALS: &[Global] = &[
                 `released(button)`",
     },
     Global {
+        name: "tiles",
+        about: "`get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, \
+                `bounds(layer)` — writes land at the end of the tick",
+    },
+    Global {
         name: "ui",
         about: "`hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, \
                 `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`",

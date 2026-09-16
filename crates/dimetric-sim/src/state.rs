@@ -120,6 +120,12 @@ pub struct SimState {
     /// How many spawns have happened, which is what makes their ids
     /// reproducible without consuming the RNG.
     pub spawn_count: u64,
+    /// Tile edits a script asked for, applied at a phase boundary.
+    ///
+    /// Deferred for the same reason spawns are: a grid that changed mid-tick
+    /// would change under every script that had not run yet. See
+    /// [`crate::tiles`].
+    pub tile_queue: Vec<crate::tiles::TileEdit>,
     /// Nodes a script asked to destroy, applied at a phase boundary.
     ///
     /// Deferred rather than immediate so a script cannot delete a node another
@@ -171,6 +177,7 @@ impl SimState {
             query: None,
             spawn_queue: Vec::new(),
             spawn_count: 0,
+            tile_queue: Vec::new(),
             destroy_queue: Vec::new(),
             readied: Vec::new(),
             sounds: Vec::new(),

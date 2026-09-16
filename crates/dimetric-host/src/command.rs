@@ -9,7 +9,6 @@
 //! *only* mutation path, undo cannot desynchronize from the thing it is undoing.
 
 use dimetric_core::{Code, Diagnostic, NodeUid, Vec2Fx};
-use dimetric_scene::chunk::split_coord;
 use dimetric_scene::node::{Connection, Override, ParentRef};
 use dimetric_scene::value::Value;
 use dimetric_scene::{Chunk, KindRegistry, Node, SceneDoc};
@@ -901,6 +900,12 @@ fn write_override(
 }
 
 /// Write one tile, creating the chunk if it does not exist yet.
+/// Write one tile into the document's model.
+///
+/// The chunk handling itself lives in `dimetric_scene::chunk` so the
+/// simulation's deferred tile writes and this command share it — two
+/// implementations is how they end up disagreeing about what happens at the
+/// edge of an unallocated chunk.
 fn write_tile(
     doc: &mut SceneDoc,
     layer: NodeUid,
@@ -909,29 +914,7 @@ fn write_tile(
     tile: u16,
 ) -> Result<u16, Diagnostic> {
     find(doc, layer)?;
-    let (chunk_at, cell) = split_coord(x, y);
-    let index = match doc
-        .scene
-        .chunks
-        .iter()
-        .position(|c| c.layer == layer && c.at == chunk_at)
-    {
-        Some(i) => i,
-        None => {
-            doc.scene.chunks.push(Chunk::empty(layer, chunk_at));
-            doc.scene.chunks.len() - 1
-        }
-    };
-    doc.scene.chunks[index]
-        .set(cell[0], cell[1], tile)
-        .ok_or_else(|| {
-            Diagnostic::new(
-                Code::BAD_CHUNK_DATA,
-                format!(
-                    "chunk at {chunk_at:?} stores its cells externally and cannot be edited yet"
-                ),
-            )
-        })
+    dimetric_scene::chunk::set_tile_in(&mut doc.scene.chunks, layer, x, y, tile)
 }
 
 /// Rewrite every `[[chunk]]` block for one layer from the model.

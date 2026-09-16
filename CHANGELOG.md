@@ -14,6 +14,42 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a tile API for scripts (`tiles`)
+
+The sandbox had no way to read one tile. `TileLayer` stored run-length chunks,
+`set_tiles` and `fill_tiles` were proper undoable commands, and all of it was
+authoring-time only — so a game that builds its map from a seed could not.
+
+```lua
+tiles.get(layer, x, y)               -- tile index, 0 where nothing is painted
+tiles.set(layer, x, y, tile)         -- lands at the end of the tick
+tiles.fill(layer, x, y, w, h, tile)  -- lands at the end of the tick
+tiles.bounds(layer)                  -- {x, y, w, h}, or nil
+```
+
+Writes are deferred like `scene.spawn`, for the same reason: a grid that
+changed mid-tick would change under every script that had not run yet. The
+useful consequence is that **reads need no snapshot at all** — the grid does
+not change inside a tick, so a read during one is already the grid as it stood
+when the tick began. `scene.near` has to snapshot a broadphase because nodes do
+move mid-tick; tiles do not.
+
+This does **not** route through the command bus, which the request expected it
+to. See `docs/ENGINE-GAPS.md` — in short, the bus is the authoring path and a
+running simulation has no document to keep in step. The chunk handling *is*
+shared: it moved to `dimetric_scene::chunk` and the `SetTiles` command now
+calls the same function, so there is one implementation rather than two.
+
+New code: **`DIM0505`**, a script passing an argument a binding cannot accept —
+a fill larger than a million cells, a tile index outside `u16`, or a node that
+is not a `TileLayer`.
+
+**Moves the state hash for any run that paints a tile**, because tiles are part
+of the scene and the scene is hashed. No committed fixture changed, because
+none of them painted one. New fixture: `tests/replay/generated-floor`, a floor
+carved and scattered from the run seed, with probes asserting the tile counts
+rather than only the hash.
+
 ### Fixed: `docs/API.md` omitted a whole Lua global
 
 The reference said "scripts see exactly these globals and nothing else" and

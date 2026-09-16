@@ -795,6 +795,45 @@ fn build_environment(
     Ok(env)
 }
 
+/// Resolve a handle to a `TileLayer`, or say why it is not one.
+///
+/// Checked by the built-in a kind *behaves as* rather than by its name, so a
+/// project that declares `Floor extends TileLayer` works — the same lookup
+/// every other kind comparison in the engine goes through.
+fn tile_layer(state: &SimState, NodeHandle(uid): NodeHandle) -> mlua::Result<NodeUid> {
+    let Some(id) = state.scene.by_uid(uid) else {
+        return Err(mlua::Error::external(Diagnostic::new(
+            Code::STALE_HANDLE,
+            format!("{uid} is not in the scene"),
+        )));
+    };
+    let node = state.scene.get(id).expect("id from by_uid");
+    if node.base != "TileLayer" {
+        return Err(mlua::Error::external(Diagnostic::new(
+            Code::SCRIPT_BAD_ARGUMENT,
+            format!(
+                "{} is a {} and the tiles API needs a TileLayer",
+                node.name, node.kind
+            ),
+        )));
+    }
+    Ok(uid)
+}
+
+/// Narrow a Lua integer to a tile index.
+///
+/// Tiles are `u16` in the chunk format, and a script computing one from a
+/// table lookup that came back `nil` would otherwise silently write whatever
+/// the cast produced.
+fn tile_index(v: i64) -> mlua::Result<u16> {
+    u16::try_from(v).map_err(|_| {
+        mlua::Error::external(Diagnostic::new(
+            Code::SCRIPT_BAD_ARGUMENT,
+            format!("{v} is not a tile index; they run from 0 to {}", u16::MAX),
+        ))
+    })
+}
+
 /// The names a script's environment actually holds.
 ///
 /// Exists so the reference's table of globals can be *checked* rather than
@@ -1270,6 +1309,103 @@ fn install_api(
     )
     .map_err(err)?;
     env.set("ui", ui).map_err(err)?;
+
+    // tiles: the grid, read now and written at the end of the tick.
+    //
+    // Reads need no snapshot because writes are deferred — the grid does not
+    // change inside a tick at all, so a read during one is already the grid as
+    // it stood when the tick began. See `crate::tiles`.
+    let tiles = lua.create_table().map_err(err)?;
+    tiles
+        .set(
+            "get",
+            lua.create_function(|lua, (layer, x, y): (NodeHandle, i32, i32)| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let uid = tile_layer(&state, layer)?;
+                Ok(dimetric_scene::chunk::tile_at(&state.scene.chunks, uid, x, y) as i64)
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    tiles
+        .set(
+            "set",
+            lua.create_function(|lua, (layer, x, y, tile): (NodeHandle, i32, i32, i64)| {
+                let state = shared(lua)?;
+                let mut state = state.borrow_mut();
+                let uid = tile_layer(&state, layer)?;
+                let tile = tile_index(tile)?;
+                state.tile_queue.push(crate::tiles::TileEdit::Set {
+                    layer: uid,
+                    x,
+                    y,
+                    tile,
+                });
+                Ok(())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    tiles
+        .set(
+            "fill",
+            lua.create_function(
+                |lua, (layer, x, y, w, h, tile): (NodeHandle, i32, i32, i32, i32, i64)| {
+                    let state = shared(lua)?;
+                    let mut state = state.borrow_mut();
+                    let uid = tile_layer(&state, layer)?;
+                    let tile = tile_index(tile)?;
+                    // A negative extent is empty rather than an error: a
+                    // generator computing `x1 - x0` for a degenerate room
+                    // should get nothing, not a crash.
+                    let (w, h) = (w.max(0), h.max(0));
+                    let cells = w as i64 * h as i64;
+                    if cells > crate::tiles::MAX_FILL_CELLS {
+                        return Err(mlua::Error::external(Diagnostic::new(
+                            Code::SCRIPT_BAD_ARGUMENT,
+                            format!(
+                                "tiles.fill covers {cells} cells; the limit is {}",
+                                crate::tiles::MAX_FILL_CELLS
+                            ),
+                        )));
+                    }
+                    if cells > 0 {
+                        state.tile_queue.push(crate::tiles::TileEdit::Fill {
+                            layer: uid,
+                            rect: [x, y, w, h],
+                            tile,
+                        });
+                    }
+                    Ok(())
+                },
+            )
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    tiles
+        .set(
+            "bounds",
+            lua.create_function(|lua, layer: NodeHandle| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let uid = tile_layer(&state, layer)?;
+                let Some([x, y, w, h]) =
+                    dimetric_scene::chunk::layer_bounds(&state.scene.chunks, uid)
+                else {
+                    return Ok(None);
+                };
+                let t = lua.create_table()?;
+                t.set("x", x)?;
+                t.set("y", y)?;
+                t.set("w", w)?;
+                t.set("h", h)?;
+                Ok(Some(t))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    env.set("tiles", tiles).map_err(err)?;
 
     // tween: cosmetic motion, measured in ticks like everything else.
     let tween = lua.create_table().map_err(err)?;

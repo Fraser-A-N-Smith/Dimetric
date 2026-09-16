@@ -346,6 +346,9 @@ impl Sim {
                 // should find it gone, not clash with it.
                 self.apply_destroys();
                 self.apply_spawns();
+                // Tiles after nodes, so a script that spawns a door and paints
+                // the wall it sits in gets both, in an order it can predict.
+                self.apply_tile_edits();
             }
             Phase::TickIncrement => {
                 let mut state = self.state.borrow_mut();
@@ -598,6 +601,47 @@ impl Sim {
     ///
     /// Deferred to a phase boundary so that a script cannot delete a node
     /// another script is part-way through working with.
+    /// Apply the tile edits scripts asked for this tick.
+    ///
+    /// In queue order, which is script order, which is tree order — so two
+    /// scripts painting the same cell resolve the same way on every machine.
+    fn apply_tile_edits(&mut self) {
+        let pending: Vec<crate::tiles::TileEdit> =
+            std::mem::take(&mut self.state.borrow_mut().tile_queue);
+        for edit in pending {
+            let mut state = self.state.borrow_mut();
+            let result = match edit {
+                crate::tiles::TileEdit::Set { layer, x, y, tile } => {
+                    dimetric_scene::chunk::set_tile_in(&mut state.scene.chunks, layer, x, y, tile)
+                        .map(|_| ())
+                }
+                crate::tiles::TileEdit::Fill { layer, rect, tile } => {
+                    let [x0, y0, w, h] = rect;
+                    let mut out = Ok(());
+                    'fill: for y in y0..y0.saturating_add(h) {
+                        for x in x0..x0.saturating_add(w) {
+                            if let Err(d) = dimetric_scene::chunk::set_tile_in(
+                                &mut state.scene.chunks,
+                                layer,
+                                x,
+                                y,
+                                tile,
+                            ) {
+                                out = Err(d);
+                                break 'fill;
+                            }
+                        }
+                    }
+                    out
+                }
+            };
+            if let Err(d) = result {
+                drop(state);
+                self.diagnostics.push(d);
+            }
+        }
+    }
+
     /// Create everything scripts asked for this tick.
     fn apply_spawns(&mut self) {
         let pending: Vec<crate::spawn::Spawn> =

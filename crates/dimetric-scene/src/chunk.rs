@@ -199,3 +199,83 @@ pub fn decode_rle(text: &str) -> Result<Box<[u16; CHUNK_CELLS]>, Diagnostic> {
 fn bad_chunk(message: String) -> Diagnostic {
     Diagnostic::new(Code::BAD_CHUNK_DATA, message)
 }
+
+// -- Reading and writing a layer's grid -----------------------------------
+//
+// One implementation, two callers: the authoring commands in `dimetric-host`
+// and the simulation's own deferred writes. The write logic used to live only
+// in `Command::SetTiles`, so giving scripts tiles meant either a second copy of
+// chunk allocation and run-length handling, or lifting it here. A second copy
+// is how two paths disagree about what an out-of-range write does.
+
+/// The tile at a cell, or [`EMPTY_TILE`] where no chunk has been allocated.
+///
+/// An unallocated chunk reads as empty rather than as an error: a grid is
+/// conceptually infinite and sparsely stored, so "nothing there" is the honest
+/// answer for a cell nobody has painted. A script generating a floor reads
+/// outside its own bounds constantly — checking the neighbours of an edge cell
+/// does it — and an error for that would mean bounds-checking every read.
+pub fn tile_at(chunks: &[Chunk], layer: NodeUid, x: i32, y: i32) -> u16 {
+    let (chunk_at, cell) = split_coord(x, y);
+    chunks
+        .iter()
+        .find(|c| c.layer == layer && c.at == chunk_at)
+        .and_then(|c| c.get(cell[0], cell[1]))
+        .unwrap_or(EMPTY_TILE)
+}
+
+/// Write one tile, allocating its chunk if needed, and return what was there.
+///
+/// The previous value is returned because that is what makes the write
+/// invertible: `Command::SetTiles` builds its undo from these.
+pub fn set_tile_in(
+    chunks: &mut Vec<Chunk>,
+    layer: NodeUid,
+    x: i32,
+    y: i32,
+    tile: u16,
+) -> Result<u16, Diagnostic> {
+    let (chunk_at, cell) = split_coord(x, y);
+    let index = match chunks
+        .iter()
+        .position(|c| c.layer == layer && c.at == chunk_at)
+    {
+        Some(i) => i,
+        None => {
+            chunks.push(Chunk::empty(layer, chunk_at));
+            // Kept in a defined order rather than appended wherever: the chunk
+            // list is hashed, and a list whose order depended on which cell a
+            // script happened to touch first would hash differently for the
+            // same grid (I4).
+            chunks.sort_by_key(|c| (c.layer, c.at));
+            chunks
+                .iter()
+                .position(|c| c.layer == layer && c.at == chunk_at)
+                .expect("just inserted")
+        }
+    };
+    chunks[index].set(cell[0], cell[1], tile).ok_or_else(|| {
+        Diagnostic::new(
+            Code::BAD_CHUNK_DATA,
+            format!("chunk at {chunk_at:?} stores its cells externally and cannot be edited yet"),
+        )
+    })
+}
+
+/// The tile extent of a layer, as `[x, y, width, height]`.
+///
+/// Chunk granularity, not cell granularity: it reports the region that has
+/// storage, which is what a generator wants to iterate. `None` when the layer
+/// has no chunks at all.
+pub fn layer_bounds(chunks: &[Chunk], layer: NodeUid) -> Option<[i32; 4]> {
+    let mut found = false;
+    let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+    for chunk in chunks.iter().filter(|c| c.layer == layer) {
+        found = true;
+        x0 = x0.min(chunk.at[0] * CHUNK_SIZE);
+        y0 = y0.min(chunk.at[1] * CHUNK_SIZE);
+        x1 = x1.max((chunk.at[0] + 1) * CHUNK_SIZE);
+        y1 = y1.max((chunk.at[1] + 1) * CHUNK_SIZE);
+    }
+    found.then(|| [x0, y0, x1 - x0, y1 - y0])
+}

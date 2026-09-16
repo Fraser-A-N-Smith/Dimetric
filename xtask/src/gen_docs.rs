@@ -308,6 +308,31 @@ fn render_markdown(
          `scene.near` and `scene.nearest` read the broadphase as it stood at the\n\
          *start* of the tick, so every script sees the same world and what one finds\n\
          does not depend on whether another has run yet.\n\n\
+         ### Tiles\n\n\
+         `tiles` reads and writes a `TileLayer`\'s grid while the game runs, which is\n\
+         what a generated map needs: a roguelike builds its floor when you arrive from\n\
+         the run\'s seed, and authoring floors as `.dim` files is the genre\'s negation.\n\n\
+         **Writes are deferred to the end of the tick**, like `scene.spawn`, because a\n\
+         script that changed the grid mid-tick would change it under every script that\n\
+         had not run yet — and which terrain a monster saw would depend on where it fell\n\
+         in the traversal. The useful consequence is that **reads need no snapshot**:\n\
+         the grid does not change inside a tick at all, so a read during one is already\n\
+         the grid as it stood when the tick began.\n\n\
+         A cell nobody has painted reads as tile `0` rather than failing. A generator\n\
+         checks the neighbours of an edge cell constantly, and an error for that would\n\
+         mean bounds-checking every read. `tiles.bounds` reports where a layer has\n\
+         storage, at chunk granularity, which is what a generator wants to iterate.\n\n\
+         Tiles are part of the scene and the scene is hashed, so a painted tile moves\n\
+         the state hash and a rollback rewinds the grid. A floor generated from a seed\n\
+         therefore comes out identical on every machine, which is what makes a\n\
+         generation bug arrive as a seed.\n\n\
+         This does **not** go through the command bus, and that is deliberate rather\n\
+         than an omission. The bus is the authoring path: a `SceneDoc` carries a TOML\n\
+         document beside the model and a command keeps the two in step so a file can be\n\
+         written back and undone. A running simulation has no document, and every tick\n\
+         already moves nodes without a command in sight — `scene.spawn` does not use the\n\
+         bus either. What *is* shared with the bus is the chunk handling, which lives in\n\
+         `dimetric_scene::chunk` and has one implementation.\n\n\
          ### UI\n\n\
          `ui` reads what the pointer is doing to the interface, worked out inside the\n\
          tick — layout and hit testing run in a `UiUpdate` phase before scripts, so a\n\

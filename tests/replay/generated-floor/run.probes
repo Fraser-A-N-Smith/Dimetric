@@ -1,0 +1,23 @@
+# A floor built from the run's seed, read back through `tiles.get`.
+#
+# The hash alone would only say the run is self-consistent. These say the tiles
+# are the tiles: a platform that disagreed about the grid, or a change that
+# quietly stopped `tiles.fill` covering its last row, fails here with a number
+# rather than with an opaque divergence.
+
+# The room is 24x18 with a one-cell wall all the way round, so the wall is
+# 432 - (22 * 16) = 80 cells. Arithmetic rather than a recorded figure.
+tick 2 /World/Generator var:walls == 80
+
+# Everything inside the wall is either floor or rubble, and 331 + 21 is 352,
+# which is 22 * 16. The two counts have to add up or the fill left a gap.
+tick 2 /World/Generator var:floors == 331
+tick 2 /World/Generator var:rubble == 21
+
+# Sixty rubble steps landed on 21 distinct cells: the walk crosses itself, which
+# is what a drunkard's walk does. Pinned because it is the number that would
+# move if the RNG stream changed shape.
+#
+# Storage is allocated by chunk, so a 24x18 room reports one 32x32 chunk.
+tick 2 /World/Generator var:bounds_w == 32
+tick 2 /World/Generator var:bounds_h == 32

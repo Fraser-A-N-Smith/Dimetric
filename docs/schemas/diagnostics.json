@@ -141,6 +141,11 @@
       "summary": "Script used a handle to a destroyed node"
     },
     {
+      "code": "DIM0505",
+      "severity": "error",
+      "summary": "Script passed an argument the binding cannot accept"
+    },
+    {
       "code": "DIM0601",
       "severity": "error",
       "summary": "Referenced asset is not in the project"

@@ -1,0 +1,25 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "World"
+
+[[node]]
+id = "n_floor000"
+kind = "TileLayer"
+name = "Floor"
+parent = "n_root0000"          # /World
+collision = true
+tileset = "asset:tiles/dungeon"
+
+[[node]]
+id = "n_maker000"
+kind = "Node2D"
+name = "Generator"
+parent = "n_root0000"          # /World
+script = "script:scripts/generate.lua"

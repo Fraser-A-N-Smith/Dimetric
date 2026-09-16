@@ -312,6 +312,7 @@ message. Codes are never reused for a different meaning.
 | `DIM0502` | error | Lua runtime error |
 | `DIM0503` | error | Script reached for something the sandbox withholds |
 | `DIM0504` | error | Script used a handle to a destroyed node |
+| `DIM0505` | error | Script passed an argument the binding cannot accept |
 | `DIM0601` | error | Referenced asset is not in the project |
 | `DIM0602` | error | Asset import failed |
 | `DIM0603` | error | Unsupported source format |
@@ -387,6 +388,7 @@ Scripts see exactly these globals and nothing else.
 |---|---|
 | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)` |
 | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
+| `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)` |
 | `tick` | `count()`, `dt()`, `rate` |
 | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |
@@ -418,6 +420,37 @@ projectile does not shift every gameplay roll after it.
 `scene.near` and `scene.nearest` read the broadphase as it stood at the
 *start* of the tick, so every script sees the same world and what one finds
 does not depend on whether another has run yet.
+
+### Tiles
+
+`tiles` reads and writes a `TileLayer`'s grid while the game runs, which is
+what a generated map needs: a roguelike builds its floor when you arrive from
+the run's seed, and authoring floors as `.dim` files is the genre's negation.
+
+**Writes are deferred to the end of the tick**, like `scene.spawn`, because a
+script that changed the grid mid-tick would change it under every script that
+had not run yet — and which terrain a monster saw would depend on where it fell
+in the traversal. The useful consequence is that **reads need no snapshot**:
+the grid does not change inside a tick at all, so a read during one is already
+the grid as it stood when the tick began.
+
+A cell nobody has painted reads as tile `0` rather than failing. A generator
+checks the neighbours of an edge cell constantly, and an error for that would
+mean bounds-checking every read. `tiles.bounds` reports where a layer has
+storage, at chunk granularity, which is what a generator wants to iterate.
+
+Tiles are part of the scene and the scene is hashed, so a painted tile moves
+the state hash and a rollback rewinds the grid. A floor generated from a seed
+therefore comes out identical on every machine, which is what makes a
+generation bug arrive as a seed.
+
+This does **not** go through the command bus, and that is deliberate rather
+than an omission. The bus is the authoring path: a `SceneDoc` carries a TOML
+document beside the model and a command keeps the two in step so a file can be
+written back and undone. A running simulation has no document, and every tick
+already moves nodes without a command in sight — `scene.spawn` does not use the
+bus either. What *is* shared with the bus is the chunk handling, which lives in
+`dimetric_scene::chunk` and has one implementation.
 
 ### UI
 

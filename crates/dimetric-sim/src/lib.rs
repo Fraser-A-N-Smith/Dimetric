@@ -23,6 +23,7 @@ pub mod spawn;
 pub mod state;
 pub mod sweep;
 pub mod tick;
+pub mod tiles;
 pub mod tween;
 pub mod ui;
 pub mod world;
