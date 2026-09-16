@@ -14,6 +14,60 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `ui.measure`, and a determinism lint for Lua
+
+**`ui.measure(font, text)`** returns `{w, h}` in pixels, from the baked integer
+metrics. It is a pure function of a font and a string, both of which the engine
+already has, and it contains no layout policy — which is why it is built while
+the scroll and grid containers that would use it are not. See
+`docs/ENGINE-GAPS.md` for that reasoning.
+
+**`dim script check --determinism`** scans a script for the three ways a game
+on this engine breaks replay:
+
+- `pairs()`, whose iteration order Lua does not specify.
+- A fractional literal, because a Lua number is an f64.
+- A `profile.get` flowing into a state write — the hazard the profile layer
+  documents and cannot itself prevent.
+
+`CONTRIBUTING.md` already makes this argument for the Rust lints and it holds
+word for word here: these do not fail loudly, they fail three weeks later on
+somebody else's machine. `-- @ordered` and `-- @presentation` are the escape
+hatches, because a conservative lint without one gets turned off.
+
+It is a text scan, not a type system, and is biased toward naming a safe
+`pairs()` over missing an unsafe one. One false positive was worth fixing
+before shipping: `fx.parse("0.1")` is the *correct* way to get an exact tenth,
+and flagging the digits inside those quotes would have fired on the very
+pattern the lint recommends. String literals are blanked before the float scan,
+and the example project now reports clean.
+
+New code: **`DIM0506`** (warning).
+
+Does not move the state hash.
+
+### Declined, with reasoning in `docs/ENGINE-GAPS.md`
+
+**Grid pathfinding** (`grid.path`, `grid.reachable`, `grid.line`,
+`grid.visible`). Close, but a pathfinder is a policy about movement rather than
+a query about the world — the `opts` table is where that shows. `tiles.get` is
+the read it needs and the determinism lint covers the way a hand-written A*
+breaks replay.
+
+**Scroll and grid containers, nine-patch panels.** M12 is defensible against
+the "custom UI toolkit" non-goal because its subject is determinism — a click
+that replays. These have no determinism content. Noted in that file: *clipping*
+is the one piece worth reconsidering, and it is not the one that was asked for
+hardest.
+
+### Answered: what an idle tick costs
+
+Measured rather than guessed, with a new
+`cargo run --release -p dimetric-sim --example idle_cost`. At twenty actors an
+idle tick costs 25 µs to step, 30 µs to hash and 15 µs to snapshot — 0.4% of a
+60Hz budget, and ten seconds of CPU across a forty-minute run. Tick and forget.
+Full table in `docs/ENGINE-GAPS.md`.
+
 ### Added: canvas-to-world unprojection (`camera.to_world`)
 
 ```lua

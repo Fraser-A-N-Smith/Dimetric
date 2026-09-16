@@ -136,6 +136,28 @@ impl Project {
     ///
     /// Empty until [`Project::import_assets`] has run, which is what a caller
     /// building a simulation should do first.
+    /// The baked fonts, for a simulation that measures text.
+    ///
+    /// The built-in font is included, so `ui.measure` answers for a project
+    /// with no font assets — the same fallback a `Label` gets.
+    pub fn fonts(&self) -> dimetric_sim::text::Fonts {
+        let mut fonts = dimetric_sim::text::Fonts::new();
+        let (builtin, _) = dimetric_assets::builtin_font::builtin();
+        fonts.insert(
+            dimetric_assets::builtin_font::BUILTIN_FONT.to_string(),
+            builtin,
+        );
+        if let Some(imported) = &self.imported {
+            for (name, artifact) in &imported.artifacts {
+                if let dimetric_assets::Artifact::Font { font, .. } = artifact {
+                    fonts.insert(name.clone(), font.clone());
+                }
+            }
+        }
+        fonts
+    }
+
+    /// The animation clips the importer produced, for the simulation.
     pub fn clips(&self) -> dimetric_sim::anim::Clips {
         let Some(imported) = &self.imported else {
             return Default::default();

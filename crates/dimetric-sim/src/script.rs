@@ -647,6 +647,14 @@ pub struct LuaHost {
     /// state is a field a later change starts hashing by accident. See
     /// [`crate::profile`].
     profile: Rc<RefCell<crate::profile::Profile>>,
+    /// Baked fonts, for `ui.measure`.
+    ///
+    /// On the host rather than in `SimState` because the metric tables are
+    /// large, unchanging, and come from the project rather than the run —
+    /// exactly like the animation clips, and for the same reason a module's
+    /// table is not in the state either. What a script *derives* from them
+    /// lands in a control's rectangle, which is hashed.
+    fonts: Rc<RefCell<crate::text::Fonts>>,
 }
 
 impl LuaHost {
@@ -655,6 +663,7 @@ impl LuaHost {
         let lua = Lua::new();
         Ok(LuaHost {
             profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
+            fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
             lua,
             scripts: BTreeMap::new(),
             modules: Rc::new(RefCell::new(Modules::default())),
@@ -672,14 +681,7 @@ impl LuaHost {
             .borrow_mut()
             .sources
             .insert(path.to_string(), source.to_string());
-        let env = build_environment(
-            &self.lua,
-            self.tick_rate,
-            &self.modules,
-            &self.log,
-            &self.profile,
-            path,
-        )?;
+        let env = build_environment(&self.lua, self.tick_rate, &self.handles(), path)?;
         self.lua
             .load(source)
             .set_name(path)
@@ -732,6 +734,35 @@ impl LuaHost {
     /// Deliberately not on `ScriptHost`: the trait cannot hand out a `&mut`
     /// through an `Rc<RefCell<_>>`, and a trait method that returned a copy
     /// would be a profile whose writes went nowhere.
+    /// Supply the baked fonts a script may measure text with.
+    ///
+    /// Handed in by the host, like the animation clips: a run that could not
+    /// measure its own text would lay its interface out differently from one
+    /// that could, and layout is hashed.
+    pub fn set_fonts(&mut self, fonts: crate::text::Fonts) {
+        *self.fonts.borrow_mut() = fonts;
+    }
+
+    /// The profile store this host hands to scripts.
+    ///
+    /// Shared with the sandbox, so a host that loads a saved profile into it
+    /// before the first tick — and writes it back when it reports itself
+    /// dirty — is talking to the same table `profile.get` reads.
+    /// The handles this host shares with every sandbox it builds.
+    fn handles(&self) -> HostHandles {
+        HostHandles {
+            modules: self.modules.clone(),
+            log: self.log.clone(),
+            profile: self.profile.clone(),
+            fonts: self.fonts.clone(),
+        }
+    }
+
+    /// The profile store this host hands to scripts.
+    ///
+    /// Shared with the sandbox, so a host that loads a saved profile into it
+    /// before the first tick — and writes it back when it reports itself
+    /// dirty — is talking to the same table `profile.get` reads.
     pub fn profile_handle(&self) -> Rc<RefCell<crate::profile::Profile>> {
         self.profile.clone()
     }
@@ -756,12 +787,26 @@ impl LuaHost {
 /// straight through that freeze. Plain assignment does everything a script
 /// needs; `rawget` and `rawlen` stay, since reading past a metatable breaks
 /// nothing.
+/// The handles a sandbox shares with its host.
+///
+/// Bundled because the list had grown to the point where the argument order
+/// was the only thing holding it together. Everything in here has the same
+/// shape and the same reason for existing: it belongs to the host rather than
+/// to `SimState`, either because it must never be hashed (the log lines, the
+/// profile) or because it is unchanging project data the run does not own (the
+/// module cache, the fonts).
+#[derive(Clone)]
+pub(crate) struct HostHandles {
+    modules: Rc<RefCell<Modules>>,
+    log: Rc<RefCell<Vec<String>>>,
+    profile: Rc<RefCell<crate::profile::Profile>>,
+    fonts: Rc<RefCell<crate::text::Fonts>>,
+}
+
 fn build_environment(
     lua: &Lua,
     tick_rate: u32,
-    modules: &Rc<RefCell<Modules>>,
-    log: &Rc<RefCell<Vec<String>>>,
-    profile: &Rc<RefCell<crate::profile::Profile>>,
+    shared_state: &HostHandles,
     path: &str,
 ) -> Result<Table, Diagnostic> {
     let env = lua.create_table().map_err(|e| runtime_error(path, e))?;
@@ -821,7 +866,7 @@ fn build_environment(
 
     env.set("_G", env.clone())
         .map_err(|e| runtime_error(path, e))?;
-    install_api(lua, tick_rate, modules, log, profile, &env, path)?;
+    install_api(lua, tick_rate, shared_state, &env, path)?;
     Ok(env)
 }
 
@@ -876,10 +921,13 @@ fn tile_index(v: i64) -> mlua::Result<u16> {
 /// one, but it is the same discipline and costs nothing.
 pub fn sandbox_globals() -> Result<Vec<String>, Diagnostic> {
     let lua = Lua::new();
-    let modules = Rc::new(RefCell::new(Modules::default()));
-    let log = Rc::new(RefCell::new(Vec::new()));
-    let profile = Rc::new(RefCell::new(crate::profile::Profile::new()));
-    let env = build_environment(&lua, 60, &modules, &log, &profile, "<introspection>")?;
+    let handles = HostHandles {
+        modules: Rc::new(RefCell::new(Modules::default())),
+        log: Rc::new(RefCell::new(Vec::new())),
+        profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
+        fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
+    };
+    let env = build_environment(&lua, 60, &handles, "<introspection>")?;
     let mut names: Vec<String> = env
         .pairs::<String, mlua::Value>()
         .filter_map(|p: mlua::Result<(String, mlua::Value)>| p.ok().map(|(k, _)| k))
@@ -891,12 +939,13 @@ pub fn sandbox_globals() -> Result<Vec<String>, Diagnostic> {
 fn install_api(
     lua: &Lua,
     tick_rate: u32,
-    modules: &Rc<RefCell<Modules>>,
-    log: &Rc<RefCell<Vec<String>>>,
-    profile: &Rc<RefCell<crate::profile::Profile>>,
+    shared_state: &HostHandles,
     env: &Table,
     path: &str,
 ) -> Result<(), Diagnostic> {
+    let log = &shared_state.log;
+    let profile = &shared_state.profile;
+    let fonts = &shared_state.fonts;
     let err = |e: mlua::Error| runtime_error(path, e);
 
     // vec2(x, y)
@@ -1363,6 +1412,22 @@ fn install_api(
         .map_err(err)?,
     )
     .map_err(err)?;
+    // Text measurement: a pure function of a baked font and a string, both of
+    // which the engine already has. It contains no layout policy, which is why
+    // it is here while the containers that would use it are not.
+    let faces = fonts.clone();
+    ui.set(
+        "measure",
+        lua.create_function(move |lua, (font, text): (String, String)| {
+            let (w, h) = crate::text::measure(&faces.borrow(), &font, &text);
+            let t = lua.create_table()?;
+            t.set("w", w)?;
+            t.set("h", h)?;
+            Ok(t)
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
     ui.set(
         "rect",
         lua.create_function(|lua, NodeHandle(uid): NodeHandle| {
@@ -1825,13 +1890,9 @@ fn install_api(
     env.set("log", log_table).map_err(err)?;
 
     // require(path): another script's returned table, evaluated once.
-    let registry = modules.clone();
-    let sink = log.clone();
-    let store = profile.clone();
+    let handles = shared_state.clone();
     let require = lua
-        .create_function(move |lua, name: String| {
-            require_module(lua, tick_rate, &registry, &sink, &store, &name)
-        })
+        .create_function(move |lua, name: String| require_module(lua, tick_rate, &handles, &name))
         .map_err(err)?;
     env.set("require", require).map_err(err)?;
 
@@ -1854,11 +1915,10 @@ fn install_api(
 fn require_module(
     lua: &Lua,
     tick_rate: u32,
-    modules: &Rc<RefCell<Modules>>,
-    log: &Rc<RefCell<Vec<String>>>,
-    profile: &Rc<RefCell<crate::profile::Profile>>,
+    shared_state: &HostHandles,
     name: &str,
 ) -> mlua::Result<mlua::Value> {
+    let modules = &shared_state.modules;
     if let Some(cached) = modules.borrow().cache.get(name).cloned() {
         return Ok(cached);
     }
@@ -1884,7 +1944,8 @@ fn require_module(
     };
 
     modules.borrow_mut().loading.push(name.to_string());
-    let evaluated = build_environment(lua, tick_rate, modules, log, profile, name)
+    let modules = &shared_state.modules;
+    let evaluated = build_environment(lua, tick_rate, shared_state, name)
         .map_err(|d| mlua::Error::runtime(d.message))
         .and_then(|env| {
             lua.load(&source)

@@ -143,6 +143,7 @@ codes! {
     SCRIPT_SANDBOX    = "DIM0503", Error,   "Script reached for something the sandbox withholds";
     STALE_HANDLE      = "DIM0504", Error,   "Script used a handle to a destroyed node";
     SCRIPT_BAD_ARGUMENT = "DIM0505", Error, "Script passed an argument the binding cannot accept";
+    SCRIPT_NONDETERMINISM = "DIM0506", Warning, "Script does something that may not reproduce on another machine";
 
     // 06xx — assets
     ASSET_MISSING     = "DIM0601", Error,   "Referenced asset is not in the project";

@@ -139,6 +139,73 @@ a script which logs hashes identically to one that does not.
 **The arena has walls.** It had none, so the player could walk out of the room
 and fight nothing. Four static colliders, authored in the scene.
 
+## Asked for by the grid roguelike, and declined
+
+A tactical grid roguelike being built on the engine produced a list of nine
+things. Four were blocking and are built; three more were built on their
+merits. These are the ones that got a no, and the reasoning is here rather than
+in a commit message because a decision that is not written down gets re-argued.
+
+**Grid pathfinding, flood fill and line of sight.** `grid.path`,
+`grid.reachable`, `grid.line`, `grid.visible` over a `TileLayer`.
+
+Declined, and it was close. The case for is real: `scene.near` is already an
+engine-provided spatial query on exactly this argument, the M10 measurements
+show a Lua boundary crossing costs about 21 µs before the callee does anything,
+and A* per monster per turn crosses it far more than the four hundred calls a
+tick that produced the original 139 ms finding. Determinism cuts the same way —
+a binary heap with equal keys is easy to tie-break wrongly in Lua, and a
+non-deterministic path is a replay that diverges.
+
+What decided it against was the shape of the thing rather than its cost. A
+pathfinder is not a query about the world; it is a *policy* about movement. The
+`opts` table in the proposal is where that shows: a per-tile cost mapping, a
+budget, a blocking predicate, and before long a rule about whether diagonals
+cost more, whether an occupied cell blocks, whether a door counts as passable
+for a monster that can open it. Every one of those is a game's decision, and an
+engine that takes them takes a view on what a tile *means* — which is the line
+`TileLayer` currently does not cross and is more useful for not crossing.
+
+`scene.near` is not the same case. It answers a question about geometry the
+engine already maintains, with no parameter that encodes a rule.
+
+So it goes in Lua, and the engine's job is to make that cheap and safe rather
+than to do it. `tiles.get` is the read it needs; it now costs one boundary
+crossing per cell rather than per path. `dim script check --determinism` flags
+the `pairs()` that would make a frontier unordered, which is the specific way a
+hand-written A* breaks replay. If this is revisited, the thing to measure first
+is whether a Lua A* over `tiles.get` is actually too slow at twenty actors on a
+40×40 grid — nobody has measured that, and the 21 µs figure is per *call*, not
+per cell read.
+
+**Scroll containers, grid containers and nine-patch panels.** Declined;
+`ui.measure` built.
+
+`CONTRIBUTING.md` lists "a custom UI toolkit" as a permanent non-goal and M12
+then built one, which is a fair thing to point at. The distinction that makes
+M12 defensible is that its subject is *determinism*: layout and hit testing run
+inside the tick so that a click on a menu replays, and that is the engine's
+core concern appearing in a new place. `Control`, anchors, and press capture
+exist to make a click reproducible.
+
+A scroll container, a grid container and a nine-patch have no determinism
+content at all. They are layout convenience and visual polish — which is what
+the non-goal names. `VBox` and `HBox` were built because a container is what
+makes anchors usable at all; a third one is where it becomes a toolkit.
+
+`ui.measure` is the exception and was built, because it is not a widget: it is
+a pure function of a baked font and a string, both of which the engine already
+has, and it contains no layout policy. Without it every piece of text in a game
+is sized by guessing, and the metrics are baked integers precisely so that
+measuring is exact.
+
+One piece of this is worth reconsidering if it comes back, and it is not the
+one that was pushed hardest. **Clipping** is a renderer capability a game
+genuinely cannot build from Lua: a scroll offset is already expressible today
+(a `VBox`'s `offset_top` is a control property, in state, and replays), so what
+is actually missing from a scrollable list is a scissor rect. That is a small,
+bounded thing with no layout policy in it. A `ScrollContainer` node is not.
+
 ## Open: probably game-specific
 
 **No way for one script to call a function on another.** Damage is written into
@@ -149,12 +216,20 @@ not a gap at all. Shared *behaviour*, as opposed to a message, is what modules
 are for now: a function two scripts both need goes in one and is required by
 both.
 
-**No scene loading from a script.** Still true, and it turned out not to
-matter: a room is a wave the arena spawns, not a file it loads, so a run of five
-rooms lives in one scene. Loading a scene mid-tick would mean the tick was not a
-pure function of the state it started from (I8), so this is probably right as
-it stands. `scene.spawn` is the useful half of it and already lands on a phase
-boundary for that reason.
+**No scene loading from a script.** ~~Still true, and it turned out not to
+matter.~~ **Now built** — see the changelog. The reasoning below was right about
+the slice and did not carry to a game with twenty generated floors across six
+regions, which is what a later request pointed out.
+
+The I8 objection was aimed at loading *mid-tick* and remains correct: a script
+requests, the tick finishes over the tree it started with, and the swap happens
+between ticks. What the original entry got right is that `scene.spawn` was the
+useful half at the time, and the phase-boundary reasoning is exactly what the
+load reuses.
+
+> A room is a wave the arena spawns, not a file it loads, so a run of five
+> rooms lives in one scene. Loading a scene mid-tick would mean the tick was not
+> a pure function of the state it started from (I8).
 
 ## Not a gap, but worth writing down
 
@@ -162,6 +237,42 @@ Fixed-point exactness caught a mistake that would otherwise have been a
 heisenbug: an input log with `0.4` in it is refused (`DIM0703`) because 0.4 is
 not exactly representable. The instinct is to call that pedantic. It is the
 reason a recorded run reproduces.
+
+## What an idle tick costs
+
+A turn-based game spends most of its wall-clock time waiting for a person to
+decide while the engine ticks at 60Hz regardless. A forty-minute run is roughly
+144,000 ticks, the overwhelming majority changing nothing, and every figure in
+the section below is about a *busy* tick. So the question was asked, and here
+is the answer: **tick and forget.**
+
+`cargo run --release -p dimetric-sim --example idle_cost`, on an idle scene:
+
+| Actors | step | hash | snapshot | all three |
+|---|---|---|---|---|
+| 20 | 25 µs | 30 µs | 15 µs | 69 µs |
+| 100 | 99 µs | 139 µs | 70 µs | 307 µs |
+
+At twenty actors — roughly the density that game describes — that is 0.4% of a
+60Hz frame budget, and **ten seconds of CPU spread across a forty-minute run**.
+At a hundred actors it is 1.8% and forty-four seconds. Neither is worth a
+mechanism.
+
+Two things make the real figure smaller still. A *playing* session snapshots
+(for interpolation) but does not hash; hashing is what `dim run --record` and
+the replay harness do. And the numbers above are for a scene where nothing is
+happening, which is the case being asked about.
+
+On the log: one player at 144,000 ticks is about **4.5 MB** of text, which gzips
+to roughly an eighth — the committed fixtures compress 8:1. Replaying it costs
+step plus hash, so about eight seconds at twenty actors. Both are fine; a log
+that size is worth compressing on disk and is not worth a binary format.
+
+The third part of the question answers itself from the first two. A
+session-level "this tick is quiescent" signal would be a determinism hazard if
+the game decided it, and at 0.4% of a frame there is nothing to buy. It has not
+been considered because nothing has needed it, and these numbers say nothing
+will.
 
 ## Performance, measured
 

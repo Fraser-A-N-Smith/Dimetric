@@ -63,6 +63,7 @@ impl Session {
             resolution: project.settings.resolution,
         };
         let mut host = LuaHost::new(sim_config.tick_rate).map_err(|d| Diagnostics(vec![d]))?;
+        host.set_fonts(project.fonts());
         for d in host.load_all(
             project
                 .scripts

@@ -668,7 +668,7 @@ fn script_command(project: &mut Project, cmd: ScriptCmd) -> Result<Output, Diagn
                 format!("wrote {path} ({} bytes)", text.len()),
             ))
         }
-        ScriptCmd::Check { path } => {
+        ScriptCmd::Check { path, determinism } => {
             let full = project.path_of(&path);
             let text = std::fs::read_to_string(&full).map_err(|e| {
                 one(Diagnostic::new(
@@ -678,9 +678,24 @@ fn script_command(project: &mut Project, cmd: ScriptCmd) -> Result<Output, Diagn
             })?;
             let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
             host.load(&path, &text).map_err(one)?;
+
+            // Syntax is checked by loading it; determinism is a separate pass
+            // because it is a text scan with no parser behind it and says so.
+            let hazards = match determinism {
+                true => dimetric_sim::lint::check(&path, &text),
+                false => Vec::new(),
+            };
+            let findings: Vec<serde_json::Value> = hazards.iter().map(|d| json!(d)).collect();
+            let mut text_out = format!("{path} parses");
+            for hazard in &hazards {
+                text_out.push_str(&format!("\n{hazard}"));
+            }
+            if determinism && hazards.is_empty() {
+                text_out.push_str("\n  no determinism hazards found");
+            }
             Ok(Output::new(
-                json!({ "ok": true, "path": path }),
-                format!("{path} parses"),
+                json!({ "ok": true, "path": path, "hazards": findings }),
+                text_out,
             ))
         }
         ScriptCmd::List => {
@@ -1025,6 +1040,7 @@ fn build_sim(
     let settings = project.settings.clone();
     diags.extend(project.settings_diagnostics.clone());
     let mut host = dimetric_sim::LuaHost::new(settings.tick_rate).map_err(one)?;
+    host.set_fonts(project.fonts());
     diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
     let config = dimetric_sim::SimConfig {
         tick_rate: settings.tick_rate,

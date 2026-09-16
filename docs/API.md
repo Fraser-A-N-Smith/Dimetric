@@ -313,6 +313,7 @@ message. Codes are never reused for a different meaning.
 | `DIM0503` | error | Script reached for something the sandbox withholds |
 | `DIM0504` | error | Script used a handle to a destroyed node |
 | `DIM0505` | error | Script passed an argument the binding cannot accept |
+| `DIM0506` | warning | Script does something that may not reproduce on another machine |
 | `DIM0601` | error | Referenced asset is not in the project |
 | `DIM0602` | error | Asset import failed |
 | `DIM0603` | error | Unsupported source format |
@@ -367,7 +368,7 @@ arguments column.
 | `scene_query` | `path`* | Look up one node by path |
 | `scene_resolve` | — | Resolve every prefab instance and print the runtime tree |
 | `scene_tree` | — | Print the node tree |
-| `script_check` | `path`* | Check a script without writing it |
+| `script_check` | `determinism`, `path`* | Check a script without writing it |
 | `script_list` | — | List the project's scripts |
 | `script_write` | `path`*, `source` | Write a script file, reporting syntax errors structurally |
 | `signal_connect` | `from`*, `method`*, `signal`*, `to`* | Connect a signal to a method |
@@ -393,7 +394,7 @@ Scripts see exactly these globals and nothing else.
 | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)`, `request_load(path, carry)`, `carry()` |
 | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
-| `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)` |
+| `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`, `measure(font, text)` |
 | `profile` | `get(key)`, `put(key, value)`, `clear(key)` — across runs, and **never** in the state hash |
 | `camera` | `to_world(canvas_point)`, `to_canvas(world_point)`, `center()` — the view's inverse, in fixed point |
 | `tick` | `count()`, `dt()`, `rate` |

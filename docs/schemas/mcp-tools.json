@@ -1100,6 +1100,10 @@
       "description": "Check a script without writing it",
       "inputSchema": {
         "properties": {
+          "determinism": {
+            "description": "Also scan for things that may not reproduce on another machine",
+            "type": "boolean"
+          },
           "id_seed": {
             "description": "Seed for generated node ids, so a scripted session is reproducible",
             "type": "string"

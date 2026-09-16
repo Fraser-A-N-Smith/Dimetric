@@ -275,6 +275,9 @@ pub enum ScriptCmd {
     },
     /// Check a script without writing it.
     Check {
+        /// Also scan for things that may not reproduce on another machine.
+        #[arg(long)]
+        determinism: bool,
         /// Project-relative path.
         path: String,
     },

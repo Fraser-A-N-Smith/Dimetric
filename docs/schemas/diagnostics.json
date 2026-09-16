@@ -146,6 +146,11 @@
       "summary": "Script passed an argument the binding cannot accept"
     },
     {
+      "code": "DIM0506",
+      "severity": "warning",
+      "summary": "Script does something that may not reproduce on another machine"
+    },
+    {
       "code": "DIM0601",
       "severity": "error",
       "summary": "Referenced asset is not in the project"

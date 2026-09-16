@@ -49,6 +49,7 @@ fn replay(dir: &Path) -> dimetric_host::ReplayReport {
         .unwrap_or_else(|d| panic!("{}: {d}", dir.display()));
     diags.extend(project.load_scripts());
     let mut host = LuaHost::new(60).expect("lua host");
+    host.set_fonts(project.fonts());
     let script_diags = host.load_all(
         project
             .scripts
@@ -175,6 +176,7 @@ fn the_example_project_replays_as_the_readme_says_it_does() {
     let (scene, mut diags) = project.runtime_scene().unwrap_or_else(|d| panic!("{d}"));
     diags.extend(project.load_scripts());
     let mut host = LuaHost::new(60).expect("lua host");
+    host.set_fonts(project.fonts());
     let script_diags = host.load_all(
         project
             .scripts

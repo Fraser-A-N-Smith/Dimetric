@@ -45,7 +45,7 @@ pub const GLOBALS: &[Global] = &[
     Global {
         name: "ui",
         about: "`hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, \
-                `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`",
+                `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`, `measure(font, text)`",
     },
     Global {
         name: "profile",

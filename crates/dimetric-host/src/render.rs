@@ -233,6 +233,7 @@ pub fn capture(
     diagnostics.extend(project.load_scripts());
 
     let mut host = LuaHost::new(SimConfig::default().tick_rate).map_err(one)?;
+    host.set_fonts(project.fonts());
     for d in host.load_all(
         project
             .scripts
