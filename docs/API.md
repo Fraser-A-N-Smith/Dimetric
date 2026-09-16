@@ -386,7 +386,7 @@ Scripts see exactly these globals and nothing else.
 
 | Global | What it gives you |
 |---|---|
-| `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)` |
+| `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)`, `request_load(path, carry)`, `carry()` |
 | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)` |

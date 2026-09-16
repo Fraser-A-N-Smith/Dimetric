@@ -177,7 +177,7 @@ fn a_session_that_was_played_replays() {
 
     let mut played = Vec::new();
     for tick in 0..240 {
-        session.step(scripted(tick).player_input());
+        session.step(&mut project, scripted(tick).player_input());
         played.push(session.hash());
     }
     let written = session
@@ -202,7 +202,7 @@ fn a_session_that_was_played_replays() {
     .unwrap_or_else(|d| panic!("{d}"));
 
     for tick in 0..240u64 {
-        replayed.step(log.frame(tick).player(0));
+        replayed.step(&mut project, log.frame(tick).player(0));
         assert_eq!(
             replayed.hash(),
             played[tick as usize],
@@ -233,7 +233,7 @@ fn a_frame_comes_out_of_a_session_without_a_gpu() {
     .unwrap_or_else(|d| panic!("{d}"));
 
     for tick in 0..30 {
-        session.step(scripted(tick).player_input());
+        session.step(&mut project, scripted(tick).player_input());
     }
     let frame = session.frame(0.5, (480, 270));
     assert!(!frame.sprites.is_empty(), "the scene drew nothing");

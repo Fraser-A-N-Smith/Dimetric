@@ -1,0 +1,17 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Floor2"
+
+[[node]]
+id = "n_hero0000"
+kind = "Node2D"
+name = "Hero"
+parent = "n_root0000"          # /Floor2
+script = "script:scripts/hero.lua"

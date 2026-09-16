@@ -1063,6 +1063,51 @@ fn install_api(
         )
         .map_err(err)?;
 
+    // A scene the game wants next. Nothing is loaded here: the request is
+    // state, the swap happens between ticks in the host, and the tick that
+    // asked finishes over the tree it started with (I8). See `crate::load`.
+    scene
+        .set(
+            "request_load",
+            lua.create_function(|lua, (path, carry): (String, Option<mlua::Value>)| {
+                let state = shared(lua)?;
+                let mut state = state.borrow_mut();
+                let carry = match carry {
+                    Some(v) => from_lua(v)?,
+                    None => Value::Map(Default::default()),
+                };
+                // Last request wins, and a second one in the same tick is
+                // reported: two scripts asking for different floors is a bug
+                // in the game, and silently taking one of them is how it
+                // becomes a bug that only shows up sometimes.
+                if let Some(existing) = &state.load_request {
+                    if existing.path != path {
+                        return Err(mlua::Error::external(Diagnostic::new(
+                            Code::SCRIPT_BAD_ARGUMENT,
+                            format!(
+                                "two scenes requested in one tick: {:?} then {:?}",
+                                existing.path, path
+                            ),
+                        )));
+                    }
+                }
+                state.load_request = Some(crate::load::SceneLoad { path, carry });
+                Ok(())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    scene
+        .set(
+            "carry",
+            lua.create_function(|lua, ()| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                to_lua(lua, &state.carry)
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
     env.set("scene", scene).map_err(err)?;
 
     // tick.count and tick.dt

@@ -287,6 +287,26 @@ impl Sim {
     ///
     /// Runs [`PHASE_ORDER`] exactly, in order, every time.
     pub fn step(&mut self, input: InputFrame) {
+        // A load request that is still here at the start of a tick means
+        // whoever is driving this simulation never called
+        // `take_load_request`. The request would then sit in state doing
+        // nothing, and `scene.request_load` would look broken from Lua — the
+        // same shape of bug as `log.info` collecting lines nobody printed.
+        // Reported once and cleared, so it is loud rather than every tick.
+        if let Some(pending) = self.state.borrow_mut().load_request.take() {
+            self.diagnostics.push(
+                dimetric_core::Diagnostic::new(
+                    dimetric_core::Code::COMMAND_REJECTED,
+                    format!(
+                        "a script asked to load {:?} and nothing honoured it; the host \
+                         driving this simulation must call `take_load_request` between \
+                         ticks",
+                        pending.path
+                    ),
+                )
+                .with_field("scene", pending.path),
+            );
+        }
         for phase in PHASE_ORDER {
             self.run_phase(*phase, &input);
         }
@@ -601,6 +621,52 @@ impl Sim {
     ///
     /// Deferred to a phase boundary so that a script cannot delete a node
     /// another script is part-way through working with.
+    /// The scene a script asked for, if one did, taking the request.
+    ///
+    /// The host calls this between ticks. It is a take rather than a read
+    /// because honouring a request twice would reload the floor the player
+    /// just arrived on.
+    pub fn take_load_request(&mut self) -> Option<crate::load::SceneLoad> {
+        self.state.borrow_mut().load_request.take()
+    }
+
+    /// Replace the running tree, keeping the run.
+    ///
+    /// The tick counter and the RNG streams survive, because a roguelike on
+    /// its second floor is still in the same run — restarting the streams
+    /// would generate every floor from the same numbers. Everything derived
+    /// from the old tree does not: velocities, variables, animation and tweens
+    /// all name nodes that no longer exist, and a tween that survived would be
+    /// writing to a position in a scene that never had it.
+    pub fn swap_scene(&mut self, scene: Scene, carry: dimetric_scene::Value) {
+        let mut state = self.state.borrow_mut();
+        state.scene = scene;
+        state.carry = carry;
+
+        state.velocity.clear();
+        state.vars.clear();
+        state.anim.clear();
+        state.tweens.clear();
+        state.signals.clear();
+        state.collisions.clear();
+        state.query = None;
+        state.spawn_queue.clear();
+        state.destroy_queue.clear();
+        state.tile_queue.clear();
+        state.readied.clear();
+        state.sounds.clear();
+        state.autoplayed.clear();
+        state.ui = crate::ui::UiState::default();
+        state.load_request = None;
+        // `readied` is what decides whether `on_ready` has run, and it is a
+        // list of uids from the tree that just went away. Cleared above, so
+        // every node in the new tree gets its `on_ready` on the next tick
+        // through the same path a freshly spawned node takes — script state
+        // lives in `vars` rather than in the Lua host, so there is nothing
+        // else holding onto the old scene.
+        state.scene.update_world_transforms();
+    }
+
     /// Apply the tile edits scripts asked for this tick.
     ///
     /// In queue order, which is script order, which is tree order — so two

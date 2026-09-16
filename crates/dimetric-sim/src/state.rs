@@ -120,6 +120,18 @@ pub struct SimState {
     /// How many spawns have happened, which is what makes their ids
     /// reproducible without consuming the RNG.
     pub spawn_count: u64,
+    /// A scene a script asked to load, honoured by the host between ticks.
+    ///
+    /// State rather than a callback, so the tick that requests a load is still
+    /// a pure function of what it started from (I8) — the swap happens after
+    /// it has finished. See [`crate::load`].
+    pub load_request: Option<crate::load::SceneLoad>,
+    /// What the scene currently running was handed when it was loaded.
+    ///
+    /// Hashed and snapshotted like any other state: this is how an
+    /// adventurer's classes and health cross a floor boundary, and a global
+    /// would put them outside the hash where a rollback could not reach them.
+    pub carry: dimetric_scene::Value,
     /// Tile edits a script asked for, applied at a phase boundary.
     ///
     /// Deferred for the same reason spawns are: a grid that changed mid-tick
@@ -177,6 +189,8 @@ impl SimState {
             query: None,
             spawn_queue: Vec::new(),
             spawn_count: 0,
+            load_request: None,
+            carry: dimetric_scene::Value::Map(Default::default()),
             tile_queue: Vec::new(),
             destroy_queue: Vec::new(),
             readied: Vec::new(),
@@ -261,6 +275,12 @@ impl HashState for SimState {
             h.node_uid(*uid);
             a.hash_state(h);
         }
+
+        // The carry is hashed; the request is not, for the same reason the
+        // spawn queue is not — it is empty at every tick boundary, which is
+        // the only place a hash is taken.
+        h.tag("carry");
+        self.carry.hash_state(h);
 
         self.ui.hash_state(h);
         h.tag("canvas")

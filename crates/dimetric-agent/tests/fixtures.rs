@@ -71,7 +71,14 @@ fn replay(dir: &Path) -> dimetric_host::ReplayReport {
         clips: project.clips(),
         templates: project.templates().0,
     }
-    .run(scene, Box::new(host), SimConfig::default())
+    // With the project, so a fixture whose script asks for a different scene
+    // replays the load rather than staying on the first floor and diverging.
+    .run_in(
+        Some(&mut project),
+        scene,
+        Box::new(host),
+        SimConfig::default(),
+    )
 }
 
 fn read(dir: &Path, name: &str) -> String {
@@ -185,7 +192,12 @@ fn the_example_project_replays_as_the_readme_says_it_does() {
         clips: project.clips(),
         templates: project.templates().0,
     }
-    .run(scene, Box::new(host), SimConfig::default());
+    .run_in(
+        Some(&mut project),
+        scene,
+        Box::new(host),
+        SimConfig::default(),
+    );
 
     if let Some(divergence) = &report.divergence {
         panic!("{}", dimetric_host::replay::describe(divergence));

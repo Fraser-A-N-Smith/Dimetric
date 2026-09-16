@@ -129,6 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         last: Instant::now(),
         cursor: (0.0, 0.0),
         pads: dimetric_player::pad::Pads::new(),
+        project,
         window_size,
         paused: false,
         stop_after: args.ticks,
@@ -167,6 +168,9 @@ struct App {
     /// Gamepads, polled between ticks. Present even without the feature, in
     /// which case it reports none.
     pads: dimetric_player::pad::Pads,
+    /// Kept for the whole run because a script can ask for a different scene,
+    /// and loading one needs the project's registry, prefabs and disk.
+    project: Project,
     window_size: (u32, u32),
     paused: bool,
     stop_after: Option<u64>,
@@ -324,7 +328,7 @@ impl App {
                     self.session.canvas(),
                 ));
                 let input = self.held.player_input();
-                self.session.step(input);
+                self.session.step(&mut self.project, input);
             }
             for d in self.session.take_diagnostics().iter() {
                 eprintln!("{d}");

@@ -14,6 +14,52 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a script can ask for a different scene (`scene.request_load`)
+
+`ENGINE-GAPS.md` had this under *probably game-specific*, reasoning that the
+sorcerer slice made a room a spawned wave rather than a loaded file. That is
+right for five arena waves sharing a floor plan and does not carry to twenty
+generated floors across six regions.
+
+```lua
+scene.request_load("floors/crypt", { hp = 17, depth = 2 })
+scene.carry()   -- what this scene was handed when it was loaded
+```
+
+**This does not break I8.** A script *requests*; nothing is created or swapped;
+the tick that asked finishes over the tree it started with. The swap happens
+between ticks, in the host, which is the only layer with a filesystem. Tick N
+is still `(State, Inputs) -> State` — tick N+1 simply starts from a different
+state.
+
+The tree is replaced; the **run** is not. The tick counter keeps counting and
+the RNG streams keep their positions, because a roguelike on its second floor
+is still in the same run — resetting the streams would generate every floor
+from the same numbers. Everything derived from the old tree goes: velocities,
+variables, animation, tweens, queued spawns all name nodes that no longer
+exist.
+
+So anything that must survive goes through `carry`, explicitly, as a `Value` —
+hashed, snapshotted and rewindable, rather than a global outside the hash.
+
+On the two questions the request asked to decide explicitly. **The undo stack
+is untouched**, because this never reaches it: the bus is the authoring path
+and a running game has no document. **A replay re-derives the load from the
+script** rather than recording it as an event, because the script is already
+deterministic and a recorded event could disagree with it. The limitation worth
+knowing: a log carries a hash of its *starting* scene only, so a replay whose
+later floors changed on disk diverges without saying which file moved.
+
+A load request that nothing honours now raises `DIM0404` rather than sitting in
+state doing nothing — `dim run`, `dim replay`, `dim state dump/hash`, the
+fixture harness and the windowed player all honour it.
+
+**Moves the state hash** — `carry` is hashed, so every recorded run changed.
+All fixtures re-recorded. New fixture: `tests/replay/floor-descent`, which
+descends mid-run and probes what crossed the boundary and what did not,
+including that the loot stream is further along on the second floor rather than
+starting again.
+
 ### Added: a tile API for scripts (`tiles`)
 
 The sandbox had no way to read one tile. `TileLayer` stored run-length chunks,

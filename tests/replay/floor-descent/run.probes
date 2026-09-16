@@ -1,0 +1,31 @@
+# Descending a floor mid-run, and what does and does not cross the boundary.
+#
+# The swap happens between ticks, so the tick that asked still finished over the
+# tree it started with (I8). What a replay has to reproduce is not just "a load
+# happened" but everything below.
+
+# Before: floor one, full health, and a variable the script has been counting up.
+tick 4 /Floor1/Hero var:floor_name == Floor1
+tick 4 /Floor1/Hero var:hp == 20
+tick 4 /Floor1/Hero var:depth == 1
+tick 4 /Floor1/Hero var:ticks_here == 5
+
+# After: a different tree, reached through `scene.request_load` at tick 5.
+tick 8 /Floor2/Hero var:floor_name == Floor2
+
+# The carry crossed. 20 - 3 is the whole point of handing a payload through the
+# load rather than stashing it in a global the hash cannot see.
+tick 8 /Floor2/Hero var:hp == 17
+tick 8 /Floor2/Hero var:depth == 2
+
+# And what did *not* cross. `ticks_here` was 5 when the floor changed and is
+# counting again from the new tree's first tick, because script variables name
+# nodes that no longer exist. A swap that kept them would read 8 here.
+tick 8 /Floor2/Hero var:ticks_here == 3
+
+# The run continued rather than restarting: the loot stream is further along, so
+# the second floor's roll differs from the first's. A swap that reset the RNG
+# would produce 427 twice and every floor would be generated from the same
+# numbers.
+tick 4 /Floor1/Hero var:roll == 427
+tick 8 /Floor2/Hero var:roll == 353

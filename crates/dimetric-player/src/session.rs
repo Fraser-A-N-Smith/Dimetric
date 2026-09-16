@@ -134,8 +134,14 @@ impl Session {
         &self.atlas
     }
 
-    /// Advance one tick on the given input.
-    pub fn step(&mut self, input: PlayerInput) {
+    /// Advance one tick on the given input, honouring a scene load if a
+    /// script asked for one.
+    ///
+    /// Takes the project because loading needs the disk, and because a
+    /// separate "settle" call a caller had to remember would mean
+    /// `scene.request_load` silently doing nothing on the day somebody forgot
+    /// it.
+    pub fn step(&mut self, project: &mut Project, input: PlayerInput) {
         let frame = InputFrame {
             players: vec![input],
         };
@@ -154,6 +160,25 @@ impl Session {
             &mut self.speaker.diagnostics,
             Diagnostics::new(),
         ));
+
+        // Between ticks, never inside one (I8). A new floor brings its own
+        // art, so the atlas is rebuilt — the old one holds the last floor's
+        // tileset and nothing else would draw.
+        if dimetric_host::scene_swap::apply_pending_load(
+            project,
+            &mut self.sim,
+            &mut self.diagnostics,
+        )
+        .is_some()
+        {
+            let (atlas, diags) = build_atlas(project, &self.sim.state().scene);
+            self.atlas = atlas;
+            self.diagnostics.extend(diags);
+            // The interpolation source is a tree that no longer exists, so a
+            // frame drawn against it would try to tween the old floor's nodes
+            // into the new floor's.
+            self.previous = None;
+        }
     }
 
     /// How many voices are sounding.

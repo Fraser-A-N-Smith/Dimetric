@@ -378,9 +378,29 @@ pub struct Replay<'a> {
 }
 
 impl Replay<'_> {
-    /// Run it.
+    /// Run it, with no project, so a script's scene-load request cannot be
+    /// honoured.
+    ///
+    /// Fine for a single-scene replay, which is every fixture that does not
+    /// call `scene.request_load`; a run that does will report the request
+    /// going unhonoured rather than quietly diverging.
     pub fn run(
         &self,
+        scene: dimetric_scene::Scene,
+        scripts: Box<dyn ScriptHost>,
+        config: SimConfig,
+    ) -> ReplayReport {
+        self.run_in(None, scene, scripts, config)
+    }
+
+    /// Run it, loading scenes from `project` when a script asks for one.
+    ///
+    /// A replay of a game that changes floors *has* to do this: the scene a
+    /// tick runs over is what the tick is a function of, so a replay that
+    /// stayed on the first floor would be replaying a different run.
+    pub fn run_in(
+        &self,
+        mut project: Option<&mut crate::Project>,
         scene: dimetric_scene::Scene,
         scripts: Box<dyn ScriptHost>,
         config: SimConfig,
@@ -393,8 +413,15 @@ impl Replay<'_> {
         let mut divergence = None;
         let mut probes: Vec<ProbeResult> = Vec::new();
 
+        let mut diagnostics = dimetric_core::Diagnostics::new();
         for tick in 0..ticks {
             sim.step(self.log.frame(tick));
+            // Between ticks, before the hash: the swap is part of what the
+            // next tick starts from, so hashing before it would record a state
+            // no tick ever ran over.
+            if let Some(project) = project.as_deref_mut() {
+                crate::scene_swap::apply_pending_load(project, &mut sim, &mut diagnostics);
+            }
             let hash = sim.hash();
             hashes.push(hash);
 
@@ -448,7 +475,7 @@ impl Replay<'_> {
             });
         }
 
-        let mut diagnostics = sim.take_diagnostics();
+        diagnostics.extend(sim.take_diagnostics());
         // An input log records the engine that wrote it, and until now nothing
         // read the field back. A log from another version usually still
         // replays, so this is a warning rather than a refusal — but when it

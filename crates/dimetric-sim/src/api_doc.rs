@@ -29,7 +29,8 @@ pub const GLOBALS: &[Global] = &[
     Global {
         name: "scene",
         about: "`find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, \
-                `nearest(at, radius, tag)`, `spawn(prefab, at, parent)`",
+                `nearest(at, radius, tag)`, `spawn(prefab, at, parent)`, \
+                `request_load(path, carry)`, `carry()`",
     },
     Global {
         name: "input",

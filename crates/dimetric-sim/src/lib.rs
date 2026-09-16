@@ -15,6 +15,7 @@
 pub mod anim;
 pub mod api_doc;
 pub mod input;
+pub mod load;
 pub mod phase;
 pub mod script;
 pub mod shape;

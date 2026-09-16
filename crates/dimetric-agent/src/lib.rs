@@ -1085,6 +1085,7 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
         .watch
         .then(|| dimetric_host::reload::Reloader::new(dimetric_host::RunMode::Headless, project));
     let mut reloaded = Vec::new();
+    let mut loaded: Vec<serde_json::Value> = Vec::new();
 
     let mut hashes = Vec::with_capacity(ticks as usize);
     // Sounds are presentation and a headless run has nowhere to put them, but
@@ -1112,6 +1113,16 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
             }
         }
         sim.step(log.frame(tick));
+        // Between ticks, never inside one (I8). A headless run has to change
+        // floors exactly where a windowed one does, or a recorded run and its
+        // replay are different games.
+        let mut swap_diagnostics = Diagnostics::new();
+        if let Some(path) =
+            dimetric_host::scene_swap::apply_pending_load(project, &mut sim, &mut swap_diagnostics)
+        {
+            loaded.push(json!({ "tick": tick, "scene": path }));
+        }
+        warnings.extend(swap_diagnostics.0);
         sounds += sim.state().sounds.len();
         for line in sim.take_log() {
             logged.push(json!({ "tick": tick, "line": line }));
@@ -1145,6 +1156,7 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
             "hash": final_hash.map(|h| h.to_hex()),
             "recorded": args.record,
             "reloaded": reloaded,
+            "loaded": loaded,
             "sounds": sounds,
             "log": logged,
         }),
@@ -1187,8 +1199,14 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
             // disagrees with `dim run` and `dim replay`, which both prefer it.
             let seed = if input.is_some() { log.seed } else { seed };
             let (mut sim, diags) = build_sim(project, seed)?;
+            // Loads honoured here too, or a dump disagrees with `dim run`
+            // about which floor the game is on — a state dump that is a
+            // different game from the run it claims to describe is worse than
+            // no dump at all.
+            let mut swaps = Diagnostics::new();
             for t in 0..tick {
                 sim.step(log.frame(t));
+                dimetric_host::scene_swap::apply_pending_load(project, &mut sim, &mut swaps);
             }
             let state = sim.state();
             let nodes: Vec<serde_json::Value> = state
@@ -1239,8 +1257,10 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
         StateCmd::Hash { tick, seed } => {
             let (mut sim, _) = build_sim(project, seed)?;
             let log = dimetric_sim::InputLog::new(seed, env!("CARGO_PKG_VERSION"), 1);
+            let mut swaps = Diagnostics::new();
             for t in 0..tick {
                 sim.step(log.frame(t));
+                dimetric_host::scene_swap::apply_pending_load(project, &mut sim, &mut swaps);
             }
             let hash = sim.hash();
             Ok(Output::new(
@@ -1398,14 +1418,12 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     };
     // Same settings the run used: replaying a log under a different tick rate
     // or canvas is not replaying it.
-    let report = replay.run(
-        scene,
-        Box::new(host),
-        dimetric_sim::SimConfig {
-            tick_rate: project.settings.tick_rate,
-            canvas: project.settings.canvas,
-        },
-    );
+    // Read before the project is borrowed for the run itself.
+    let replay_config = dimetric_sim::SimConfig {
+        tick_rate: project.settings.tick_rate,
+        canvas: project.settings.canvas,
+    };
+    let report = replay.run_in(Some(project), scene, Box::new(host), replay_config);
 
     let mut text = format!("replayed {} ticks from seed {}", report.ticks, report.seed);
     for probe in &report.probes {
