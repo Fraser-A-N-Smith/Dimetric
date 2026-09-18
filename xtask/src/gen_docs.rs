@@ -347,6 +347,30 @@ fn render_markdown(
          `scene.near` and `scene.nearest` read the broadphase as it stood at the\n\
          *start* of the tick, so every script sees the same world and what one finds\n\
          does not depend on whether another has run yet.\n\n\
+         ### Telling the host something\n\n\
+         `event.emit(kind, payload)` appends to a list the runtime drains with\n\
+         `Session::drain_events`. That is how a Steam achievement fires, how a volume\n\
+         change reaches the mixer, and how anything else platform-facing gets out: the\n\
+         sandbox has no `package`, no FFI and no `io`, so the simulation cannot call a\n\
+         platform SDK and should not be able to.\n\n\
+         **Never hashed, and structurally so** — there is no field on `SimState` for a\n\
+         later change to start hashing, the way the log lines are kept out entirely. If\n\
+         emitting consumed a random number or wrote hashed state, a build with Steam\n\
+         disabled would diverge from one with it on, which is the same argument that\n\
+         shaped the sound list.\n\n\
+         **A rollback re-emits.** Events are not snapshotted, so restoring a snapshot\n\
+         does not put drained ones back and re-running a tick emits again. The\n\
+         alternative would let a restore resurrect events the host had already acted\n\
+         on. A host that needs exactly-once deduplicates; Steam already does, and so\n\
+         can a game.\n\n\
+         It is one-way. The host does not talk back: a settings menu owns its values in\n\
+         the profile and emits changes outward, so the game stays the source of truth\n\
+         and the runtime follows.\n\n\
+         Each event carries the tick it was emitted on, so a host draining after several\n\
+         ticks can still tell them apart. The payload is the `Value` scripts already\n\
+         store, so lists stay ordered and there is no second serialisation. `dim run`\n\
+         reports them, so an achievement that fires in a windowed build and not in CI is\n\
+         visible rather than mysterious.\n\n\
          ### Saves and the profile\n\n\
          Two kinds of persistence, and conflating them is the bug.\n\n\
          A **run** is simulation state. `dim state save` writes one and `dim state load`\n\

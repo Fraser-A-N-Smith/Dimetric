@@ -15,6 +15,7 @@
 pub mod anim;
 pub mod api_doc;
 pub mod camera;
+pub mod event;
 pub mod input;
 pub mod lint;
 pub mod load;

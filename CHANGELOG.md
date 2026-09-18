@@ -14,6 +14,45 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a game-to-host event channel (`event.emit`)
+
+```lua
+event.emit("achievement", { id = "first_light" })
+event.emit("setting", { key = "volume_music", value = 70 })
+```
+
+Drained by a runtime with `Session::drain_events`. That is how a Steam
+achievement fires, how a volume change reaches the mixer, and how anything else
+platform-facing gets out. The sandbox keeps no `package`, no FFI and no `io`,
+so the simulation still cannot reach a platform SDK — it says what happened and
+the process around it decides what that means.
+
+**Never hashed, and structurally so.** The request proposed mirroring the sound
+list, which is a field on `SimState` the hasher skips. This takes the *stronger*
+form the engine settled on for log lines: not on `SimState` at all, so a later
+change cannot start hashing a field that does not exist.
+
+**A rollback re-emits**, and that is the contract rather than an accident.
+Events are not snapshotted, so a restore does not resurrect ones the host
+already acted on, and re-running a tick emits again. A host needing
+exactly-once deduplicates; Steam already does. Snapshotting them would be worse
+in every case.
+
+One-way, as asked. Each event carries its tick, so a host draining after
+several ticks can still tell them apart. The payload is the `Value` scripts
+already store, so lists stay ordered and there is no second serialisation.
+`dim run` reports events, so an achievement that fires in a windowed build and
+not in CI is visible rather than mysterious.
+
+A tick may emit at most 4,096 events; past that it is reported (`DIM0505`)
+rather than filling memory quietly. An empty `kind` is refused, because a host
+routes on it.
+
+Does not move the state hash. New fixture `tests/replay/host-events` draws from
+a seeded stream immediately before and after each emit and probes both numbers,
+so an `emit` that ever consumed randomness breaks a probe rather than a build
+three weeks later.
+
 ### Fixed: `docs/API.md` never listed the reserved keys — and `z` did nothing
 
 The reference referred to "the reserved `scene` key", said "No properties

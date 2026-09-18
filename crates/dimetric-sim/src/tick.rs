@@ -108,6 +108,15 @@ pub trait ScriptHost {
         Vec::new()
     }
 
+    /// Everything the simulation told the host since the last drain.
+    ///
+    /// Beside `take_log` rather than on `SimState`, so there is no field for a
+    /// later change to start hashing. See [`crate::event`] — including why a
+    /// rollback re-emits rather than restoring.
+    fn take_events(&mut self) -> Vec<crate::event::GameEvent> {
+        Vec::new()
+    }
+
     /// The profile store, for a host that loads it at startup and writes it
     /// back when it changes.
     ///
@@ -280,6 +289,15 @@ impl Sim {
     /// Take the lines scripts logged since this was last called.
     pub fn take_log(&mut self) -> Vec<String> {
         self.scripts.take_log()
+    }
+
+    /// Take everything the simulation told the host since the last call.
+    ///
+    /// Not hashed and not snapshotted, so a rollback re-emits rather than
+    /// restoring a drained list — see [`crate::event`]. A host that needs
+    /// exactly-once deduplicates, which for an achievement costs nothing.
+    pub fn take_events(&mut self) -> Vec<crate::event::GameEvent> {
+        self.scripts.take_events()
     }
 
     /// Take the diagnostics raised so far.

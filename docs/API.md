@@ -425,6 +425,7 @@ Scripts see exactly these globals and nothing else.
 | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`, `measure(font, text)` |
+| `event` | `emit(kind, payload)` — tells the host something. Drained by the runtime, **never** hashed |
 | `profile` | `get(key)`, `put(key, value)`, `clear(key)` — across runs, and **never** in the state hash |
 | `camera` | `to_world(canvas_point)`, `to_canvas(world_point)`, `center()` — the view's inverse, in fixed point |
 | `tick` | `count()`, `dt()`, `rate` |
@@ -457,6 +458,36 @@ projectile does not shift every gameplay roll after it.
 `scene.near` and `scene.nearest` read the broadphase as it stood at the
 *start* of the tick, so every script sees the same world and what one finds
 does not depend on whether another has run yet.
+
+### Telling the host something
+
+`event.emit(kind, payload)` appends to a list the runtime drains with
+`Session::drain_events`. That is how a Steam achievement fires, how a volume
+change reaches the mixer, and how anything else platform-facing gets out: the
+sandbox has no `package`, no FFI and no `io`, so the simulation cannot call a
+platform SDK and should not be able to.
+
+**Never hashed, and structurally so** — there is no field on `SimState` for a
+later change to start hashing, the way the log lines are kept out entirely. If
+emitting consumed a random number or wrote hashed state, a build with Steam
+disabled would diverge from one with it on, which is the same argument that
+shaped the sound list.
+
+**A rollback re-emits.** Events are not snapshotted, so restoring a snapshot
+does not put drained ones back and re-running a tick emits again. The
+alternative would let a restore resurrect events the host had already acted
+on. A host that needs exactly-once deduplicates; Steam already does, and so
+can a game.
+
+It is one-way. The host does not talk back: a settings menu owns its values in
+the profile and emits changes outward, so the game stays the source of truth
+and the runtime follows.
+
+Each event carries the tick it was emitted on, so a host draining after several
+ticks can still tell them apart. The payload is the `Value` scripts already
+store, so lists stay ordered and there is no second serialisation. `dim run`
+reports them, so an achievement that fires in a windowed build and not in CI is
+visible rather than mysterious.
 
 ### Saves and the profile
 

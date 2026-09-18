@@ -183,6 +183,21 @@ impl Session {
         }
     }
 
+    /// Take everything the game told the host since the last call.
+    ///
+    /// This is how a custom runtime hears about an achievement, a settings
+    /// change or anything else platform-facing. The engine deliberately cannot
+    /// reach a platform SDK — the sandbox has no `package`, no FFI and no `io`
+    /// — so the simulation says what happened and the process around it
+    /// decides what that means.
+    ///
+    /// Drained, so calling it twice in a tick gives the events once. A
+    /// rollback re-runs ticks and re-emits, so a host that needs exactly-once
+    /// deduplicates; Steam already does, and so can a game.
+    pub fn drain_events(&mut self) -> Vec<dimetric_sim::event::GameEvent> {
+        self.sim.take_events()
+    }
+
     /// How many voices are sounding.
     pub fn voices(&self) -> usize {
         self.speaker.playing()

@@ -1103,6 +1103,7 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
         .then(|| dimetric_host::reload::Reloader::new(dimetric_host::RunMode::Headless, project));
     let mut reloaded = Vec::new();
     let mut loaded: Vec<serde_json::Value> = Vec::new();
+    let mut emitted: Vec<serde_json::Value> = Vec::new();
 
     let mut hashes = Vec::with_capacity(ticks as usize);
     // Sounds are presentation and a headless run has nowhere to put them, but
@@ -1144,6 +1145,16 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
         for line in sim.take_log() {
             logged.push(json!({ "tick": tick, "line": line }));
         }
+        // What the game told the host. Reported so a headless run can be
+        // asserted on — an achievement that fires in a windowed build and not
+        // in CI is exactly the bug this makes visible.
+        for ev in sim.take_events() {
+            emitted.push(json!({
+                "tick": ev.tick.0,
+                "kind": ev.kind,
+                "payload": format!("{}", ev.payload),
+            }));
+        }
         hashes.push(sim.hash());
     }
     warnings.extend(sim.take_diagnostics().0);
@@ -1174,6 +1185,7 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
             "recorded": args.record,
             "reloaded": reloaded,
             "loaded": loaded,
+            "events": emitted,
             "sounds": sounds,
             "log": logged,
         }),

@@ -1,0 +1,20 @@
+# Telling the host things, and the guarantee that saying them changes nothing.
+#
+# The hash log already pins that this run reproduces. What these add is *why*
+# it would break if the event channel were built wrong.
+
+# The script draws from a seeded stream immediately before and immediately
+# after each emit. If `event.emit` ever consumed a random number -- or wrote
+# anything hashed -- these two numbers would move, and a build with achievements
+# wired up would diverge from one without. That is the sound list's failure mode
+# and this is the tripwire for it.
+#
+# (A probe at tick N is evaluated after that tick has been stepped, so it sees
+# one more tick than `dim state dump --tick N`, which stops before it.)
+tick 10 /World/Hero var:last_before == 533
+tick 10 /World/Hero var:last_after == 989
+
+# The game-level state the emits are derived from, so a change that emitted at
+# the wrong moment shows up as a number rather than as an opaque hash mismatch.
+tick 10 /World/Hero var:rolls == 11
+tick 10 /World/Hero var:rank == 2

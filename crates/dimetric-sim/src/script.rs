@@ -655,6 +655,11 @@ pub struct LuaHost {
     /// table is not in the state either. What a script *derives* from them
     /// lands in a control's rectangle, which is hashed.
     fonts: Rc<RefCell<crate::text::Fonts>>,
+    /// What the simulation has told the host this tick.
+    ///
+    /// Beside the log lines and deliberately not on `SimState`: a later change
+    /// cannot start hashing a field that does not exist. See [`crate::event`].
+    events: Rc<RefCell<Vec<crate::event::GameEvent>>>,
 }
 
 impl LuaHost {
@@ -662,6 +667,7 @@ impl LuaHost {
     pub fn new(tick_rate: u32) -> Result<LuaHost, Diagnostic> {
         let lua = Lua::new();
         Ok(LuaHost {
+            events: Rc::new(RefCell::new(Vec::new())),
             profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
             fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
             lua,
@@ -755,6 +761,7 @@ impl LuaHost {
             log: self.log.clone(),
             profile: self.profile.clone(),
             fonts: self.fonts.clone(),
+            events: self.events.clone(),
         }
     }
 
@@ -801,6 +808,7 @@ pub(crate) struct HostHandles {
     log: Rc<RefCell<Vec<String>>>,
     profile: Rc<RefCell<crate::profile::Profile>>,
     fonts: Rc<RefCell<crate::text::Fonts>>,
+    events: Rc<RefCell<Vec<crate::event::GameEvent>>>,
 }
 
 fn build_environment(
@@ -926,6 +934,7 @@ pub fn sandbox_globals() -> Result<Vec<String>, Diagnostic> {
         log: Rc::new(RefCell::new(Vec::new())),
         profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
         fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
+        events: Rc::new(RefCell::new(Vec::new())),
     };
     let env = build_environment(&lua, 60, &handles, "<introspection>")?;
     let mut names: Vec<String> = env
@@ -946,6 +955,7 @@ fn install_api(
     let log = &shared_state.log;
     let profile = &shared_state.profile;
     let fonts = &shared_state.fonts;
+    let events = &shared_state.events;
     let err = |e: mlua::Error| runtime_error(path, e);
 
     // vec2(x, y)
@@ -1597,6 +1607,56 @@ fn install_api(
         .map_err(err)?;
     env.set("profile", profile_table).map_err(err)?;
 
+    // event: what the simulation tells the host.
+    //
+    // Never hashed, and structurally so — there is no field on `SimState` for
+    // a later change to start hashing. A rollback re-emits; see
+    // `crate::event` for why that is the right contract rather than an
+    // accident of where the list lives.
+    let event = lua.create_table().map_err(err)?;
+    let sink = events.clone();
+    event
+        .set(
+            "emit",
+            lua.create_function(move |lua, (kind, payload): (String, Option<mlua::Value>)| {
+                if kind.is_empty() {
+                    return Err(mlua::Error::external(Diagnostic::new(
+                        Code::SCRIPT_BAD_ARGUMENT,
+                        "event.emit needs a kind; a host cannot route an unnamed event",
+                    )));
+                }
+                let mut sink = sink.borrow_mut();
+                if sink.len() >= crate::event::MAX_EVENTS_PER_TICK {
+                    return Err(mlua::Error::external(Diagnostic::new(
+                        Code::SCRIPT_BAD_ARGUMENT,
+                        format!(
+                            "more than {} events in one tick; this is usually a loop \
+                                 emitting per entity rather than per happening",
+                            crate::event::MAX_EVENTS_PER_TICK
+                        ),
+                    )));
+                }
+                let payload = match payload {
+                    Some(v) => from_lua(v)?,
+                    None => Value::Map(Default::default()),
+                };
+                let tick = {
+                    let state = shared(lua)?;
+                    let state = state.borrow();
+                    state.tick
+                };
+                sink.push(crate::event::GameEvent {
+                    tick,
+                    kind,
+                    payload,
+                });
+                Ok(())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    env.set("event", event).map_err(err)?;
+
     // camera: the view, and the inverse of it.
     //
     // In fixed point off the same `Projection` the renderer draws with, so a
@@ -2142,6 +2202,10 @@ impl ScriptHost for LuaHost {
 
     fn take_log(&mut self) -> Vec<String> {
         std::mem::take(&mut *self.log.borrow_mut())
+    }
+
+    fn take_events(&mut self) -> Vec<crate::event::GameEvent> {
+        std::mem::take(&mut *self.events.borrow_mut())
     }
 
     fn reload(&mut self, path: &str, source: &str) -> Result<(), Diagnostic> {
