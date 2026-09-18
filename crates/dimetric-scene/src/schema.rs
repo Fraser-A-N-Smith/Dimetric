@@ -26,6 +26,54 @@ pub const RESERVED_KEYS: &[&str] = &[
     "layer", "tags",
 ];
 
+/// What each reserved key is for, in the order [`RESERVED_KEYS`] lists them.
+///
+/// Separate from the list itself because the list is a validation input and
+/// this is a reference: a kind schema needs to know that `pos` is taken, and a
+/// person needs to know what it does. Kept beside it so a test can assert the
+/// two agree — `docs/API.md` refers to "the reserved keys" in four places and
+/// listed them in none, which cost somebody an afternoon working out that
+/// `layer` exists.
+pub const RESERVED_KEY_DOCS: &[(&str, &str)] = &[
+    (
+        "id",
+        "Permanent identity, as written in the file. What `parent`, `scene` and a          replay probe refer to.",
+    ),
+    ("kind", "Registered node kind."),
+    (
+        "name",
+        "Human-facing, unique among siblings. What a `/Root/Child` path addresses.",
+    ),
+    ("parent", "The `id` this node hangs under."),
+    (
+        "scene",
+        "For an `Instance`, the scene to stamp out. A typed `scene:` reference.",
+    ),
+    (
+        "script",
+        "Attached script, as a typed `script:` reference. Its hooks run in the tick.",
+    ),
+    ("pos", "Local translation, `[x, y]`, relative to the parent."),
+    ("rot", "Local rotation, in degrees."),
+    ("scale", "Local scale, `[x, y]`."),
+    (
+        "visible",
+        "Drawn when true. Also gates the sweep: an invisible collider is not a body.",
+    ),
+    (
+        "z",
+        "Draw order within a layer. Beats depth, so a node with a higher `z` draws          in front of one further down the screen. Defaults to 0.",
+    ),
+    (
+        "layer",
+        "Render layer, and the coarsest thing draw order sorts on — it beats `z`,          depth and everything else. Use it to keep a whole class of node in front          of or behind another; use `z` within one. Clamped to -128..127.",
+    ),
+    (
+        "tags",
+        "Free-form strings. Read by scripts and used to filter spatial queries and          collisions.",
+    ),
+];
+
 /// True when `key` is reserved for the engine.
 pub fn is_reserved(key: &str) -> bool {
     RESERVED_KEYS.contains(&key)

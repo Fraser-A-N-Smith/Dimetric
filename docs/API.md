@@ -41,6 +41,35 @@ possible.
 Properties equal to their default are omitted from the file and filled in on
 load, so a scene does not grow every time a kind gains a property.
 
+### Keys every node has
+
+These sit on every node whatever its kind, and a kind may not declare a
+property that shadows one (`DIM0104`). They are *not* repeated in the
+per-kind tables below.
+
+| Key | What it does |
+|---|---|
+| `id` | Permanent identity, as written in the file. What `parent`, `scene` and a replay probe refer to. |
+| `kind` | Registered node kind. |
+| `name` | Human-facing, unique among siblings. What a `/Root/Child` path addresses. |
+| `parent` | The `id` this node hangs under. |
+| `scene` | For an `Instance`, the scene to stamp out. A typed `scene:` reference. |
+| `script` | Attached script, as a typed `script:` reference. Its hooks run in the tick. |
+| `pos` | Local translation, `[x, y]`, relative to the parent. |
+| `rot` | Local rotation, in degrees. |
+| `scale` | Local scale, `[x, y]`. |
+| `visible` | Drawn when true. Also gates the sweep: an invisible collider is not a body. |
+| `z` | Draw order within a layer. Beats depth, so a node with a higher `z` draws in front of one further down the screen. Defaults to 0. |
+| `layer` | Render layer, and the coarsest thing draw order sorts on — it beats `z`, depth and everything else. Use it to keep a whole class of node in front of or behind another; use `z` within one. Clamped to -128..127. |
+| `tags` | Free-form strings. Read by scripts and used to filter spatial queries and collisions. |
+
+Draw order sorts on `layer` first, then `z`, then depth, then whatever the
+batcher splits on, and finally the node id so that no two sprites are ever in
+an ambiguous order. Depth is the world position under the current projection,
+quantised to whole units so a sprite drifting by a fraction of a pixel cannot
+flicker past its neighbour. **Nudging a sprite's position to force it in front
+of another is never the answer** — that is what `z` and `layer` are for.
+
 ### `AnimatedSprite2D`
 
 A sprite playing frame clips imported from Aseprite tags.
@@ -341,6 +370,7 @@ arguments column.
 | `api_commands` | — | Print the command set |
 | `api_globals` | — | Print the Lua sandbox's globals |
 | `api_kinds` | — | Print every registered node kind and its properties |
+| `api_reserved` | — | Print the keys every node has, which a kind may not reuse |
 | `api_schema` | — | Print the JSON schema for the command set |
 | `api_tools` | — | Print the MCP tool list, which is this CLI seen from the other side |
 | `asset_import` | `path`* | Import one asset |

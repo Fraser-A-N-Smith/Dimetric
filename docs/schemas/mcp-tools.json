@@ -105,6 +105,32 @@
       "name": "api_kinds"
     },
     {
+      "description": "Print the keys every node has, which a kind may not reuse",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "api_reserved"
+    },
+    {
       "description": "Print the JSON schema for the command set",
       "inputSchema": {
         "properties": {

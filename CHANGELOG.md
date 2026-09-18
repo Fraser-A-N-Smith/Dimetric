@@ -14,6 +14,47 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: `docs/API.md` never listed the reserved keys — and `z` did nothing
+
+The reference referred to "the reserved `scene` key", said "No properties
+beyond the reserved keys" under several kinds, and carried `DIM0104` for
+shadowing one, without ever listing them. So `pos`, `visible`, `z` and `layer`
+appeared in no table in the whole document.
+
+There is a **Keys every node has** table now, generated from
+`dimetric_scene::schema::RESERVED_KEY_DOCS` through a new `dim api reserved`,
+with tests holding it against `RESERVED_KEYS` in both directions — the same
+shape as the Lua globals table. It ends with how draw order actually sorts,
+because the workaround somebody reaches for otherwise is nudging a sprite's Y
+to force it in front, and that is never the answer.
+
+**Writing that sentence turned up a real bug.** `z` was reserved, stored on
+every node, settable through the command bus, visible in the inspector and
+readable by a replay probe — and read by nothing. `SortKey::new` took
+`(layer, depth, group, tie)` and `node.z` appeared in no call. The example
+project sets it on five nodes, putting bolts at 20 over the player at 10 over
+the enemies at 5, and none of it did anything. Same shape as `log.info`
+collecting lines nobody printed.
+
+`z` is in the key now, between `layer` and depth: **layer, then z, then depth,
+then the batch group, then the node id.** The two authored fields win, because
+a game that says a projectile draws over a corpse means it regardless of which
+is further down the screen.
+
+It cost nothing to fit. `DEPTH_BITS` was 24 and could only ever reach 16 —
+depth comes from `Projection::depth_of`, which returns an `Fx`, and `Fx`
+saturates at ±32,768 even for an isometric `x + y` where both terms are at the
+limit. Eight bits were unreachable; `z` took those. There is a test that the
+depth extremes still do not wrap, and one that the five fields still total 64.
+
+`z` does **not** split a batch: it sits above the group in the key, but the
+batcher merges *adjacent* items agreeing on atlas, blend and shader, and
+sorting by `z` keeps them adjacent. Three sprites with three different `z`
+values are one draw call, and there is a test.
+
+Does not move the state hash — `z` is a node field and was always hashed with
+the scene; what changed is the renderer reading it. No fixture re-recorded.
+
 ### Added: `ui.measure`, and a determinism lint for Lua
 
 **`ui.measure(font, text)`** returns `{w, h}` in pixels, from the baked integer

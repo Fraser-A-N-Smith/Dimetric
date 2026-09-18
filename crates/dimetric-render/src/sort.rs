@@ -9,8 +9,17 @@ use dimetric_core::{Fx, NodeUid};
 
 /// Bits given to each field of a sort key.
 pub const LAYER_BITS: u32 = 8;
+/// Bits for the authored within-layer order.
+pub const Z_BITS: u32 = 8;
 /// Bits for the depth field.
-pub const DEPTH_BITS: u32 = 24;
+///
+/// Sixteen, which is exact rather than generous. Depth comes from
+/// [`Projection::depth_of`](crate::Projection::depth_of), which returns an
+/// `Fx`; `Fx` saturates at +/-32,768, so a depth outside that range cannot be
+/// produced even by an isometric `x + y` where both terms are at the limit.
+/// This field used to be 24 bits and eight of them could never be reached —
+/// which is where `z` came from without anything else giving anything up.
+pub const DEPTH_BITS: u32 = 16;
 /// Bits for the batch-group field.
 pub const GROUP_BITS: u32 = 16;
 /// Bits for the tie-break field.
@@ -18,12 +27,20 @@ pub const TIE_BITS: u32 = 16;
 
 /// A packed draw-order key.
 ///
-/// Field order is layer, then depth, then batch group, then a tie-break. Layer
-/// first because it is an authored decision and must win; the batch group
-/// before the tie-break because two sprites at the same depth are in no
-/// meaningful order anyway, and putting the ones that can be drawn together
-/// next to each other is what lets the batcher emit few draw calls; a tie-break
-/// last so the order is never ambiguous.
+/// Field order is layer, then `z`, then depth, then batch group, then a
+/// tie-break. The two authored fields come first because an authored decision
+/// must win: `layer` separates whole classes of node, `z` orders within one,
+/// and a game that says a projectile draws over a corpse means it regardless of
+/// which is further down the screen. The batch group sits before the tie-break
+/// because two sprites at the same depth are in no meaningful order anyway, and
+/// putting the ones that can be drawn together next to each other is what lets
+/// the batcher emit few draw calls; a tie-break last so the order is never
+/// ambiguous.
+///
+/// `z` was reserved, stored on every node, settable through the command bus,
+/// visible in the inspector, readable by a probe — and read by nothing. The
+/// example project sets it on five nodes, putting bolts over the player over
+/// the enemies, and none of it did anything. It does now.
 ///
 /// The group is [`batch_group`](crate::batch::batch_group) — whatever the
 /// batcher splits on. It has to be exactly that: a key that sorted by something
@@ -39,13 +56,15 @@ impl SortKey {
     /// [`Projection::depth_of`](crate::Projection::depth_of); it is biased into
     /// an unsigned range so that negative coordinates sort before positive
     /// ones instead of wrapping past them.
-    pub fn new(layer: i32, depth: Fx, group: u16, tie: NodeUid) -> SortKey {
+    pub fn new(layer: i32, z: i32, depth: Fx, group: u16, tie: NodeUid) -> SortKey {
         let layer = (layer.clamp(-128, 127) + 128) as u64 & mask(LAYER_BITS);
+        let z = (z.clamp(-128, 127) + 128) as u64 & mask(Z_BITS);
         let depth = bias_depth(depth);
         let group = group as u64 & mask(GROUP_BITS);
         let tie = tie_break(tie);
         SortKey(
-            (layer << (DEPTH_BITS + GROUP_BITS + TIE_BITS))
+            (layer << (Z_BITS + DEPTH_BITS + GROUP_BITS + TIE_BITS))
+                | (z << (DEPTH_BITS + GROUP_BITS + TIE_BITS))
                 | (depth << (GROUP_BITS + TIE_BITS))
                 | (group << TIE_BITS)
                 | tie,
@@ -54,7 +73,12 @@ impl SortKey {
 
     /// The layer this key sorts into.
     pub fn layer(self) -> i32 {
-        ((self.0 >> (DEPTH_BITS + GROUP_BITS + TIE_BITS)) & mask(LAYER_BITS)) as i32 - 128
+        ((self.0 >> (Z_BITS + DEPTH_BITS + GROUP_BITS + TIE_BITS)) & mask(LAYER_BITS)) as i32 - 128
+    }
+
+    /// The within-layer order this key sorts into.
+    pub fn z(self) -> i32 {
+        ((self.0 >> (DEPTH_BITS + GROUP_BITS + TIE_BITS)) & mask(Z_BITS)) as i32 - 128
     }
 
     /// The batch group this key sorts into.

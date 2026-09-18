@@ -275,6 +275,7 @@ fn panel(
         // where it sits in a world it is not in.
         key: SortKey::new(
             node.layer,
+            node.z,
             depth,
             crate::batch::batch_group(0, 0, Blend::Alpha),
             node.uid,
@@ -397,6 +398,7 @@ fn sprite(
     Some(DrawItem {
         key: SortKey::new(
             node.layer,
+            node.z,
             camera.projection.depth_of(center),
             crate::batch::batch_group(0, 0, blend),
             node.uid,
@@ -476,6 +478,7 @@ fn label(
         out.push(DrawItem {
             key: SortKey::new(
                 node.layer,
+                node.z,
                 depth,
                 crate::batch::batch_group(0, 0, Blend::Alpha),
                 node.uid,
@@ -559,6 +562,7 @@ fn tiles(
             out.push(DrawItem {
                 key: SortKey::new(
                     node.layer,
+                    node.z,
                     camera.projection.depth_of(center),
                     crate::batch::batch_group(0, 0, Blend::Alpha),
                     node.uid,

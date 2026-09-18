@@ -547,4 +547,6 @@ pub enum ApiCmd {
     Tools,
     /// Print the Lua sandbox's globals.
     Globals,
+    /// Print the keys every node has, which a kind may not reuse.
+    Reserved,
 }

@@ -1089,3 +1089,98 @@ text = "AB"
     // The button is the wide one; the glyphs follow it.
     assert!(frame.ui[0].size.x > frame.ui[1].size.x);
 }
+
+#[test]
+fn z_decides_the_order_of_two_sprites_at_one_position() {
+    // The end-to-end proof that `z` is wired up, through real scene parsing
+    // and real extraction. Two sprites at exactly the same world position, so
+    // depth cannot decide and the uid tie-break would settle it; only `z` can
+    // put the right one last, and last is what draws on top.
+    //
+    // This is the case the grid game has in every cell holding a zone effect,
+    // a pickup and an actor, and until now it was arbitrary.
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+
+    let order = |low_z: i32, high_z: i32| -> Vec<String> {
+        let body = format!(
+            r##"
+[[node]]
+id = "n_zzzzzzzz"
+kind = "Sprite2D"
+name = "First"
+parent = "n_root0000"
+texture = "asset:fonts/block"
+pos = [0.0, 0.0]
+z = {low_z}
+
+[[node]]
+id = "n_aaaaaaaa"
+kind = "Sprite2D"
+name = "Second"
+parent = "n_root0000"
+texture = "asset:fonts/block"
+pos = [0.0, 0.0]
+z = {high_z}
+"##
+        );
+        let scene = ui_scene(&body);
+        let frame = extract(&scene, &atlas, &camera, None);
+        frame
+            .sprites
+            .iter()
+            .map(|item| {
+                let id = scene
+                    .walk()
+                    .into_iter()
+                    .find(|id| scene.get(*id).is_some_and(|n| n.uid == item.node))
+                    .expect("node");
+                scene.get(id).expect("node").name.clone()
+            })
+            .collect()
+    };
+
+    // The higher `z` is extracted last, so it draws on top.
+    assert_eq!(order(1, 9), vec!["First", "Second"]);
+
+    // Swap the numbers and the order swaps. The node ids are chosen so that
+    // the uid tie-break would give the same answer both times if `z` were
+    // still being ignored — a pass here cannot be the tie-break in disguise.
+    assert_eq!(order(9, 1), vec!["Second", "First"]);
+}
+
+#[test]
+fn sprites_with_different_z_still_batch_together() {
+    // Worth knowing before 55 sheets depend on it. `z` sits above the batch
+    // group in the sort key, so it *could* have interleaved runs — but the
+    // batcher merges adjacent items that agree on atlas, blend and shader, and
+    // sorting by z keeps them adjacent. Three sprites, three different z, one
+    // draw call.
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let mut body = String::new();
+    for (i, z) in [0, 5, 20].iter().enumerate() {
+        body.push_str(&format!(
+            r##"
+[[node]]
+id = "n_s{i:07}"
+kind = "Sprite2D"
+name = "S{i}"
+parent = "n_root0000"
+texture = "asset:__solid"
+pos = [{}.0, 0.0]
+scale = [8.0, 8.0]
+z = {z}
+"##,
+            i * 10
+        ));
+    }
+    let frame = extract(&ui_scene(&body), &atlas, &camera, None);
+    assert_eq!(frame.sprites.len(), 3);
+    assert_eq!(
+        frame.batches.len(),
+        1,
+        "different z must not split a batch: {:?}",
+        frame.batches
+    );
+}

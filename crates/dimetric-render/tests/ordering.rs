@@ -72,19 +72,19 @@ fn interpolation_stays_between_the_two_states() {
 
 #[test]
 fn layer_beats_depth_and_depth_beats_the_batch_group() {
-    let low_layer = SortKey::new(0, Fx::from_int(1000), 0, uid("n_aaaaaaaa"));
-    let high_layer = SortKey::new(1, Fx::from_int(-1000), 9, uid("n_aaaaaaaa"));
+    let low_layer = SortKey::new(0, 0, Fx::from_int(1000), 0, uid("n_aaaaaaaa"));
+    let high_layer = SortKey::new(1, 0, Fx::from_int(-1000), 9, uid("n_aaaaaaaa"));
     assert!(low_layer < high_layer, "layer must dominate");
 
-    let near = SortKey::new(0, Fx::from_int(10), 9, uid("n_aaaaaaaa"));
-    let far = SortKey::new(0, Fx::from_int(200), 0, uid("n_aaaaaaaa"));
+    let near = SortKey::new(0, 0, Fx::from_int(10), 9, uid("n_aaaaaaaa"));
+    let far = SortKey::new(0, 0, Fx::from_int(200), 0, uid("n_aaaaaaaa"));
     assert!(near < far, "depth must beat the batch group");
 }
 
 #[test]
 fn negative_depth_sorts_before_positive_depth() {
-    let above = SortKey::new(0, Fx::from_int(-500), 0, uid("n_aaaaaaaa"));
-    let below = SortKey::new(0, Fx::from_int(500), 0, uid("n_aaaaaaaa"));
+    let above = SortKey::new(0, 0, Fx::from_int(-500), 0, uid("n_aaaaaaaa"));
+    let below = SortKey::new(0, 0, Fx::from_int(500), 0, uid("n_aaaaaaaa"));
     assert!(above < below, "negative depth must not wrap past positive");
 }
 
@@ -92,8 +92,8 @@ fn negative_depth_sorts_before_positive_depth() {
 fn identical_sprites_still_have_a_defined_order() {
     // Two sprites at the same place on the same layer must not swap between
     // runs; a golden-image test would catch it and nobody could explain it.
-    let a = SortKey::new(0, Fx::ZERO, 0, uid("n_aaaaaaaa"));
-    let b = SortKey::new(0, Fx::ZERO, 0, uid("n_bbbbbbbb"));
+    let a = SortKey::new(0, 0, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    let b = SortKey::new(0, 0, Fx::ZERO, 0, uid("n_bbbbbbbb"));
     assert_ne!(a, b);
 }
 
@@ -101,8 +101,14 @@ fn identical_sprites_still_have_a_defined_order() {
 fn sub_unit_movement_does_not_change_sort_position() {
     // Depth is quantised to whole units, so two nearly-coincident sprites do
     // not flicker past each other as one drifts by a fraction of a pixel.
-    let a = SortKey::new(0, Fx::from_int(10), 0, uid("n_aaaaaaaa"));
-    let b = SortKey::new(0, Fx::parse_exact("10.25").unwrap(), 0, uid("n_aaaaaaaa"));
+    let a = SortKey::new(0, 0, Fx::from_int(10), 0, uid("n_aaaaaaaa"));
+    let b = SortKey::new(
+        0,
+        0,
+        Fx::parse_exact("10.25").unwrap(),
+        0,
+        uid("n_aaaaaaaa"),
+    );
     assert_eq!(a, b);
 }
 
@@ -110,6 +116,7 @@ fn item(layer: i32, depth: i32, atlas: u16, blend: Blend, id: &str) -> DrawItem 
     DrawItem {
         key: SortKey::new(
             layer,
+            0,
             Fx::from_int(depth),
             dimetric_render::batch_group(atlas, 0, blend),
             uid(id),
@@ -286,4 +293,115 @@ fn depth_still_wins_over_the_group() {
     assert_eq!(batches.len(), 3);
     assert_eq!(items[0].node, uid("n_aaaaaaaa"));
     assert_eq!(items[2].node, uid("n_cccccccc"));
+}
+
+// -- z, which used to be a property that did nothing -----------------------
+
+#[test]
+fn z_orders_within_a_layer() {
+    // `z` was reserved, stored, settable through the command bus, visible in
+    // the inspector and readable by a probe — and read by nothing at all. The
+    // example project sets it on five nodes.
+    let low = SortKey::new(0, 5, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    let high = SortKey::new(0, 20, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    assert!(low < high, "a higher z has to draw later");
+}
+
+#[test]
+fn z_beats_depth() {
+    // The case that matters for a grid game: a projectile the author put at
+    // z 20 draws over an enemy at z 5 even when the enemy is nearer the
+    // camera. An authored decision wins over a positional one.
+    let enemy_in_front = SortKey::new(0, 5, Fx::from_int(500), 0, uid("n_aaaaaaaa"));
+    let bolt_behind = SortKey::new(0, 20, Fx::from_int(-500), 0, uid("n_bbbbbbbb"));
+    assert!(enemy_in_front < bolt_behind);
+}
+
+#[test]
+fn layer_still_beats_z() {
+    // The hierarchy the reference now documents: layer, then z, then depth.
+    let high_z_low_layer = SortKey::new(0, 127, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    let low_z_high_layer = SortKey::new(1, -128, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    assert!(high_z_low_layer < low_z_high_layer);
+}
+
+#[test]
+fn a_negative_z_sinks_below_the_default() {
+    // So "put this behind everything else in its layer" is expressible without
+    // having to raise everything else.
+    let behind = SortKey::new(0, -10, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    let ordinary = SortKey::new(0, 0, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    assert!(behind < ordinary);
+}
+
+#[test]
+fn z_round_trips_through_the_key() {
+    for z in [-128, -1, 0, 1, 127] {
+        assert_eq!(SortKey::new(0, z, Fx::ZERO, 0, uid("n_aaaaaaaa")).z(), z);
+    }
+}
+
+#[test]
+fn an_out_of_range_z_clamps_rather_than_wrapping() {
+    // Wrapping would put a sprite somebody pushed to the front at the very
+    // back, which is the worst possible reading of the number they typed.
+    let huge = SortKey::new(0, 100_000, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    let top = SortKey::new(0, 127, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    assert_eq!(huge, top);
+
+    let tiny = SortKey::new(0, -100_000, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    let bottom = SortKey::new(0, -128, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    assert_eq!(tiny, bottom);
+}
+
+#[test]
+fn depth_still_spans_everything_fx_can_produce() {
+    // The eight bits `z` took came from depth, which had 24 and could only
+    // ever reach 16: `depth_of` returns an `Fx`, and `Fx` saturates at
+    // +/-32,768 — including for an isometric `x + y` where both terms are at
+    // the limit, because that addition saturates too.
+    let most_negative = SortKey::new(0, 0, Fx::from_int(-32_768), 0, uid("n_aaaaaaaa"));
+    let zero = SortKey::new(0, 0, Fx::ZERO, 0, uid("n_aaaaaaaa"));
+    let most_positive = SortKey::new(0, 0, Fx::from_int(32_767), 0, uid("n_aaaaaaaa"));
+    assert!(most_negative < zero, "the near end must not wrap");
+    assert!(zero < most_positive, "the far end must not wrap");
+
+    // And the extremes are distinct from their neighbours, so nothing is
+    // being clamped into a shared bucket.
+    assert!(most_negative < SortKey::new(0, 0, Fx::from_int(-32_767), 0, uid("n_aaaaaaaa")));
+    assert!(SortKey::new(0, 0, Fx::from_int(32_766), 0, uid("n_aaaaaaaa")) < most_positive);
+}
+
+#[test]
+fn the_key_still_fits_in_its_word() {
+    use dimetric_render::sort::{DEPTH_BITS, GROUP_BITS, LAYER_BITS, TIE_BITS, Z_BITS};
+    assert_eq!(LAYER_BITS + Z_BITS + DEPTH_BITS + GROUP_BITS + TIE_BITS, 64);
+}
+
+#[test]
+fn z_does_not_split_a_batch() {
+    // Worth checking before 55 sheets depend on it. `z` sits *above* the batch
+    // group in the key, so two sprites with different z can never merge — but
+    // two with the *same* z and the same group still do, which is the case a
+    // tile layer or a row of identical enemies hits.
+    let mut items = vec![
+        item_z(0, 7, 0, 0, Blend::Alpha, "n_aaaaaaaa"),
+        item_z(0, 7, 0, 0, Blend::Alpha, "n_bbbbbbbb"),
+        item_z(0, 7, 0, 0, Blend::Alpha, "n_cccccccc"),
+    ];
+    let batches = dimetric_render::build(&mut items);
+    assert_eq!(batches.len(), 1, "same z and group should be one draw call");
+}
+
+/// A draw item with an explicit `z`.
+fn item_z(layer: i32, z: i32, depth: i32, atlas: u16, blend: Blend, id: &str) -> DrawItem {
+    let mut it = item(layer, depth, atlas, blend, id);
+    it.key = SortKey::new(
+        layer,
+        z,
+        Fx::from_int(depth),
+        dimetric_render::batch_group(atlas, 0, blend),
+        uid(id),
+    );
+    it
 }

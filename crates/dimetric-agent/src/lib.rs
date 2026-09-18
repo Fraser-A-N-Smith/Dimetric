@@ -1731,6 +1731,17 @@ fn api(cmd: &ApiCmd, project: Option<&str>) -> Result<Output, Diagnostics> {
                 .join("\n");
             Ok(Output::new(json!({ "globals": globals }), text))
         }
+        // The keys every node carries. `API.md` referred to them in four
+        // places and listed them in none, so `pos`, `visible`, `z` and `layer`
+        // appeared in no table in the reference at all.
+        ApiCmd::Reserved => {
+            let keys: Vec<serde_json::Value> = dimetric_scene::schema::RESERVED_KEY_DOCS
+                .iter()
+                .map(|(name, doc)| json!({ "name": name, "doc": doc }))
+                .collect();
+            let text = dimetric_scene::schema::RESERVED_KEYS.join("\n");
+            Ok(Output::new(json!({ "reserved": keys }), text))
+        }
     }
 }
 

@@ -24,13 +24,14 @@ pub fn run() -> Result<(), String> {
     let commands = dim(&root, &["api", "schema", "--json"])?;
     let tools = dim(&root, &["api", "tools", "--json"])?;
     let lua_globals = dim(&root, &["api", "globals", "--json"])?;
+    let reserved = dim(&root, &["api", "reserved", "--json"])?;
 
     write_json(&schemas.join("diagnostics.json"), &codes)?;
     write_json(&schemas.join("node-kinds.json"), &kinds)?;
     write_json(&schemas.join("commands.json"), &commands)?;
     write_json(&schemas.join("mcp-tools.json"), &tools)?;
 
-    let markdown = render_markdown(&codes, &kinds, &commands, &tools, &lua_globals)?;
+    let markdown = render_markdown(&codes, &kinds, &commands, &tools, &lua_globals, &reserved)?;
     let path = docs.join("API.md");
     std::fs::write(&path, markdown).map_err(|e| format!("writing {}: {e}", path.display()))?;
     eprintln!("xtask: wrote docs/API.md and docs/schemas/");
@@ -61,6 +62,11 @@ fn dim(root: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
         .unwrap_or(serde_json::Value::Null))
 }
 
+/// Squeeze runs of whitespace into single spaces.
+fn collapse(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn write_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
     let text = serde_json::to_string_pretty(value)
         .map_err(|e| format!("serializing {}: {e}", path.display()))?;
@@ -74,6 +80,7 @@ fn render_markdown(
     commands: &serde_json::Value,
     tools: &serde_json::Value,
     lua_globals: &serde_json::Value,
+    reserved: &serde_json::Value,
 ) -> Result<String, String> {
     let mut out = String::new();
     out.push_str(
@@ -134,6 +141,38 @@ fn render_markdown(
          possible.\n\n\
          Properties equal to their default are omitted from the file and filled in on\n\
          load, so a scene does not grow every time a kind gains a property.\n",
+    );
+
+    // The keys every node carries, which the per-kind tables below do *not*
+    // repeat. Generated from `dimetric_scene::schema::RESERVED_KEY_DOCS`,
+    // with a test in that crate holding it against `RESERVED_KEYS`, because
+    // this reference spent four milestones referring to "the reserved keys"
+    // without listing them anywhere.
+    out.push_str(
+        "\n### Keys every node has\n\n\
+         These sit on every node whatever its kind, and a kind may not declare a\n\
+         property that shadows one (`DIM0104`). They are *not* repeated in the\n\
+         per-kind tables below.\n\n\
+         | Key | What it does |\n|---|---|\n",
+    );
+    for key in reserved["reserved"].as_array().into_iter().flatten() {
+        let _ = writeln!(
+            out,
+            "| `{}` | {} |",
+            key["name"].as_str().unwrap_or_default(),
+            // The source strings wrap with Rust's `\` continuation, which keeps
+            // the next line's indentation. Harmless in a doc comment, a run of
+            // spaces in the middle of a table cell here.
+            collapse(key["doc"].as_str().unwrap_or_default())
+        );
+    }
+    out.push_str(
+        "\nDraw order sorts on `layer` first, then `z`, then depth, then whatever the\n\
+         batcher splits on, and finally the node id so that no two sprites are ever in\n\
+         an ambiguous order. Depth is the world position under the current projection,\n\
+         quantised to whole units so a sprite drifting by a fraction of a pixel cannot\n\
+         flicker past its neighbour. **Nudging a sprite\'s position to force it in front\n\
+         of another is never the answer** — that is what `z` and `layer` are for.\n",
     );
     let kind_list = kinds
         .get("kinds")
