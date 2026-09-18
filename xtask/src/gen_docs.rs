@@ -347,6 +347,37 @@ fn render_markdown(
          `scene.near` and `scene.nearest` read the broadphase as it stood at the\n\
          *start* of the tick, so every script sees the same world and what one finds\n\
          does not depend on whether another has run yet.\n\n\
+         ### Naming clips over a plain strip\n\n\
+         An Aseprite document carries tags and those become clips. A PNG carries\n\
+         nothing, so a `.meta` can name ranges over one:\n\n\
+         ```toml\n\
+         frames = 70\n\
+         frame_ms = 120\n\n\
+         [[clip]]\n\
+         name = \"idle_ne\"\n\
+         from = 0\n\
+         to = 3\n\n\
+         [[clip]]\n\
+         name = \"attack_ne\"\n\
+         from = 4\n\
+         to = 9\n\
+         looping = false\n\
+         frame_ms = 60\n\
+         ```\n\n\
+         This is the sidecar doing what it already does: saying the things the file\n\
+         itself does not. It could say a PNG is a strip of 70 frames and not that\n\
+         frames 0 to 3 are an idle, and both are equally absent from the image — so\n\
+         generated placeholder art, procedural sheets and anything a script assembles\n\
+         could not reach `anim.play`.\n\n\
+         Ranges are inclusive and absolute frame numbers, so an off-by-one is a\n\
+         diagnostic naming the clip (`DIM0604`) rather than a silent shift. A range\n\
+         past the end, a backwards range, a missing name and two clips sharing a name\n\
+         are all refused. Declaring no clips keeps the old behaviour: one clip called\n\
+         `default` over every frame.\n\n\
+         Overlapping clips **warn** (`DIM0605`) rather than failing. Reusing frames is\n\
+         a real technique and Aseprite tags may overlap too, so refusing would be\n\
+         stricter than the tool this mirrors — but `0..3` then `3..7` when `4` was\n\
+         meant is worth saying out loud.\n\n\
          ### Telling the host something\n\n\
          `event.emit(kind, payload)` appends to a list the runtime drains with\n\
          `Session::drain_events`. That is how a Steam achievement fires, how a volume\n\

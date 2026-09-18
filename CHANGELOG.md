@@ -14,6 +14,50 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a `.meta` can name clips over a plain PNG strip
+
+```toml
+frames = 70
+frame_ms = 120
+
+[[clip]]
+name = "idle_ne"
+from = 0
+to = 3
+
+[[clip]]
+name = "attack_ne"
+from = 4
+to = 9
+looping = false
+frame_ms = 60
+```
+
+Named clips came only from Aseprite tags, so a strip from anywhere else —
+generated placeholders, procedural sheets, art a script assembles — imported as
+one unnamed clip and `anim.play(node, "walk_se")` could not reach it. The
+sidecar is where facts the file does not carry already live: it could say a PNG
+is a strip of 70 frames and not that frames 0 to 3 are an idle.
+
+Ranges are inclusive and absolute. A range past the end, a backwards range, a
+missing name and two clips sharing a name are all refused with **`DIM0604`**,
+and the out-of-range message names the last usable frame because that is
+exactly the confusion. Declaring no clips keeps the old behaviour — one clip
+called `default` over every frame — so every existing `.meta` is unaffected.
+
+Two things beyond the request. `looping` and a per-clip `frame_ms`, because an
+attack plays once and faster than an idle, and without them the alternative is
+importing the same sheet twice.
+
+And **overlap warns (`DIM0605`) rather than failing**, which is a deliberate
+departure. Reusing frames across clips is a real technique and Aseprite tags
+may overlap, so refusing would be stricter than the tool this pipeline mirrors
+— but `0..3` then `3..7` when `4` was meant is the off-by-one ranges exist to
+catch, so it is said out loud. `Imported` grew a `warnings` list to carry it,
+and `dim asset import` reports them.
+
+Does not move the state hash.
+
 ### Added: a game-to-host event channel (`event.emit`)
 
 ```lua

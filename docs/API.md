@@ -346,6 +346,8 @@ message. Codes are never reused for a different meaning.
 | `DIM0601` | error | Referenced asset is not in the project |
 | `DIM0602` | error | Asset import failed |
 | `DIM0603` | error | Unsupported source format |
+| `DIM0604` | error | A .meta clip does not describe a usable range of frames |
+| `DIM0605` | warning | Two .meta clips share frames, which may be an off-by-one |
 | `DIM0701` | error | Replay state hash diverged from the recorded log |
 | `DIM0702` | error | Replay probe assertion failed |
 | `DIM0703` | error | Input log was recorded against a different scene or engine version |
@@ -458,6 +460,45 @@ projectile does not shift every gameplay roll after it.
 `scene.near` and `scene.nearest` read the broadphase as it stood at the
 *start* of the tick, so every script sees the same world and what one finds
 does not depend on whether another has run yet.
+
+### Naming clips over a plain strip
+
+An Aseprite document carries tags and those become clips. A PNG carries
+nothing, so a `.meta` can name ranges over one:
+
+```toml
+frames = 70
+frame_ms = 120
+
+[[clip]]
+name = "idle_ne"
+from = 0
+to = 3
+
+[[clip]]
+name = "attack_ne"
+from = 4
+to = 9
+looping = false
+frame_ms = 60
+```
+
+This is the sidecar doing what it already does: saying the things the file
+itself does not. It could say a PNG is a strip of 70 frames and not that
+frames 0 to 3 are an idle, and both are equally absent from the image — so
+generated placeholder art, procedural sheets and anything a script assembles
+could not reach `anim.play`.
+
+Ranges are inclusive and absolute frame numbers, so an off-by-one is a
+diagnostic naming the clip (`DIM0604`) rather than a silent shift. A range
+past the end, a backwards range, a missing name and two clips sharing a name
+are all refused. Declaring no clips keeps the old behaviour: one clip called
+`default` over every frame.
+
+Overlapping clips **warn** (`DIM0605`) rather than failing. Reusing frames is
+a real technique and Aseprite tags may overlap too, so refusing would be
+stricter than the tool this mirrors — but `0..3` then `3..7` when `4` was
+meant is worth saying out loud.
 
 ### Telling the host something
 

@@ -934,7 +934,22 @@ fn asset_command(project: &mut Project, cmd: AssetCmd) -> Result<Output, Diagnos
                 .iter()
                 .map(|(name, why)| json!({ "asset": name, "error": why }))
                 .collect();
+            // Reported rather than silent: an overlapping pair of clips is
+            // usually deliberate reuse and occasionally an off-by-one, and the
+            // person who wrote the ranges is the only one who can tell.
+            let warnings: Vec<_> = imported
+                .warnings
+                .iter()
+                .map(|(name, why)| {
+                    json!({ "asset": name, "code": Code::CLIP_OVERLAP.0, "warning": why })
+                })
+                .collect();
             let sheet = (imported.sheet.width, imported.sheet.height);
+            let warning_lines: String = imported
+                .warnings
+                .iter()
+                .map(|(name, why)| format!("\nwarning[{}] {name}: {why}", Code::CLIP_OVERLAP.0))
+                .collect();
             let text = if before.is_empty() {
                 "everything is up to date".to_string()
             } else {
@@ -949,9 +964,10 @@ fn asset_command(project: &mut Project, cmd: AssetCmd) -> Result<Output, Diagnos
                 json!({
                     "imported": before,
                     "failures": failures,
+                    "warnings": warnings,
                     "sheet": { "width": sheet.0, "height": sheet.1 },
                 }),
-                text,
+                format!("{text}{warning_lines}"),
             ))
         }
         AssetCmd::Info { name } => {

@@ -149,6 +149,8 @@ codes! {
     ASSET_MISSING     = "DIM0601", Error,   "Referenced asset is not in the project";
     IMPORT_FAILED     = "DIM0602", Error,   "Asset import failed";
     UNSUPPORTED_ASSET = "DIM0603", Error,   "Unsupported source format";
+    BAD_CLIP_RANGE    = "DIM0604", Error,   "A .meta clip does not describe a usable range of frames";
+    CLIP_OVERLAP      = "DIM0605", Warning, "Two .meta clips share frames, which may be an off-by-one";
 
     // 07xx — determinism
     REPLAY_DIVERGED   = "DIM0701", Error,   "Replay state hash diverged from the recorded log";

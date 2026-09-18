@@ -210,6 +210,11 @@ pub struct Imported {
     pub sheet: Sheet,
     /// What went wrong, per asset.
     pub failures: Vec<(String, String)>,
+    /// What is worth mentioning but did not stop the import, per asset.
+    ///
+    /// Separate from `failures` because a warning that aborted an import would
+    /// be an error, and an error nobody can see is worse than either.
+    pub warnings: Vec<(String, String)>,
 }
 
 impl Imported {
@@ -229,10 +234,14 @@ impl Imported {
 pub fn import(catalog: &Catalog, tick_rate: u32) -> Imported {
     let mut artifacts = BTreeMap::new();
     let mut failures = Vec::new();
+    let mut warnings = Vec::new();
     let mut packable: Vec<Framed> = Vec::new();
 
     for entry in catalog.entries() {
         let full = catalog.root().join(&entry.path);
+        for warning in entry.settings.clip_warnings() {
+            warnings.push((entry.name.clone(), warning));
+        }
         match import_one(&full, entry, tick_rate) {
             Ok(artifact) => {
                 if entry.settings.atlas {
@@ -268,6 +277,7 @@ pub fn import(catalog: &Catalog, tick_rate: u32) -> Imported {
         artifacts,
         sheet: pack_framed(packable, MAX_SHEET_WIDTH),
         failures,
+        warnings,
     }
 }
 
@@ -281,17 +291,15 @@ fn import_one(full: &Path, entry: &Entry, tick_rate: u32) -> Result<Artifact, Im
                 return Ok(Artifact::Image(image));
             }
             // A PNG that the `.meta` calls a strip animates like an Aseprite
-            // document does, with one clip covering every frame. Nothing in a
-            // PNG says it is a strip, so somebody has to.
+            // document does. Nothing in a PNG says it is a strip, and nothing
+            // in it names the clips either, so the sidecar does both.
             let width = image.width / frames;
             let height = image.height;
             let ticks = crate::clip::ms_to_ticks(entry.settings.frame_ms, tick_rate);
-            Ok(Artifact::Animation {
-                sheet: image,
-                frame_width: width,
-                frame_height: height,
-                frame_count: frames,
-                clips: vec![crate::clip::Clip {
+            let clips = if entry.settings.clips.is_empty() {
+                // No names declared: one clip over everything, which is what a
+                // strip with nothing said about it can usefully be.
+                vec![crate::clip::Clip {
                     name: "default".to_string(),
                     frames: (0..frames)
                         .map(|index| crate::clip::Frame {
@@ -301,7 +309,38 @@ fn import_one(full: &Path, entry: &Entry, tick_rate: u32) -> Result<Artifact, Im
                         })
                         .collect(),
                     looping: true,
-                }],
+                }]
+            } else {
+                entry
+                    .settings
+                    .clips
+                    .iter()
+                    .map(|range| crate::clip::Clip {
+                        name: range.name.clone(),
+                        frames: (range.from..=range.to)
+                            .map(|index| crate::clip::Frame {
+                                index,
+                                // A per-clip override, converted here with
+                                // everything else: an attack is faster than an
+                                // idle, and the alternative is importing the
+                                // same sheet twice.
+                                ticks: range
+                                    .frame_ms
+                                    .map(|ms| crate::clip::ms_to_ticks(ms, tick_rate))
+                                    .unwrap_or(ticks),
+                                event: None,
+                            })
+                            .collect(),
+                        looping: range.looping,
+                    })
+                    .collect()
+            };
+            Ok(Artifact::Animation {
+                sheet: image,
+                frame_width: width,
+                frame_height: height,
+                frame_count: frames,
+                clips,
             })
         }
         SourceKind::Aseprite => {

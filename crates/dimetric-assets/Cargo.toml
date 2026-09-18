@@ -22,3 +22,4 @@ fontdue = { version = "0.9.4", default-features = false, features = ["std"] }
 [dev-dependencies]
 png = "0.17"
 serde_json.workspace = true
+tempfile = "3.27.0"

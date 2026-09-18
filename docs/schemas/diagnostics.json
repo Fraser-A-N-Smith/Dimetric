@@ -166,6 +166,16 @@
       "summary": "Unsupported source format"
     },
     {
+      "code": "DIM0604",
+      "severity": "error",
+      "summary": "A .meta clip does not describe a usable range of frames"
+    },
+    {
+      "code": "DIM0605",
+      "severity": "warning",
+      "summary": "Two .meta clips share frames, which may be an off-by-one"
+    },
+    {
       "code": "DIM0701",
       "severity": "error",
       "summary": "Replay state hash diverged from the recorded log"
