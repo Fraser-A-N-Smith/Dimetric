@@ -1184,3 +1184,88 @@ z = {z}
         frame.batches
     );
 }
+
+// -- Mirroring an animated sprite ------------------------------------------
+
+#[test]
+fn an_animated_sprite_can_be_mirrored() {
+    // `Sprite2D` had `flip_h` and `flip_v` and `AnimatedSprite2D` had neither,
+    // so a directional character needed four drawn facings where two would do.
+    // Under the 2:1 shear a grid actor's four screen facings are two mirrored
+    // pairs, which across a project's actor sheets is the largest single lever
+    // on the art budget.
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+
+    let uv_of = |flip: &str| {
+        let body = format!(
+            r#"
+[[node]]
+id = "n_hero0000"
+kind = "AnimatedSprite2D"
+name = "Hero"
+parent = "n_root0000"
+frames = "asset:fonts/block"
+animation = "idle"
+{flip}
+"#
+        );
+        let frame = extract(&ui_scene(&body), &atlas, &camera, None);
+        assert_eq!(frame.sprites.len(), 1, "the sprite should extract");
+        frame.sprites[0].uv
+    };
+
+    let plain = uv_of("");
+    let flipped_h = uv_of("flip_h = true");
+    let flipped_v = uv_of("flip_v = true");
+
+    // A horizontal mirror swaps the u pair and leaves v alone.
+    assert_eq!(flipped_h[0], plain[2]);
+    assert_eq!(flipped_h[2], plain[0]);
+    assert_eq!(flipped_h[1], plain[1]);
+    assert_eq!(flipped_h[3], plain[3]);
+
+    // And vertical the other way round.
+    assert_eq!(flipped_v[1], plain[3]);
+    assert_eq!(flipped_v[3], plain[1]);
+    assert_eq!(flipped_v[0], plain[0]);
+    assert_eq!(flipped_v[2], plain[2]);
+}
+
+#[test]
+fn a_flipped_sprite_batches_with_an_unflipped_one() {
+    // Asked for explicitly, and worth knowing before 55 sheets depend on it.
+    // The flip swaps UVs on the draw item and never reaches `batch_group`,
+    // which is atlas, shader and blend — so a row of actors facing both ways
+    // is still one draw call.
+    let atlas = label_atlas();
+    let camera = Camera::new((64, 64));
+    let mut body = String::new();
+    for (i, flip) in ["", "flip_h = true", "", "flip_h = true"]
+        .iter()
+        .enumerate()
+    {
+        body.push_str(&format!(
+            r#"
+[[node]]
+id = "n_h{i:07}"
+kind = "AnimatedSprite2D"
+name = "H{i}"
+parent = "n_root0000"
+frames = "asset:fonts/block"
+animation = "idle"
+pos = [{}.0, 0.0]
+{flip}
+"#,
+            i * 12
+        ));
+    }
+    let frame = extract(&ui_scene(&body), &atlas, &camera, None);
+    assert_eq!(frame.sprites.len(), 4);
+    assert_eq!(
+        frame.batches.len(),
+        1,
+        "a flip must not split a batch: {:?}",
+        frame.batches
+    );
+}

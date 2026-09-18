@@ -47,6 +47,20 @@
           "type": "color"
         },
         {
+          "default": "false",
+          "doc": "Mirror horizontally.",
+          "name": "flip_h",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Mirror vertically.",
+          "name": "flip_v",
+          "required": false,
+          "type": "bool"
+        },
+        {
           "default": "1",
           "doc": "Playback rate numerator. Integer ratio, not a float, because frame advance is gameplay and must land on the same tick everywhere.",
           "name": "speed_numerator",

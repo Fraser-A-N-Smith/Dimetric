@@ -178,6 +178,24 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                  Setting it by hand pins a frame until playback moves it.",
             ),
             prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
+            // The same two `Sprite2D` has, with the same meaning. Under a 2:1
+            // shear a grid actor needs four screen facings and two of them are
+            // mirrors, so a mirrored sheet halves the art for a directional
+            // character. It is a render-time flip of the quad and reaches no
+            // simulation state — which way a character faces is gameplay, but
+            // the flip itself is not.
+            prop(
+                "flip_h",
+                PropertyType::Bool,
+                boolean(false),
+                "Mirror horizontally.",
+            ),
+            prop(
+                "flip_v",
+                PropertyType::Bool,
+                boolean(false),
+                "Mirror vertically.",
+            ),
             prop(
                 "speed_numerator",
                 PropertyType::Int,

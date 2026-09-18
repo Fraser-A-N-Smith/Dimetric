@@ -14,6 +14,31 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `flip_h` and `flip_v` on `AnimatedSprite2D`
+
+`Sprite2D` had both and `AnimatedSprite2D` had neither, so `flip_h = true` on
+an animated node was `DIM0301` — an unknown property.
+
+It turned out to be two schema entries and nothing else. Both kinds already go
+through the same extraction, which was reading `flip_h` and swapping the UVs;
+only the declaration was missing, so the renderer had supported this all along
+and the schema would not let anyone ask.
+
+Semantics match `Sprite2D` exactly. Under a 2:1 shear a grid actor's four
+screen facings are two mirrored pairs, so a mirrored sheet halves the drawn art
+for a directional character.
+
+**On the hash, since the request asked:** `flip_h` is authored scene data and
+the scene is hashed, so setting it moves the hash the same way `modulate` or
+`visible` does. That is not the thing that would be a problem — what matters is
+that *drawing* it changes nothing, and the renderer reads it and writes nothing
+back (I7). A game picks its facing in a script variable, which is hashed like
+any other decision, and the flip is only how that gets drawn.
+
+**On batching, also asked:** a flip does not split a batch. It swaps UVs on the
+draw item and never reaches `batch_group`, which is atlas, shader and blend, so
+a row of actors facing both ways is one draw call. There is a test.
+
 ### Added: a `.meta` can name clips over a plain PNG strip
 
 ```toml
