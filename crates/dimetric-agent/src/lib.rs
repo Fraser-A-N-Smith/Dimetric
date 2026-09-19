@@ -932,7 +932,9 @@ fn asset_command(project: &mut Project, cmd: AssetCmd) -> Result<Output, Diagnos
             let failures: Vec<_> = imported
                 .failures
                 .iter()
-                .map(|(name, why)| json!({ "asset": name, "error": why }))
+                .map(|(name, why)| {
+                    json!({ "asset": name, "code": Code::IMPORT_FAILED.0, "error": why })
+                })
                 .collect();
             // Reported rather than silent: an overlapping pair of clips is
             // usually deliberate reuse and occasionally an off-by-one, and the
@@ -945,19 +947,30 @@ fn asset_command(project: &mut Project, cmd: AssetCmd) -> Result<Output, Diagnos
                 })
                 .collect();
             let sheet = (imported.sheet.width, imported.sheet.height);
+            // Printed, not only put in the JSON. A failed import used to
+            // report nothing at all in text mode, so the one command that
+            // could tell you a sidecar was broken said "imported 1 asset(s)"
+            // and exited zero.
+            let failure_lines: String = imported
+                .failures
+                .iter()
+                .map(|(name, why)| format!("\nerror[{}] {name}: {why}", Code::IMPORT_FAILED.0))
+                .collect();
             let warning_lines: String = imported
                 .warnings
                 .iter()
                 .map(|(name, why)| format!("\nwarning[{}] {name}: {why}", Code::CLIP_OVERLAP.0))
                 .collect();
+            // The count excludes what failed, because "imported 84 assets"
+            // alongside 84 errors is a sentence that talks the reader out of
+            // reading the errors.
+            let ok = before.len().saturating_sub(imported.failures.len());
             let text = if before.is_empty() {
                 "everything is up to date".to_string()
             } else {
                 format!(
-                    "imported {} asset(s) into a {}x{} sheet",
-                    before.len(),
-                    sheet.0,
-                    sheet.1
+                    "imported {ok} asset(s) into a {}x{} sheet",
+                    sheet.0, sheet.1
                 )
             };
             Ok(Output::new(
@@ -967,7 +980,7 @@ fn asset_command(project: &mut Project, cmd: AssetCmd) -> Result<Output, Diagnos
                     "warnings": warnings,
                     "sheet": { "width": sheet.0, "height": sheet.1 },
                 }),
-                format!("{text}{warning_lines}"),
+                format!("{text}{failure_lines}{warning_lines}"),
             ))
         }
         AssetCmd::Info { name } => {

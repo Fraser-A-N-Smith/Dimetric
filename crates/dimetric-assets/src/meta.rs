@@ -358,6 +358,9 @@ pub enum MetaError {
     /// A `[[clip]]` block does not describe a usable range.
     #[error("{0}")]
     BadClip(String),
+    /// The file is there and could not be read at all.
+    #[error("import settings could not be read: {0}")]
+    Unreadable(String),
 }
 
 /// Hash a source file's contents.

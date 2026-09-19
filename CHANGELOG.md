@@ -14,6 +14,41 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: a malformed `.meta` was silently replaced, destroying it
+
+A sidecar that failed to parse had its error dropped by `.ok()`, a fresh
+default invented in its place, and that default written back over the author's
+file — no error, no warning, no diagnostic code, exit status zero. It ate 84
+files in one project, each carrying hand-written `[[clip]]` declarations, and
+the only reason nothing was lost for good is that they were in git.
+
+The distinction the fix turns on, because the two cases wanted opposite
+recoveries and shared a code path:
+
+- **Absent** means *no opinion*. Inventing one is helpful, is documented, and
+  still happens — dropping a PNG into `assets/` and getting a sidecar works
+  exactly as before.
+- **Present and unparseable** means *an opinion that did not survive parsing*.
+  Inventing one in its place destroys it.
+
+A sidecar that is there and does not parse now fails that asset's import with
+**`DIM0602`**, naming the file and the reason. That trips the guard already
+written into `write_metas`, which skips failed assets — so the overwrite stops
+for free, exactly as the report predicted.
+
+Two smaller silences fixed alongside, both found while confirming the first.
+Import failures were put in the JSON and **never printed in text mode**, so the
+one command that could tell you a sidecar was broken said "imported 1 asset(s)"
+and said nothing else. And the count now excludes what failed, because
+"imported 84 assets" next to 84 errors is a sentence that talks the reader out
+of reading the errors.
+
+A `.meta` that exists but cannot be *read* — permissions, a directory in its
+place — is treated as malformed rather than absent, for the same reason:
+something is there and we could not honour it.
+
+Does not move the state hash.
+
 ### Added: `flip_h` and `flip_v` on `AnimatedSprite2D`
 
 `Sprite2D` had both and `AnimatedSprite2D` had neither, so `flip_h = true` on

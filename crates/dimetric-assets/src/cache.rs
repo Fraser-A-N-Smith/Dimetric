@@ -26,7 +26,9 @@ use dimetric_core::AssetId;
 
 use crate::clip::Clip;
 use crate::image::{decode_png, encode_png, Image, ImageError};
-use crate::meta::{content_hash, ImportSettings, SourceKind, IMPORT_DIR, META_EXTENSION};
+use crate::meta::{
+    content_hash, ImportSettings, MetaError, SourceKind, IMPORT_DIR, META_EXTENSION,
+};
 use crate::sheet::{pack_framed, Framed, Sheet};
 
 /// Directory sources are read from.
@@ -47,8 +49,14 @@ pub struct Entry {
     pub name: String,
     /// What kind of file it is.
     pub kind: SourceKind,
-    /// Settings from the sidecar.
+    /// Settings from the sidecar, or invented ones when it could not be read.
     pub settings: ImportSettings,
+    /// Why the sidecar did not parse, when one is there and did not.
+    ///
+    /// `None` covers both "no sidecar" and "a good one": the distinction that
+    /// matters downstream is whether a file exists that we failed to honour,
+    /// because that is the one it would be destructive to overwrite.
+    pub meta_error: Option<String>,
     /// Hash of the bytes currently on disk.
     pub hash: String,
 }
@@ -88,8 +96,16 @@ impl Catalog {
                 continue;
             };
             let name = asset_name(&path);
-            let settings =
-                read_meta(&full).unwrap_or_else(|| ImportSettings::new(derive_id(&name)));
+            // A sidecar that did not parse is remembered rather than papered
+            // over. The settings below are still invented, because the rest of
+            // the scan needs *something* — but the error travels with the
+            // entry, the import reports it, and `write_metas` then refuses to
+            // overwrite the file it could not read.
+            let (settings, meta_error) = match read_meta(&full) {
+                Ok(Some(settings)) => (settings, None),
+                Ok(None) => (ImportSettings::new(derive_id(&name)), None),
+                Err(e) => (ImportSettings::new(derive_id(&name)), Some(e.to_string())),
+            };
             entries.insert(
                 name.clone(),
                 Entry {
@@ -97,6 +113,7 @@ impl Catalog {
                     name,
                     kind,
                     settings,
+                    meta_error,
                     hash: content_hash(&bytes),
                 },
             );
@@ -239,6 +256,26 @@ pub fn import(catalog: &Catalog, tick_rate: u32) -> Imported {
 
     for entry in catalog.entries() {
         let full = catalog.root().join(&entry.path);
+
+        // A sidecar that is there and did not parse fails the import. That is
+        // what stops the damage: `write_metas` skips a failed asset, so the
+        // file somebody wrote survives to be looked at instead of being
+        // replaced by the defaults that were invented when it would not read.
+        //
+        // Refusing is the whole point. An invalid id deserves to be rejected;
+        // it does not deserve to be corrected by deletion.
+        if let Some(why) = &entry.meta_error {
+            failures.push((
+                entry.name.clone(),
+                format!(
+                    "{}: {why}. The file was left as it is — fix it, or delete it to \
+                     have one generated.",
+                    meta_path(&full).display()
+                ),
+            ));
+            continue;
+        }
+
         for warning in entry.settings.clip_warnings() {
             warnings.push((entry.name.clone(), warning));
         }
@@ -444,9 +481,27 @@ pub fn meta_path(source: &Path) -> PathBuf {
     source.with_file_name(name)
 }
 
-fn read_meta(source: &Path) -> Option<ImportSettings> {
-    let text = std::fs::read_to_string(meta_path(source)).ok()?;
-    ImportSettings::parse(&text).ok()
+/// Read a source's sidecar, distinguishing "absent" from "would not parse".
+///
+/// The two want opposite recoveries and used to share a code path, which is
+/// how a malformed `.meta` got silently replaced by defaults and then written
+/// back over the author's file.
+///
+/// * **Absent** is `Ok(None)` — no opinion. Inventing one is helpful, and is
+///   the documented behaviour that makes dropping a PNG into `assets/` work.
+/// * **Present and unparseable** is `Err` — an opinion that did not survive
+///   parsing. Inventing one in its place destroys it.
+///
+/// A sidecar that exists and cannot be *read* (permissions, a directory in its
+/// place) is the second kind too: something is there and we cannot honour it.
+fn read_meta(source: &Path) -> Result<Option<ImportSettings>, MetaError> {
+    let path = meta_path(source);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(MetaError::Unreadable(e.to_string())),
+    };
+    ImportSettings::parse(&text).map(Some)
 }
 
 /// The name a scene refers to `assets/sprites/hero.png` by: `sprites/hero`.
