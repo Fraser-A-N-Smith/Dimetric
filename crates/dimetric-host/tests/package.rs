@@ -18,8 +18,44 @@ fn scratch(name: &str) -> std::path::PathBuf {
     dir
 }
 
+/// Copy a directory, so a test can stage a project nothing else is writing to.
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).expect("mkdir");
+    for entry in std::fs::read_dir(from).expect("readable") {
+        let entry = entry.expect("an entry");
+        let target = to.join(entry.file_name());
+        match entry.file_type().expect("a file type").is_dir() {
+            true => copy_dir(&entry.path(), &target),
+            false => {
+                std::fs::copy(entry.path(), &target).expect("copy");
+            }
+        }
+    }
+}
+
+/// The example game, copied somewhere this test owns.
+///
+/// Staging imports the project's assets, which writes `.import/`. Several test
+/// binaries do that to `examples/sorcerer` at once — cargo runs them in
+/// parallel — and a stage that reads the atlas while another writes it counts
+/// different bytes. That is a race in the tests, not in the packager, but it
+/// fails the gate all the same, and a gate that fails at random is a gate
+/// nobody reads. So each staging gets its own copy.
+fn sorcerer_copy(out: &std::path::Path) -> std::path::PathBuf {
+    let name = out
+        .file_name()
+        .expect("a name")
+        .to_string_lossy()
+        .to_string();
+    // Under its own name: the packager names the executable after the project
+    // directory, and a test that renamed it would be testing the copy.
+    let dir = scratch(&format!("{name}-project")).join("sorcerer");
+    copy_dir(&sorcerer(), &dir);
+    dir
+}
+
 fn stage_sorcerer(out: &std::path::Path, runtime: Option<std::path::PathBuf>) -> package::Staged {
-    let mut project = Project::open(sorcerer(), 0);
+    let mut project = Project::open(sorcerer_copy(out), 0);
     package::stage(
         &mut project,
         PackageRequest {
@@ -145,7 +181,7 @@ fn a_windows_build_names_its_executable_with_an_extension() {
     let fake = scratch("windows-src").join("dim-play.exe");
     std::fs::create_dir_all(fake.parent().unwrap()).expect("mkdir");
     std::fs::write(&fake, b"MZ").expect("write");
-    let mut project = Project::open(sorcerer(), 0);
+    let mut project = Project::open(sorcerer_copy(&out), 0);
     let staged = package::stage(
         &mut project,
         PackageRequest {
@@ -165,7 +201,7 @@ fn a_windows_build_names_its_executable_with_an_extension() {
 #[test]
 fn a_scene_the_project_does_not_have_is_refused_before_anything_is_copied() {
     let out = scratch("no-scene");
-    let mut project = Project::open(sorcerer(), 0);
+    let mut project = Project::open(sorcerer_copy(&out), 0);
     let result = package::stage(
         &mut project,
         PackageRequest {
