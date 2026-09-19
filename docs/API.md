@@ -403,7 +403,7 @@ arguments column.
 | `scene_query` | `path`* | Look up one node by path |
 | `scene_resolve` | — | Resolve every prefab instance and print the runtime tree |
 | `scene_tree` | — | Print the node tree |
-| `script_check` | `determinism`, `path`* | Check a script without writing it |
+| `script_check` | `determinism`, `path` | Check a script without writing it, or every script in the project when no path is given |
 | `script_list` | — | List the project's scripts |
 | `script_write` | `path`*, `source` | Write a script file, reporting syntax errors structurally |
 | `signal_connect` | `from`*, `method`*, `signal`*, `to`* | Connect a signal to a method |

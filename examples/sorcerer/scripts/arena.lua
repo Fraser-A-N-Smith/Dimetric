@@ -50,7 +50,9 @@ end
 -- divergence on somebody else's machine three weeks from now.
 local function apply_modifiers(spell, mods, definitions)
   local out = {}
-  for k, v in pairs(spell) do out[k] = v end
+  -- A whole-table copy: every key is written, so the order they are written
+  -- in cannot change what `out` ends up holding.
+  for k, v in pairs(spell) do out[k] = v end -- @ordered
   for i = 1, #mods do
     local mod = definitions[mods[i]]
     if mod then

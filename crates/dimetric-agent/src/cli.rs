@@ -273,13 +273,14 @@ pub enum ScriptCmd {
         #[arg(long)]
         source: Option<String>,
     },
-    /// Check a script without writing it.
+    /// Check a script without writing it, or every script in the project when
+    /// no path is given.
     Check {
         /// Also scan for things that may not reproduce on another machine.
         #[arg(long)]
         determinism: bool,
-        /// Project-relative path.
-        path: String,
+        /// Project-relative path. Absent means every script under `scripts/`.
+        path: Option<String>,
     },
     /// List the project's scripts.
     List,

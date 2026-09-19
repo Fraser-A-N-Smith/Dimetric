@@ -643,6 +643,37 @@ fn signal_command(project: &mut Project, cmd: SignalCmd) -> Result<Output, Diagn
     }
 }
 
+/// Every script in the project, with one caller-supplied source overriding the
+/// copy on disk.
+///
+/// `require` reads a registry of sources, not the filesystem, so a tool that
+/// loads one file in isolation is checking a program the game never runs. The
+/// override is for a file being checked or written before it is saved — and for
+/// a path outside `scripts/`, which `load_scripts` does not walk.
+fn script_sources(
+    project: &mut Project,
+    named: Option<(&str, &str)>,
+) -> std::collections::BTreeMap<String, String> {
+    project.load_scripts();
+    let mut sources = project.scripts.clone();
+    if let Some((path, text)) = named {
+        sources.insert(path.to_string(), text.to_string());
+    }
+    sources
+}
+
+/// A host with the project's whole script set in its module registry, and
+/// nothing loaded yet.
+fn script_host(
+    sources: &std::collections::BTreeMap<String, String>,
+) -> Result<dimetric_sim::LuaHost, Diagnostics> {
+    let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
+    for (path, source) in sources {
+        host.register(path, source);
+    }
+    Ok(host)
+}
+
 fn script_command(project: &mut Project, cmd: ScriptCmd) -> Result<Output, Diagnostics> {
     match cmd {
         ScriptCmd::Write { path, source } => {
@@ -656,8 +687,11 @@ fn script_command(project: &mut Project, cmd: ScriptCmd) -> Result<Output, Diagn
                 })?,
             };
             // Check before writing: a syntax error should be reported with a
-            // code, not discovered the next time the game is run.
-            let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
+            // code, not discovered the next time the game is run. The project's
+            // other scripts go into the registry first, so a file that requires
+            // one of them can still be written.
+            let sources = script_sources(project, Some((&path, &text)));
+            let mut host = script_host(&sources)?;
             host.load(&path, &text).map_err(one)?;
             project.apply(Command::WriteScript {
                 path: path.clone(),
@@ -669,32 +703,95 @@ fn script_command(project: &mut Project, cmd: ScriptCmd) -> Result<Output, Diagn
             ))
         }
         ScriptCmd::Check { path, determinism } => {
-            let full = project.path_of(&path);
-            let text = std::fs::read_to_string(&full).map_err(|e| {
-                one(Diagnostic::new(
-                    Code::ASSET_MISSING,
-                    format!("cannot read {}: {e}", full.display()),
-                ))
-            })?;
-            let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
-            host.load(&path, &text).map_err(one)?;
-
-            // Syntax is checked by loading it; determinism is a separate pass
-            // because it is a text scan with no parser behind it and says so.
-            let hazards = match determinism {
-                true => dimetric_sim::lint::check(&path, &text),
-                false => Vec::new(),
+            // A check that cannot resolve `require` is checking a different
+            // program from the one the game runs: the first `require` line
+            // raises, and everything after it goes unexamined. So the whole
+            // script set is registered before anything is loaded, exactly as
+            // the runtime does it.
+            let named = match &path {
+                Some(p) => {
+                    let full = project.path_of(p);
+                    let text = std::fs::read_to_string(&full).map_err(|e| {
+                        one(Diagnostic::new(
+                            Code::ASSET_MISSING,
+                            format!("cannot read {}: {e}", full.display()),
+                        ))
+                    })?;
+                    Some((p.clone(), text))
+                }
+                None => None,
             };
-            let findings: Vec<serde_json::Value> = hazards.iter().map(|d| json!(d)).collect();
-            let mut text_out = format!("{path} parses");
-            for hazard in &hazards {
-                text_out.push_str(&format!("\n{hazard}"));
+            let sources = script_sources(
+                project,
+                named.as_ref().map(|(p, text)| (p.as_str(), text.as_str())),
+            );
+            // No path means the project. A caller who has to write the loop is
+            // the caller who quietly skips the four files that matter.
+            let targets: Vec<String> = match &named {
+                Some((p, _)) => vec![p.clone()],
+                None => sources.keys().cloned().collect(),
+            };
+
+            let mut host = script_host(&sources)?;
+            let mut failures: Vec<Diagnostic> = Vec::new();
+            let mut hazards: Vec<Diagnostic> = Vec::new();
+            let mut files: Vec<serde_json::Value> = Vec::new();
+            for target in &targets {
+                let source = &sources[target];
+                let failure = host.load(target, source).err();
+                // The lint runs whether or not the file loaded. It is a text
+                // scan with no parser behind it, so it never depended on the
+                // load succeeding — and a syntax error in one function is no
+                // reason to stop reporting a `pairs()` in the next.
+                let found = match determinism {
+                    true => dimetric_sim::lint::check(target, source),
+                    false => Vec::new(),
+                };
+                files.push(json!({
+                    "path": target,
+                    "parses": failure.is_none(),
+                    "error": failure,
+                    "hazards": found,
+                }));
+                failures.extend(failure);
+                hazards.extend(found);
             }
-            if determinism && hazards.is_empty() {
-                text_out.push_str("\n  no determinism hazards found");
+
+            let mut text_out = String::new();
+            if targets.is_empty() {
+                text_out.push_str("no scripts under scripts/ — nothing was checked");
+            }
+            for file in &files {
+                let name = file["path"].as_str().unwrap_or_default();
+                match file["parses"].as_bool() {
+                    Some(true) => text_out.push_str(&format!("{name} parses\n")),
+                    _ => text_out.push_str(&format!("{name} does not parse\n")),
+                }
+            }
+            for failure in &failures {
+                text_out.push_str(&format!("{failure}\n"));
+            }
+            for hazard in &hazards {
+                text_out.push_str(&format!("{hazard}\n"));
+            }
+            if determinism && hazards.is_empty() && !targets.is_empty() {
+                text_out.push_str("no determinism hazards found\n");
+            }
+
+            // A file that does not parse fails the command, so a check in CI
+            // has an exit status to read. The hazards go out with it rather
+            // than being swallowed by the failure.
+            if !failures.is_empty() {
+                let mut diags = failures;
+                diags.extend(hazards);
+                return Err(Diagnostics(diags));
             }
             Ok(Output::new(
-                json!({ "ok": true, "path": path, "hazards": findings }),
+                json!({
+                    "checked": targets,
+                    "files": files,
+                    "hazards": hazards,
+                }),
                 text_out,
             ))
         }

@@ -1149,7 +1149,7 @@
       "name": "scene_tree"
     },
     {
-      "description": "Check a script without writing it",
+      "description": "Check a script without writing it, or every script in the project when no path is given",
       "inputSchema": {
         "properties": {
           "determinism": {
@@ -1165,7 +1165,7 @@
             "type": "boolean"
           },
           "path": {
-            "description": "Project-relative path",
+            "description": "Project-relative path. Absent means every script under `scripts/`",
             "type": "string"
           },
           "project": {
@@ -1177,9 +1177,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "path"
-        ],
+        "required": [],
         "type": "object"
       },
       "name": "script_check"

@@ -14,6 +14,50 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: `dim script check` can resolve `require`, and checks a project
+
+Two defects and an absence, all in the same command, all of which made the
+check quieter than the truth.
+
+**`require` could not resolve.** The command built a bare `LuaHost` and loaded
+one file into it, while the runtime registers every script's source before
+loading any of them. So the first `require` line raised `unknown module`, the
+command exited non-zero, and everything after that line went unexamined. A
+script that pulls in a module — which is every script worth linting — could not
+be checked at all. It now seeds the host's module registry from
+`project.load_scripts()`, the way the runtime does, so a module path resolves
+in the checker exactly as it will at tick 0. Registering is not running: a
+single-file check still loads only the file it was asked about.
+
+**A load failure suppressed the lint.** The determinism scan is a text scan
+with no parser behind it, so it never depended on the load succeeding — but it
+sat behind a `?`, and a syntax error on line 3 hid a float on line 2. The lint
+now runs either way, and a file that does not parse reports its syntax error
+*and* its hazards. A file that does not parse still fails the command, so a
+check in CI has an exit status to read; the hazards go out with the failure
+rather than being swallowed by it.
+
+**There was no way to ask about a project.** `dim script check --determinism`
+now takes no path and checks every script under `scripts/`, in sorted order.
+The per-file form still works. A caller who has to write the loop is the caller
+who skips the file that mattered — which this engine's own example game
+demonstrated: `examples/sorcerer/scripts/arena.lua` requires the spellbook, so
+a per-file check on it had never got past line 12, and the `pairs()` on line 53
+had never been reported in the project's life. It is a whole-table copy and
+safe, and now says so with `-- @ordered`.
+
+`dim script write` had the same bare host and is fixed with it: a script that
+requires a module can now be written.
+
+The command's JSON result changed shape. It was `{ ok, path, hazards }`; it is
+now `{ checked, files, hazards }`, where `checked` is the paths examined and
+`files` carries a `{ path, parses, error, hazards }` entry for each. `ok` is
+gone from the body — the envelope has always carried one.
+
+Does not move the state hash. `LuaHost::register` is new and public, but it
+only writes into the module registry that `load` already wrote into; nothing
+about stepping changed.
+
 ### Added: `docs/API.md` says what an id looks like, and what a `.meta` does
 
 `id` was described in the reserved-keys table as "Permanent identity, as

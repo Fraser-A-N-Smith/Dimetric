@@ -678,15 +678,25 @@ impl LuaHost {
         })
     }
 
+    /// Register a script's source without running it.
+    ///
+    /// `require` reads this registry, so a tool that wants to check one file
+    /// against the project's real module set can seed the registry with every
+    /// script and then load only the file it was asked about. Registering is
+    /// not loading: nothing in the source runs here.
+    pub fn register(&mut self, path: &str, source: &str) {
+        self.modules
+            .borrow_mut()
+            .sources
+            .insert(path.to_string(), source.to_string());
+    }
+
     /// Load a script under a project-relative path.
     ///
     /// The source is registered before it runs, so a script can `require`
     /// itself out of the same registry every other script reads.
     pub fn load(&mut self, path: &str, source: &str) -> Result<(), Diagnostic> {
-        self.modules
-            .borrow_mut()
-            .sources
-            .insert(path.to_string(), source.to_string());
+        self.register(path, source);
         let env = build_environment(&self.lua, self.tick_rate, &self.handles(), path)?;
         self.lua
             .load(source)
@@ -713,10 +723,7 @@ impl LuaHost {
         let paths: Vec<String> = scripts
             .into_iter()
             .map(|(path, source)| {
-                self.modules
-                    .borrow_mut()
-                    .sources
-                    .insert(path.to_string(), source.to_string());
+                self.register(path, source);
                 path.to_string()
             })
             .collect();
