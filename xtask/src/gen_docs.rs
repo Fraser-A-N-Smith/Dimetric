@@ -25,13 +25,22 @@ pub fn run() -> Result<(), String> {
     let tools = dim(&root, &["api", "tools", "--json"])?;
     let lua_globals = dim(&root, &["api", "globals", "--json"])?;
     let reserved = dim(&root, &["api", "reserved", "--json"])?;
+    let ids = dim(&root, &["api", "ids", "--json"])?;
 
     write_json(&schemas.join("diagnostics.json"), &codes)?;
     write_json(&schemas.join("node-kinds.json"), &kinds)?;
     write_json(&schemas.join("commands.json"), &commands)?;
     write_json(&schemas.join("mcp-tools.json"), &tools)?;
 
-    let markdown = render_markdown(&codes, &kinds, &commands, &tools, &lua_globals, &reserved)?;
+    let markdown = render_markdown(
+        &codes,
+        &kinds,
+        &commands,
+        &tools,
+        &lua_globals,
+        &reserved,
+        &ids,
+    )?;
     let path = docs.join("API.md");
     std::fs::write(&path, markdown).map_err(|e| format!("writing {}: {e}", path.display()))?;
     eprintln!("xtask: wrote docs/API.md and docs/schemas/");
@@ -81,6 +90,7 @@ fn render_markdown(
     tools: &serde_json::Value,
     lua_globals: &serde_json::Value,
     reserved: &serde_json::Value,
+    ids: &serde_json::Value,
 ) -> Result<String, String> {
     let mut out = String::new();
     out.push_str(
@@ -347,6 +357,52 @@ fn render_markdown(
          `scene.near` and `scene.nearest` read the broadphase as it stood at the\n\
          *start* of the tick, so every script sees the same world and what one finds\n\
          does not depend on whether another has run yet.\n\n\
+         ### Identifiers\n\n",
+    );
+
+    // Generated from `dimetric_core::id`, because anybody hand-writing or
+    // generating a `.meta` has to know this and the only way to find it out
+    // used to be reading `core/src/id.rs`. A generator that did not emitted
+    // `sprites_ashfen_bogling`, and 84 sidecars were overwritten rather than
+    // refused.
+    let length = ids["length"].as_u64().unwrap_or_default();
+    let _ = writeln!(
+        out,
+        "Every id is a prefix followed by exactly {length} characters.\n"
+    );
+    out.push_str("| Prefix | Identifies |\n|---|---|\n");
+    for prefix in ids["prefixes"].as_array().into_iter().flatten() {
+        let _ = writeln!(
+            out,
+            "| `{}` | {} |",
+            prefix["prefix"].as_str().unwrap_or_default(),
+            prefix["identifies"].as_str().unwrap_or_default()
+        );
+    }
+    let _ = writeln!(
+        out,
+        "\nGenerated ids draw from `{}` — Crockford-style base32 with the characters \
+         that are easy to misread removed. Parsing is more permissive and accepts any \
+         of `[0-9a-z_]`, so a hand-written id may use an underscore; it may not be a \
+         different length, and it may not omit the prefix.\n",
+        ids["alphabet"].as_str().unwrap_or_default()
+    );
+
+    out.push_str(
+        "\n### The `.meta` sidecar\n\n\
+         An asset\'s settings live in a `<file>.meta` beside it, carrying its `id` and\n\
+         how to import it. What happens to one the engine cannot use depends entirely\n\
+         on whether it is **absent** or **malformed**, and the two are deliberately\n\
+         different:\n\n\
+         * **Absent** means no opinion. One is generated, with a derived id, and\n\
+           written beside the source. Dropping a PNG into `assets/` and getting a\n\
+           working sidecar is the intended way to add art.\n\
+         * **Malformed** means an opinion that did not survive parsing. That asset\'s\n\
+           import fails with `DIM0602` naming the file and the reason, and **the file\n\
+           is left exactly as it is**. Fix it, or delete it to have one generated.\n\n\
+         The second case used to invent a default and write it over the file, which\n\
+         silently destroyed whatever it said — so a mistyped `id` took every\n\
+         `[[clip]]` declaration in the sidecar with it.\n\n\
          ### Naming clips over a plain strip\n\n\
          An Aseprite document carries tags and those become clips. A PNG carries\n\
          nothing, so a `.meta` can name ranges over one:\n\n\

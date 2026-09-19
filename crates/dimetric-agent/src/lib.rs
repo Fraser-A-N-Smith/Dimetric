@@ -1783,6 +1783,28 @@ fn api(cmd: &ApiCmd, project: Option<&str>) -> Result<Output, Diagnostics> {
             let text = dimetric_scene::schema::RESERVED_KEYS.join("\n");
             Ok(Output::new(json!({ "reserved": keys }), text))
         }
+        // What a valid id looks like. Undocumented until a generator emitted
+        // `sprites_ashfen_bogling`, which is not one, and the engine replaced
+        // 84 sidecars rather than saying so.
+        ApiCmd::Ids => {
+            let prefixes: Vec<serde_json::Value> = dimetric_core::id::UID_PREFIXES
+                .iter()
+                .map(|(prefix, what)| json!({ "prefix": prefix, "identifies": what }))
+                .collect();
+            let text = dimetric_core::id::UID_PREFIXES
+                .iter()
+                .map(|(p, w)| format!("{p} {w}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            Ok(Output::new(
+                json!({
+                    "prefixes": prefixes,
+                    "length": dimetric_core::id::UID_LEN,
+                    "alphabet": dimetric_core::id::generated_alphabet(),
+                }),
+                text,
+            ))
+        }
     }
 }
 

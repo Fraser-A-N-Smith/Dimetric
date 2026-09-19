@@ -14,6 +14,29 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `docs/API.md` says what an id looks like, and what a `.meta` does
+
+`id` was described in the reserved-keys table as "Permanent identity, as
+written in the file", which does not say what a valid one is. Anyone
+hand-writing or generating a `.meta` had to read `core/src/id.rs` to find out —
+which is exactly how a generator came to emit `sprites_ashfen_bogling` and have
+84 sidecars overwritten.
+
+There is an **Identifiers** section now, generated from `dimetric_core::id`
+through a new `dim api ids`: a prefix, exactly eight characters, `n_` for nodes
+and `a_` for assets. It also records something the report did not have, because
+it is only visible in the parser: **generation and parsing use different
+alphabets.** Generated ids draw from Crockford-style base32 with the
+easy-to-misread characters removed; parsing accepts any of `[0-9a-z_]`. So a
+hand-written id may contain an underscore. It may not be a different length,
+and it may not omit the prefix — which is what the failing id actually got
+wrong.
+
+And a **`.meta` sidecar** section saying what absent and malformed now do
+differently, since the fix above made them different.
+
+Does not move the state hash.
+
 ### Fixed: a malformed `.meta` was silently replaced, destroying it
 
 A sidecar that failed to parse had its error dropped by `.ok()`, a fresh

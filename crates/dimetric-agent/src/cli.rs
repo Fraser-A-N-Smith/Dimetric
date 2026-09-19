@@ -549,4 +549,6 @@ pub enum ApiCmd {
     Globals,
     /// Print the keys every node has, which a kind may not reuse.
     Reserved,
+    /// Print the shape of a node id and an asset id.
+    Ids,
 }

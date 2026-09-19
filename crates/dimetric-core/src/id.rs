@@ -43,6 +43,24 @@ pub const UID_BITS: u32 = 40;
 /// Generation draws from this; parsing is more permissive.
 const ALPHABET: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
 
+/// The alphabet generated ids are drawn from, for documentation.
+///
+/// Exposed so `docs/API.md` can state the format without a second copy of it
+/// going stale. Anyone hand-writing or generating a `.meta` has to know this,
+/// and until it was written down the only way to find out was to read this
+/// file — which is how a generator came to emit `sprites_ashfen_bogling` and
+/// have 84 sidecars overwritten.
+pub fn generated_alphabet() -> &'static str {
+    // Valid ASCII by construction.
+    std::str::from_utf8(ALPHABET).expect("the alphabet is ASCII")
+}
+
+/// Every uid prefix the engine defines, with what it identifies.
+pub const UID_PREFIXES: &[(&str, &str)] = &[
+    ("n_", "a node, in a `.dim` scene"),
+    ("a_", "an asset, in a `.meta` sidecar"),
+];
+
 /// Why a uid string was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UidError {

@@ -373,6 +373,7 @@ arguments column.
 | `api_codes` | — | Print every diagnostic code |
 | `api_commands` | — | Print the command set |
 | `api_globals` | — | Print the Lua sandbox's globals |
+| `api_ids` | — | Print the shape of a node id and an asset id |
 | `api_kinds` | — | Print every registered node kind and its properties |
 | `api_reserved` | — | Print the keys every node has, which a kind may not reuse |
 | `api_schema` | — | Print the JSON schema for the command set |
@@ -462,6 +463,36 @@ projectile does not shift every gameplay roll after it.
 `scene.near` and `scene.nearest` read the broadphase as it stood at the
 *start* of the tick, so every script sees the same world and what one finds
 does not depend on whether another has run yet.
+
+### Identifiers
+
+Every id is a prefix followed by exactly 8 characters.
+
+| Prefix | Identifies |
+|---|---|
+| `n_` | a node, in a `.dim` scene |
+| `a_` | an asset, in a `.meta` sidecar |
+
+Generated ids draw from `0123456789abcdefghjkmnpqrstvwxyz` — Crockford-style base32 with the characters that are easy to misread removed. Parsing is more permissive and accepts any of `[0-9a-z_]`, so a hand-written id may use an underscore; it may not be a different length, and it may not omit the prefix.
+
+
+### The `.meta` sidecar
+
+An asset's settings live in a `<file>.meta` beside it, carrying its `id` and
+how to import it. What happens to one the engine cannot use depends entirely
+on whether it is **absent** or **malformed**, and the two are deliberately
+different:
+
+* **Absent** means no opinion. One is generated, with a derived id, and
+written beside the source. Dropping a PNG into `assets/` and getting a
+working sidecar is the intended way to add art.
+* **Malformed** means an opinion that did not survive parsing. That asset's
+import fails with `DIM0602` naming the file and the reason, and **the file
+is left exactly as it is**. Fix it, or delete it to have one generated.
+
+The second case used to invent a default and write it over the file, which
+silently destroyed whatever it said — so a mistyped `id` took every
+`[[clip]]` declaration in the sidecar with it.
 
 ### Naming clips over a plain strip
 
