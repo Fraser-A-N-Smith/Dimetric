@@ -61,6 +61,34 @@ struct Args {
     /// project can be perfect while what a player double-clicks is not.
     #[arg(long)]
     capture: Option<std::path::PathBuf>,
+    /// Press keys during a `--capture` run: `4=Tab,22=Tab,40=KeyE`.
+    ///
+    /// Keys, not buttons. An input log carries button *bits*, so replaying one
+    /// proves the simulation and says nothing about whether the key a player
+    /// presses reaches it -- the binding table, the key's name, and `Held` are
+    /// all downstream of a log and upstream of nothing that could check them.
+    /// This goes in at the top: a key name, spelled the way winit spells it,
+    /// through the project's own bindings.
+    ///
+    /// Each key is held for exactly one tick, which is what a press is.
+    #[arg(long)]
+    keys: Option<String>,
+}
+
+/// Parse `--keys`: `tick=KeyName`, comma separated.
+fn parse_keys(text: &str) -> Result<Vec<(u64, String)>, String> {
+    let mut out = Vec::new();
+    for bit in text.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let (at, key) = bit
+            .split_once('=')
+            .ok_or_else(|| format!("expected `tick=Key`, found {bit:?}"))?;
+        let at: u64 = at
+            .trim()
+            .parse()
+            .map_err(|_| format!("{at:?} is not a tick number"))?;
+        out.push((at, key.trim().to_string()));
+    }
+    Ok(out)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -145,10 +173,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("{e}; capturing needs a graphics adapter"))?;
 
         let ticks = args.ticks.unwrap_or(0);
+        let scripted = match &args.keys {
+            Some(text) => parse_keys(text)?,
+            None => Vec::new(),
+        };
+        // Unbound keys are worth saying out loud. A typo in `--keys` that
+        // silently did nothing would look exactly like the bug being hunted.
+        for (_, key) in &scripted {
+            if bindings.action(key).is_none() {
+                eprintln!("no binding for key `{key}`");
+            }
+        }
+
         let mut held = Held::new();
-        for _ in 0..ticks {
+        for tick in 0..ticks {
+            // Through the same `press` the window uses, so this exercises the
+            // binding table and `Held` rather than going around them.
+            for (at, key) in &scripted {
+                if *at == tick {
+                    if let Some(action) = bindings.action(key) {
+                        held.set(action, true);
+                    }
+                }
+            }
             let input = held.player_input();
             session.step(&mut project, input);
+            for (at, key) in &scripted {
+                if *at == tick {
+                    if let Some(action) = bindings.action(key) {
+                        held.set(action, false);
+                    }
+                }
+            }
             if session.take_atlas_change() {
                 renderer.set_atlas(session.atlas());
             }

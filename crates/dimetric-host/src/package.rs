@@ -90,10 +90,14 @@ const DIRECTORIES: [&str; 4] = ["assets", "scripts", "prefabs", ".import"];
 
 /// Stage a project for a platform.
 ///
-/// Copies the scenes, the scripts, the prefabs, the assets and the import
-/// cache, and writes the manifest. An allowlist rather than "everything but":
-/// a project accumulates notes, recordings and half-finished experiments, and a
-/// shipped game should carry what it runs on and nothing else.
+/// Copies the scenes, the settings, the scripts, the prefabs, the assets and
+/// the import cache, and writes the manifest. An allowlist rather than
+/// "everything but": a project accumulates notes, recordings and half-finished
+/// experiments, and a shipped game should carry what it runs on and nothing
+/// else.
+///
+/// The cost of an allowlist is that a file nobody remembered is a file that
+/// does not ship, and the game runs on a default instead of saying so.
 pub fn stage(project: &mut Project, request: PackageRequest) -> Result<Staged, Diagnostics> {
     let root = project.root.clone();
     let out = request
@@ -140,6 +144,28 @@ pub fn stage(project: &mut Project, request: PackageRequest) -> Result<Staged, D
     {
         copy_into(
             &root.join(dimetric_scene::project_kinds::KINDS_FILE),
+            &root,
+            &out,
+            &mut staged,
+        )?;
+    }
+
+    // `project.toml`, which decides what a run *means*: the tick rate, the
+    // canvas, the render resolution and the input bindings.
+    //
+    // It was not staged, and every one of those silently fell back to an
+    // engine default in the shipped game. Three of the four usually match by
+    // luck; the bindings do not. A game that declared `dash = ["Tab"]` shipped
+    // with dash on Left Shift, so the key its own instructions named did
+    // nothing -- and the keys that happened to agree with the defaults kept
+    // working, which is what made it look like one broken feature rather than
+    // a missing file.
+    //
+    // The same file also carries the replay contract. A recorded run replayed
+    // against a staged build at a different tick rate is not the same run.
+    if root.join(crate::settings::SETTINGS_FILE).is_file() {
+        copy_into(
+            &root.join(crate::settings::SETTINGS_FILE),
             &root,
             &out,
             &mut staged,

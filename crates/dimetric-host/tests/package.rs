@@ -80,6 +80,13 @@ fn a_staged_game_carries_what_it_runs_on() {
         "scripts/arena.lua",
         "prefabs/skeleton.dim",
         "dimetric.toml",
+        // The settings. Not staged for a long time, and everything in them
+        // fell back to an engine default in the shipped game: the tick rate,
+        // the canvas, the render resolution and the input bindings. The
+        // first three usually match by luck. The bindings do not, so a game
+        // that declared `dash = ["Tab"]` shipped with dash on Left Shift and
+        // the key its own instructions named did nothing.
+        "project.toml",
     ] {
         assert!(
             staged.files.iter().any(|f| f == expected),
@@ -88,6 +95,36 @@ fn a_staged_game_carries_what_it_runs_on() {
         assert!(out.join(expected).exists(), "{expected} is not on disk");
     }
     assert!(staged.bytes > 0);
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+#[test]
+fn a_staged_game_keeps_the_bindings_it_declared() {
+    // The list above proves the file is copied. This proves it is *read*:
+    // staging and then opening the staged directory has to give back the
+    // project's own bindings rather than the engine's defaults.
+    //
+    // Checked through `Bindings::from_declared`, which is the call the runtime
+    // makes, because the failure was never that the file was unreadable -- it
+    // was that `declared_any` came back false and the fallback was silent.
+    let out = scratch("bindings");
+    let _ = stage_sorcerer(&out, None);
+
+    let staged = Project::open(&out, 0);
+    assert!(
+        staged.settings.bindings_declared,
+        "the staged game declares no bindings, so it runs on the defaults"
+    );
+
+    let source = Project::open(sorcerer(), 0);
+    assert_eq!(
+        staged.settings.bindings, source.settings.bindings,
+        "the staged bindings are not the project's"
+    );
+    assert_eq!(
+        staged.settings.tick_rate, source.settings.tick_rate,
+        "a staged game at a different tick rate is a different game"
+    );
     let _ = std::fs::remove_dir_all(&out);
 }
 
