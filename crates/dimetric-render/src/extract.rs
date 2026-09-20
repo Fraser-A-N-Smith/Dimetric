@@ -470,10 +470,19 @@ fn label(
     for placed in laid.glyphs {
         let g = placed.glyph;
         // The quad is positioned by its centre, and the layout gives a corner.
+        //
+        // The half has to be a fixed-point half, not an integer one. The
+        // built-in font is five pixels wide, so `5 / 2` truncated the centre
+        // to two and left the quad's edges half a texel off the pixel grid.
+        // Every sample then landed on a boundary and nearest filtering picked
+        // whichever side it liked, which for a font page -- one long strip of
+        // glyphs side by side -- meant columns of the neighbouring letter.
+        // World-space text came out as a jumble of glyph fragments, and it
+        // did so for every label drawn in the engine's own font.
         let center = origin
-            + Vec2Fx::from_ints(
-                placed.x + g.width as i32 / 2,
-                placed.y + g.height as i32 / 2,
+            + Vec2Fx::new(
+                Fx::from_int(placed.x) + Fx::from_int(g.width as i32) / 2,
+                Fx::from_int(placed.y) + Fx::from_int(g.height as i32) / 2,
             );
         out.push(DrawItem {
             key: SortKey::new(

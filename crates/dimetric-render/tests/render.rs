@@ -584,6 +584,99 @@ fn a_label_becomes_one_quad_per_inked_glyph_in_a_single_batch() {
     assert_eq!(dx, dimetric_core::Fx::from_int(5));
 }
 
+/// One glyph five pixels wide, which is an odd number — like the engine's own
+/// built-in font, and unlike the four-pixel block above.
+///
+/// The width being odd is the whole point. A quad is positioned by its centre
+/// and the layout gives a corner, so the centre is the corner plus half the
+/// width; half of five is not an integer, and an implementation that pretends
+/// it is puts the quad's edges half a texel off the pixel grid.
+fn odd_font() -> (dimetric_assets::Font, dimetric_assets::Image) {
+    use dimetric_assets::font::Glyph;
+    let mut glyphs = std::collections::BTreeMap::new();
+    glyphs.insert(
+        'A',
+        Glyph {
+            x: 0,
+            y: 0,
+            width: 5,
+            height: 7,
+            bearing_x: 0,
+            bearing_y: -7,
+            advance: 6,
+        },
+    );
+    let font = dimetric_assets::Font {
+        size: 7,
+        line_height: 8,
+        ascent: 7,
+        descent: 0,
+        glyphs,
+    };
+    let page = dimetric_assets::Image {
+        name: "fonts/odd".to_string(),
+        width: 10,
+        height: 7,
+        pixels: vec![255; 10 * 7 * 4],
+    };
+    (font, page)
+}
+
+#[test]
+fn an_odd_width_glyph_still_lands_on_the_pixel_grid() {
+    let (font, page) = odd_font();
+    let mut fonts = std::collections::BTreeMap::new();
+    fonts.insert("fonts/odd".to_string(), font);
+    let atlas = Atlas::pack(vec![page], 64).with_fonts(fonts);
+
+    let source = r#"format = "dimetric"
+version = 1
+[scene]
+root = "n_root0000"
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Root"
+[[node]]
+id = "n_label000"
+kind = "Label"
+name = "Text"
+parent = "n_root0000"
+font = "asset:fonts/odd"
+text = "A"
+pos = [0.0, 0.0]
+"#;
+    let out = dimetric_scene::parse(
+        source,
+        "t.dim",
+        &dimetric_scene::KindRegistry::with_builtins(),
+    );
+    assert!(!out.diagnostics.has_errors(), "{}", out.diagnostics);
+    let scene = out.doc.unwrap().scene;
+
+    let camera = Camera::new((64, 64));
+    let frame = extract(&scene, &atlas, &camera, None);
+    assert_eq!(frame.sprites.len(), 1);
+    let quad = &frame.sprites[0];
+
+    // The corner the layout asked for, recovered from the centre and the size.
+    // Half a texel out here and every sample lands on a boundary between two
+    // columns of the font page, so nearest filtering serves up pieces of the
+    // neighbouring letter and a line of text comes out as a jumble.
+    let left = quad.pos.x - quad.size.x / 2;
+    let top = quad.pos.y - quad.size.y / 2;
+    assert_eq!(
+        left,
+        dimetric_core::Fx::from_int(0),
+        "a five-wide glyph left its quad off the pixel grid"
+    );
+    assert_eq!(
+        top,
+        dimetric_core::Fx::from_int(0),
+        "and the same vertically"
+    );
+}
+
 #[test]
 fn each_glyph_samples_its_own_part_of_the_page() {
     let atlas = label_atlas();
