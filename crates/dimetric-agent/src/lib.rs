@@ -1070,15 +1070,29 @@ fn asset_command(project: &mut Project, cmd: AssetCmd) -> Result<Output, Diagnos
                     sheet.0, sheet.1
                 )
             };
-            Ok(Output::new(
+            // What imported, not what was attempted. A failed asset used to
+            // appear in both `imported` and `failures`, which is a report that
+            // contradicts itself and leaves a caller to guess which half to
+            // believe.
+            let landed: Vec<String> = before
+                .iter()
+                .filter(|name| !imported.failures.iter().any(|(f, _)| f == *name))
+                .cloned()
+                .collect();
+            let out = Output::new(
                 json!({
-                    "imported": before,
+                    "imported": landed,
                     "failures": failures,
                     "warnings": warnings,
                     "sheet": { "width": sheet.0, "height": sheet.1 },
                 }),
                 format!("{text}{failure_lines}{warning_lines}"),
-            ))
+            );
+            Ok(if imported.failures.is_empty() {
+                out
+            } else {
+                out.partial()
+            })
         }
         AssetCmd::Info { name } => {
             project.scan_assets();

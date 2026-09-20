@@ -16,6 +16,14 @@ pub struct Output {
     pub text: String,
     /// Non-fatal diagnostics raised along the way.
     pub warnings: Vec<Diagnostic>,
+    /// Whether the command did everything it was asked to.
+    ///
+    /// A command can finish, exit zero and still not have done all of it —
+    /// an import where one asset failed is the standing example. Saying `ok:
+    /// true` there tells a caller that reads the envelope the opposite of what
+    /// happened, and a caller that reads envelopes is the only kind this
+    /// output exists for.
+    pub ok: bool,
 }
 
 impl Output {
@@ -25,14 +33,25 @@ impl Output {
             body,
             text: text.into(),
             warnings: Vec::new(),
+            ok: true,
         }
+    }
+
+    /// The command ran, and did not do all of it.
+    ///
+    /// The exit status stays zero: partial failure exits zero throughout this
+    /// CLI, and changing that is a separate decision. What changes is that the
+    /// envelope stops claiming success.
+    pub fn partial(mut self) -> Output {
+        self.ok = false;
+        self
     }
 
     /// Print it.
     pub fn emit(&self, as_json: bool) {
         if as_json {
             let envelope = json!({
-                "ok": true,
+                "ok": self.ok,
                 "result": self.body,
                 "warnings": self.warnings,
             });
