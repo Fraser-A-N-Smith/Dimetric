@@ -397,6 +397,19 @@ pub struct RunArgs {
     /// edited script does not reproduce the recording it came from.
     #[arg(long)]
     pub watch: bool,
+    /// Read and write the project's `profile.toml`.
+    ///
+    /// Off by default, because a headless run is usually a test and a test
+    /// that spent somebody's Crowns would be a bad test. With it on, the run
+    /// is a real session: it starts from the saved profile and writes back
+    /// whatever it changed.
+    ///
+    /// `dim replay` has no such flag on purpose. A replay that read a profile
+    /// would reproduce its recording only on the machine that made it, and
+    /// one that wrote a profile could spend the Crowns of somebody who was
+    /// only checking a bug.
+    #[arg(long)]
+    pub profile: bool,
 }
 
 /// State inspection.

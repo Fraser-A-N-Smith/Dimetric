@@ -95,6 +95,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 dimetric_audio::Device::System
             },
+            // A person playing is the one session that is real, so this is
+            // the one that owns the profile.
+            profile: Some(root.clone()),
         },
     )
     .map_err(|d| d.to_string())?;
@@ -136,6 +139,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     event_loop.run_app(&mut app)?;
 
+    match app.session.save_profile() {
+        Ok(Some(path)) => eprintln!("wrote {}", path.display()),
+        Ok(None) => {}
+        Err(d) => eprintln!("{d}"),
+    }
     match app.session.finish() {
         Ok(Some(path)) => eprintln!("recorded {}", path.display()),
         Ok(None) => {}

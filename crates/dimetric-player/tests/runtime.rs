@@ -170,6 +170,7 @@ fn a_session_that_was_played_replays() {
             record: Some(recorded.clone()),
             settings: dimetric_render::RenderSettings::default(),
             device: dimetric_audio::Device::Silent,
+            profile: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -197,6 +198,7 @@ fn a_session_that_was_played_replays() {
             record: None,
             settings: dimetric_render::RenderSettings::default(),
             device: dimetric_audio::Device::Silent,
+            profile: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -228,6 +230,7 @@ fn a_frame_comes_out_of_a_session_without_a_gpu() {
             record: None,
             settings: dimetric_render::RenderSettings::default(),
             device: dimetric_audio::Device::Silent,
+            profile: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));

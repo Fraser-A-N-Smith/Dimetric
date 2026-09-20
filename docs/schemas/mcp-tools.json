@@ -978,6 +978,10 @@
             "description": "Emit JSON instead of text",
             "type": "boolean"
           },
+          "profile": {
+            "description": "Read and write the project's `profile.toml`",
+            "type": "boolean"
+          },
           "project": {
             "description": "Project directory. Defaults to the working directory",
             "type": "string"

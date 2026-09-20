@@ -397,7 +397,7 @@ arguments column.
 | `override_set` | `instance`*, `key`*, `target`*, `value`* | Set one override |
 | `prefab_instance` | `id`, `name`*, `parent`*, `pos`, `source`* | Add an instance of another scene |
 | `replay` | `assert`, `hashes`, `input`*, `ticks` | Replay a recorded run and check it |
-| `run` | `headless`, `input`, `record`, `seed`, `ticks`, `watch` | Run the simulation headlessly |
+| `run` | `headless`, `input`, `profile`, `record`, `seed`, `ticks`, `watch` | Run the simulation headlessly |
 | `scene_check` | — | Report the scene's validation diagnostics |
 | `scene_fmt` | `check` | Rewrite the scene in canonical form |
 | `scene_query` | `path`* | Look up one node by path |

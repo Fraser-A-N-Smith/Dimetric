@@ -12,7 +12,11 @@ use dimetric_host::render::{build_atlas, scene_camera};
 use dimetric_host::speaker::Speaker;
 use dimetric_host::Project;
 use dimetric_render::{Atlas, Camera, Frame, Interpolation, RenderSettings};
+use dimetric_sim::profile::Profile;
 use dimetric_sim::{InputFrame, InputLog, LuaHost, PlayerInput, Sim, SimConfig, SimState};
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::rc::Rc;
 
 /// How to start a session.
 pub struct SessionConfig {
@@ -26,6 +30,15 @@ pub struct SessionConfig {
     pub settings: RenderSettings,
     /// Where sound goes. `Silent` still runs the mixer and makes no noise.
     pub device: Device,
+    /// The project root to read and write `profile.toml` under, if this
+    /// session is a real one.
+    ///
+    /// `None` means the session never touches the file: it starts from an
+    /// empty profile and throws away whatever it accumulates. That is what a
+    /// test wants, and it is what a **replay** must have — a replay that read
+    /// somebody's unlocks would reproduce a recording only on the machine
+    /// that made it, and a replay that wrote them could spend their Crowns.
+    pub profile: Option<PathBuf>,
 }
 
 /// A running game.
@@ -39,6 +52,10 @@ pub struct Session {
     log: InputLog,
     recording: bool,
     record_to: Option<std::path::PathBuf>,
+    /// Where the profile came from and the table scripts are reading, kept
+    /// together so `finish` cannot write one project's profile into another's
+    /// directory.
+    profile: Option<(PathBuf, Rc<RefCell<Profile>>)>,
     tick: u64,
     /// Everything that went wrong so far and did not stop the session.
     pub diagnostics: Diagnostics,
@@ -64,6 +81,24 @@ impl Session {
         };
         let mut host = LuaHost::new(sim_config.tick_rate).map_err(|d| Diagnostics(vec![d]))?;
         host.set_fonts(project.fonts());
+
+        // The profile, before the first tick, into the very table `profile.get`
+        // reads. Taken here rather than after `Sim::new` because the host is
+        // boxed into the simulation and the handle is the only way back to it.
+        //
+        // A profile that fails to parse stops the session. Silently starting
+        // somebody from nothing because their unlocks would not load is the
+        // worst available handling of the one file they cannot rebuild.
+        let profile = match &config.profile {
+            None => None,
+            Some(root) => {
+                let loaded =
+                    dimetric_host::profile_store::load(root).map_err(|d| Diagnostics(vec![d]))?;
+                let handle = host.profile_handle();
+                *handle.borrow_mut() = loaded;
+                Some((root.clone(), handle))
+            }
+        };
         for d in host.load_all(
             project
                 .scripts
@@ -97,6 +132,7 @@ impl Session {
             log: InputLog::new(config.seed, env!("CARGO_PKG_VERSION"), 1),
             recording: config.record.is_some(),
             record_to: config.record,
+            profile,
             tick: 0,
             diagnostics,
         })
@@ -253,6 +289,23 @@ impl Session {
     /// player prints them as they arrive rather than at the end.
     pub fn take_diagnostics(&mut self) -> Diagnostics {
         std::mem::replace(&mut self.diagnostics, Diagnostics::new())
+    }
+
+    /// Write the profile back, if this session owns one and it changed.
+    ///
+    /// Only when it is dirty: a profile written on every exit would rewrite
+    /// the file after a session that read it and did nothing, which turns
+    /// "when did my save last change" into a question with no answer.
+    pub fn save_profile(&mut self) -> Result<Option<PathBuf>, Diagnostic> {
+        let Some((root, handle)) = &self.profile else {
+            return Ok(None);
+        };
+        if !handle.borrow().is_dirty() {
+            return Ok(None);
+        }
+        dimetric_host::profile_store::save(root, &handle.borrow())?;
+        handle.borrow_mut().mark_clean();
+        Ok(Some(dimetric_host::profile_store::profile_path(root)))
     }
 
     /// Write the recorded log, if this session was recording one.

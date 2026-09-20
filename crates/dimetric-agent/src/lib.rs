@@ -1148,10 +1148,18 @@ fn asset_command(project: &mut Project, cmd: AssetCmd) -> Result<Output, Diagnos
 // -- running ------------------------------------------------------------
 
 /// Build a simulation over the project's resolved scene, with scripts loaded.
-fn build_sim(
-    project: &mut Project,
-    seed: u64,
-) -> Result<(dimetric_sim::Sim, Diagnostics), Diagnostics> {
+///
+/// Hands back the profile handle as well. This is the only place that holds
+/// the script host before it is boxed into the simulation, so it is the only
+/// place that can — and a caller wanting to load a profile before the first
+/// tick, or write one back after the last, needs it.
+type BuiltSim = (
+    dimetric_sim::Sim,
+    std::rc::Rc<std::cell::RefCell<dimetric_sim::profile::Profile>>,
+    Diagnostics,
+);
+
+fn build_sim(project: &mut Project, seed: u64) -> Result<BuiltSim, Diagnostics> {
     // Import first: clips carry tick counts baked at import, and a simulation
     // handed no clips animates nothing.
     project.import_assets();
@@ -1173,10 +1181,12 @@ fn build_sim(
         canvas: settings.canvas,
         resolution: settings.resolution,
     };
+    let profile = host.profile_handle();
     Ok((
         dimetric_sim::Sim::new(scene, seed, Box::new(host), config)
             .with_clips(clips)
             .with_templates(templates),
+        profile,
         diags,
     ))
 }
@@ -1221,8 +1231,17 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
         true => log.frames.len() as u64,
         false => 60,
     });
-    let (mut sim, diags) = build_sim(project, seed)?;
+    let (mut sim, profile_handle, diags) = build_sim(project, seed)?;
     let mut warnings = diags.0;
+
+    // A real session reads the profile before the first tick and writes back
+    // what it changed. A test session never touches the file, which is the
+    // default, so `dim run` in a verification script cannot alter a save.
+    let profile_root = args.profile.then(|| project.root.clone());
+    if let Some(root) = &profile_root {
+        let loaded = dimetric_host::profile_store::load(root).map_err(one)?;
+        *profile_handle.borrow_mut() = loaded;
+    }
 
     let mut reloader = args
         .watch
@@ -1302,6 +1321,22 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
         })?;
     }
 
+    // Written back only when it changed. A profile rewritten on every exit
+    // makes "when did my save last change" a question with no answer.
+    let mut profile_written = None;
+    if let Some(root) = &profile_root {
+        let dirty = profile_handle.borrow().is_dirty();
+        if dirty {
+            dimetric_host::profile_store::save(root, &profile_handle.borrow()).map_err(one)?;
+            profile_handle.borrow_mut().mark_clean();
+            profile_written = Some(
+                dimetric_host::profile_store::profile_path(root)
+                    .display()
+                    .to_string(),
+            );
+        }
+    }
+
     let final_hash = hashes.last().copied();
     let mut out = Output::new(
         json!({
@@ -1309,6 +1344,7 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
             "seed": seed,
             "hash": final_hash.map(|h| h.to_hex()),
             "recorded": args.record,
+            "profile": profile_written,
             "reloaded": reloaded,
             "loaded": loaded,
             "events": emitted,
@@ -1353,7 +1389,7 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
             // dumping with a different one runs a different game and quietly
             // disagrees with `dim run` and `dim replay`, which both prefer it.
             let seed = if input.is_some() { log.seed } else { seed };
-            let (mut sim, diags) = build_sim(project, seed)?;
+            let (mut sim, _profile, diags) = build_sim(project, seed)?;
             // Loads honoured here too, or a dump disagrees with `dim run`
             // about which floor the game is on — a state dump that is a
             // different game from the run it claims to describe is worse than
@@ -1420,7 +1456,7 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
                 None => dimetric_sim::InputLog::new(seed, env!("CARGO_PKG_VERSION"), 1),
             };
             let seed = if input.is_some() { log.seed } else { seed };
-            let (mut sim, _) = build_sim(project, seed)?;
+            let (mut sim, _profile, _) = build_sim(project, seed)?;
             let mut swaps = Diagnostics::new();
             for t in 0..tick {
                 sim.step(log.frame(t));
@@ -1468,7 +1504,7 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
             ))
         }
         StateCmd::Hash { tick, seed } => {
-            let (mut sim, _) = build_sim(project, seed)?;
+            let (mut sim, _profile, _) = build_sim(project, seed)?;
             let log = dimetric_sim::InputLog::new(seed, env!("CARGO_PKG_VERSION"), 1);
             let mut swaps = Diagnostics::new();
             for t in 0..tick {
