@@ -51,6 +51,16 @@ struct Args {
     /// ends by itself writes its log, and one killed from outside does not.
     #[arg(long)]
     ticks: Option<u64>,
+    /// Run `--ticks` ticks with no window and write the frame here.
+    ///
+    /// `dim frame capture` photographs a *project*; this photographs a
+    /// *packaged game*, through the same session, the same clock and the same
+    /// atlas rebuilds the runtime uses. Those differ, and the difference is
+    /// not academic: a game whose scenes load each other is drawn by the
+    /// runtime in a state no other tool can reach, so a screenshot of the
+    /// project can be perfect while what a player double-clicks is not.
+    #[arg(long)]
+    capture: Option<std::path::PathBuf>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -83,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut project = Project::open(&root, 0);
     let project_settings = project.settings.clone();
-    let session = Session::open(
+    let mut session = Session::open(
         &mut project,
         SessionConfig {
             seed,
@@ -115,6 +125,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     for d in &binding_problems {
         eprintln!("{d}");
+    }
+
+    // No window at all: step the session and draw one frame offscreen. This
+    // runs before the event loop exists, so it works on a machine with no
+    // display -- which is the point of having it.
+    if let Some(png) = &args.capture {
+        let viewport = session.settings().internal_resolution;
+
+        // The renderer is built *before* the session is stepped, which is the
+        // order a window does it in and the only order that makes this a
+        // faithful photograph. Built afterwards it would pick up whatever
+        // atlas the session had ended on, and so would have shown a correct
+        // frame for a game that draws nothing but placeholder art -- which is
+        // exactly what it did.
+        let instance = dimetric_render::headless_instance();
+        let mut renderer =
+            dimetric_render::Renderer::new(&instance, None, session.atlas(), session.settings())
+                .map_err(|e| format!("{e}; capturing needs a graphics adapter"))?;
+
+        let ticks = args.ticks.unwrap_or(0);
+        let mut held = Held::new();
+        for _ in 0..ticks {
+            let input = held.player_input();
+            session.step(&mut project, input);
+            if session.take_atlas_change() {
+                renderer.set_atlas(session.atlas());
+            }
+        }
+        for d in session.take_diagnostics().iter() {
+            eprintln!("{d}");
+        }
+
+        let frame = session.frame(0.0, viewport);
+        let target = dimetric_render::Capture::new(&renderer, viewport);
+        let pixels = target
+            .render(&mut renderer, &frame)
+            .map_err(|e| e.to_string())?;
+        dimetric_render::write_png(png, viewport.0, viewport.1, &pixels)
+            .map_err(|e| e.to_string())?;
+        println!(
+            "captured tick {} to {} ({}x{})",
+            session.tick(),
+            png.display(),
+            viewport.0,
+            viewport.1
+        );
+        return Ok(());
     }
 
     let event_loop = EventLoop::new().map_err(|e| {
@@ -340,6 +397,17 @@ impl App {
             }
             for d in self.session.take_diagnostics().iter() {
                 eprintln!("{d}");
+            }
+            // A scene swap rebuilds the session's atlas; the renderer uploaded
+            // one when it was built and would otherwise keep drawing from it
+            // forever. This game's entry scene is a menu, which references no
+            // art at all, so without this every floor after it was a field of
+            // placeholder magenta -- for the whole session, while the
+            // simulation underneath was entirely correct.
+            if self.session.take_atlas_change() {
+                if let Some(gpu) = &mut self.gpu {
+                    gpu.renderer.set_atlas(self.session.atlas());
+                }
             }
         }
         self.draw();

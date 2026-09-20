@@ -110,6 +110,10 @@ pub struct Renderer {
     ui_capacity: usize,
     ui: wgpu::Texture,
     sprite_bind_group: wgpu::BindGroup,
+    /// Kept so a new atlas can be bound without rebuilding the pipelines:
+    /// the layout and the sampler do not change when the art does.
+    sprite_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
     light_bind_group: wgpu::BindGroup,
     composite_bind_group: wgpu::BindGroup,
     composite_buffer: wgpu::Buffer,
@@ -343,6 +347,8 @@ impl Renderer {
             ui_capacity: 256,
             ui,
             sprite_bind_group,
+            sprite_layout,
+            sampler,
             light_bind_group,
             composite_bind_group,
             composite_buffer,
@@ -353,6 +359,65 @@ impl Renderer {
             adapter,
             adapter_info,
         })
+    }
+
+    /// Point the renderer at a different atlas.
+    ///
+    /// The atlas is uploaded once, when the renderer is built. That is right
+    /// for a game that is one scene, and wrong for every other kind: a host
+    /// that honours `scene.request_load` rebuilds its atlas when the scene
+    /// swaps -- the old one holds the previous scene's art and nothing in the
+    /// new one would draw -- and until now it had no way to say so.
+    ///
+    /// What that looked like was a packaged game whose entry scene is a menu.
+    /// A menu references no art, so the uploaded atlas was empty, and
+    /// everything drawn after the swap into play sampled the placeholder: a
+    /// floor of magenta-and-black squares on a black ground, for the whole
+    /// session. The simulation was correct throughout, and so was every
+    /// offscreen capture, because a capture builds its renderer *after*
+    /// stepping and therefore gets the final atlas by accident.
+    ///
+    /// Only the bind groups are rebuilt. The pipelines, the layout and the
+    /// sampler are unchanged by a change of art.
+    pub fn set_atlas(&mut self, atlas: &Atlas) {
+        let texture = upload_atlas(&self.device, &self.queue, atlas);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.sprite_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sprite bindings"),
+            layout: &self.sprite_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        self.ui_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ui bindings"),
+            layout: &self.sprite_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.ui_camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
     }
 
     /// The device, for callers that own a surface.

@@ -221,7 +221,18 @@ pub struct CapturedFrame {
     pub diagnostics: Diagnostics,
 }
 
+/// Apply a pending scene load, if the last tick asked for one.
+///
+/// Named rather than inlined so the mutable borrow of `sim` ends before the
+/// atlas is rebuilt from the scene it just swapped in.
+fn apply_swap(project: &mut Project, sim: &mut Sim, diagnostics: &mut Diagnostics) -> bool {
+    crate::scene_swap::apply_pending_load(project, sim, diagnostics).is_some()
+}
+
 /// Run a project to a tick and draw the result offscreen.
+///
+/// Scene loads are honoured between ticks, so a game that starts on a menu and
+/// loads its way into play can be photographed where it actually ends up.
 pub fn capture(
     project: &mut Project,
     request: CaptureRequest,
@@ -265,9 +276,31 @@ pub fn capture(
     // is zero and the previous state contributes nothing, but going through the
     // same path keeps capture and display honest about each other.
     let mut previous: Option<SimState> = None;
+    let mut atlas = atlas;
     for tick in 0..request.tick {
         previous = Some(sim.snapshot());
         sim.step(log.frame(tick));
+
+        // Between ticks, never inside one (I8) -- the same place and the same
+        // call as `Session::advance`, because a capture that stops at the
+        // first `scene.request_load` cannot photograph a game that starts on
+        // a menu and loads its way into play. It reported DIM0404 and drew the
+        // scene it was stuck on, which looks enough like a frame to be
+        // believed.
+        //
+        // A new scene brings its own art, so the atlas is rebuilt with it. The
+        // old one holds the previous scene's tileset and nothing else would
+        // draw: a floor of missing-texture magenta on a black ground, which is
+        // exactly what shipped.
+        if apply_swap(project, &mut sim, &mut diagnostics) {
+            let (next, diags) = build_atlas(project, &sim.state().scene);
+            atlas = next;
+            diagnostics.extend(diags);
+            // The interpolation source is a tree that no longer exists, so a
+            // frame drawn against it would tween the old scene's nodes into
+            // the new scene's.
+            previous = None;
+        }
     }
     diagnostics.extend(sim.take_diagnostics());
 

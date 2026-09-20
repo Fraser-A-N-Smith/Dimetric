@@ -47,6 +47,12 @@ pub struct Session {
     /// The state one tick back, so a drawn frame can sit between two ticks.
     previous: Option<SimState>,
     atlas: Atlas,
+    /// Set when a scene swap rebuilt the atlas, cleared when a host takes it.
+    ///
+    /// The renderer uploads the atlas once, so a host that never hears about
+    /// this keeps drawing the entry scene's art -- which for a game that
+    /// starts on a menu is no art at all.
+    atlas_changed: bool,
     speaker: Speaker,
     settings: RenderSettings,
     log: InputLog,
@@ -127,6 +133,7 @@ impl Session {
             sim,
             previous: None,
             atlas,
+            atlas_changed: false,
             speaker,
             settings: config.settings,
             log: InputLog::new(config.seed, env!("CARGO_PKG_VERSION"), 1),
@@ -165,6 +172,15 @@ impl Session {
     /// simulation uses would put every click in the wrong place.
     pub fn canvas(&self) -> dimetric_scene::ui::Canvas {
         self.sim.config().canvas
+    }
+
+    /// Whether the atlas changed since this was last asked, clearing the flag.
+    ///
+    /// A host calls this after stepping and, when it is true, hands
+    /// [`Session::atlas`] to `Renderer::set_atlas`. Skipping it leaves the GPU
+    /// holding the art of whichever scene the session started on.
+    pub fn take_atlas_change(&mut self) -> bool {
+        std::mem::take(&mut self.atlas_changed)
     }
 
     /// The atlas the renderer was built against.
@@ -211,6 +227,7 @@ impl Session {
         {
             let (atlas, diags) = build_atlas(project, &self.sim.state().scene);
             self.atlas = atlas;
+            self.atlas_changed = true;
             self.diagnostics.extend(diags);
             // The interpolation source is a tree that no longer exists, so a
             // frame drawn against it would try to tween the old floor's nodes

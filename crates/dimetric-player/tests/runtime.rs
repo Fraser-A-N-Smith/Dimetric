@@ -241,3 +241,113 @@ fn a_frame_comes_out_of_a_session_without_a_gpu() {
     let frame = session.frame(0.5, (480, 270));
     assert!(!frame.sprites.is_empty(), "the scene drew nothing");
 }
+
+#[test]
+fn a_scene_swap_tells_the_host_its_atlas_changed() {
+    // The atlas is uploaded to the GPU once, when the renderer is built. The
+    // session rebuilds its own atlas when a scene swaps -- it has to, because
+    // the old one holds the previous scene's art -- but a host that is never
+    // told cannot re-upload it, and keeps drawing from the entry scene's.
+    //
+    // When the entry scene is a menu, its art is no art at all: the uploaded
+    // atlas holds nothing but the placeholder, and every scene loaded after it
+    // draws as magenta-and-black squares while the simulation underneath is
+    // entirely correct. A packaged build shipped exactly that, and every
+    // offscreen capture of it looked perfect, because a capture builds its
+    // renderer after stepping and so picks up the final atlas by accident.
+    use dimetric_player::{Session, SessionConfig};
+
+    let root = std::env::temp_dir().join("dimetric-atlas-swap");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("scripts")).unwrap();
+    std::fs::create_dir_all(root.join("assets/sprites")).unwrap();
+
+    // Sixteen opaque red pixels, as a PNG the importer will accept.
+    dimetric_render::write_png(
+        &root.join("assets/sprites/block.png"),
+        4,
+        4,
+        &[0xC8u8, 0x28, 0x28, 0xFF].repeat(16),
+    )
+    .unwrap();
+
+    // The entry scene: one node, a script, and deliberately no art.
+    std::fs::write(
+        root.join("menu.dim"),
+        r#"format = "dimetric"
+version = 1
+[scene]
+root = "n_menu0000"
+[[node]]
+id = "n_menu0000"
+kind = "Node2D"
+name = "Menu"
+script = "script:scripts/menu.lua"
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        root.join("play.dim"),
+        r#"format = "dimetric"
+version = 1
+[scene]
+root = "n_play0000"
+[[node]]
+id = "n_play0000"
+kind = "Node2D"
+name = "Play"
+[[node]]
+id = "n_block001"
+kind = "Sprite2D"
+name = "Block"
+parent = "n_play0000"
+texture = "asset:sprites/block"
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        root.join("scripts/menu.lua"),
+        "function on_tick(self)\n  scene.request_load(\"scene:play.dim\", {})\nend\n",
+    )
+    .unwrap();
+
+    let mut project = dimetric_host::Project::open(&root, 0);
+    let mut session = Session::open(
+        &mut project,
+        SessionConfig {
+            seed: 0,
+            scene: "menu.dim".to_string(),
+            record: None,
+            settings: dimetric_render::RenderSettings::default(),
+            device: dimetric_audio::Device::Silent,
+            profile: None,
+        },
+    )
+    .unwrap_or_else(|d| panic!("{d}"));
+
+    assert!(!session.take_atlas_change(), "nothing has been loaded yet");
+    assert!(
+        session.atlas().region("sprites/block").is_none(),
+        "the menu references no art, so none should be packed"
+    );
+
+    let mut swapped = false;
+    for _ in 0..4 {
+        session.step(&mut project, Held::new().player_input());
+        swapped |= session.take_atlas_change();
+    }
+
+    assert!(swapped, "a scene swap never reported its new atlas");
+    assert!(
+        session.atlas().region("sprites/block").is_some(),
+        "the loaded scene's art is missing from the atlas the host would upload"
+    );
+    assert!(
+        !session.take_atlas_change(),
+        "taking the change should clear it"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}

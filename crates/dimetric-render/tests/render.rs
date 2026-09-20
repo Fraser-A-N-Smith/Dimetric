@@ -314,6 +314,71 @@ fn rendering_the_same_frame_twice_gives_the_same_pixels() {
     assert_eq!(first, second, "one adapter must be repeatable");
 }
 
+/// The same region name, a different colour in it.
+///
+/// A scene swap gives the renderer an atlas packed from the new scene's art.
+/// The names line up; the pixels behind them do not.
+fn other_atlas() -> Atlas {
+    Atlas::pack(
+        vec![
+            Source {
+                name: "sprites/block".into(),
+                width: 16,
+                height: 16,
+                pixels: [0x28u8, 0x28, 0xC8, 0xFF].repeat(16 * 16),
+            },
+            dimetric_render::atlas::placeholder(8),
+        ],
+        256,
+    )
+}
+
+#[test]
+fn a_renderer_can_be_pointed_at_a_new_atlas() {
+    // The atlas is uploaded when the renderer is built, which is right for a
+    // game that is one scene and wrong for every other kind. A host that
+    // honours `scene.request_load` rebuilds its atlas when the scene swaps,
+    // and until `set_atlas` existed it had no way to say so -- so the GPU kept
+    // the entry scene's art for the whole session.
+    //
+    // For a game whose entry scene is a menu, the entry scene's art is *no*
+    // art: the uploaded atlas holds nothing but the placeholder, and every
+    // floor after it drew as magenta-and-black squares on black while the
+    // simulation underneath was entirely correct. A packaged build shipped
+    // exactly that.
+    let atlas = atlas();
+    let Some(mut renderer) = renderer(&atlas, settings()) else {
+        return;
+    };
+    let capture = Capture::new(&renderer, (64, 64));
+    let scene = one_sprite();
+    let mut camera = Camera::new((64, 64));
+    camera.zoom = 1.0;
+
+    let frame = extract(&scene, &atlas, &camera, None);
+    let red = capture.render(&mut renderer, &frame).unwrap();
+
+    let swapped = other_atlas();
+    renderer.set_atlas(&swapped);
+    let frame = extract(&scene, &swapped, &camera, None);
+    let blue = capture.render(&mut renderer, &frame).unwrap();
+
+    assert_ne!(
+        red, blue,
+        "the renderer kept drawing from the atlas it was built with"
+    );
+
+    // Named rather than merely different: a bug that swapped in the
+    // placeholder would also be "different", and that is the failure this
+    // exists to catch.
+    let at = |px: &[u8], x: usize, y: usize| {
+        let i = (y * 64 + x) * 4;
+        (px[i], px[i + 1], px[i + 2])
+    };
+    assert!(at(&red, 32, 32).0 > at(&red, 32, 32).2, "should be red");
+    assert!(at(&blue, 32, 32).2 > at(&blue, 32, 32).0, "should be blue");
+}
+
 #[test]
 fn the_shear_moves_a_sprite_without_deforming_it() {
     // Isometric artwork is already drawn in projection, so the engine projects
