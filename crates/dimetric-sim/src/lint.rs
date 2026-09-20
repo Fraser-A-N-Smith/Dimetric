@@ -42,6 +42,21 @@ pub const PRESENTATION_MARK: &str = "@presentation";
 /// `path` is only used for the diagnostics' spans.
 pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
     let mut out = Vec::new();
+    // Locals that hold a profile value. The check used to look for a read and
+    // a state write on the *same line*, which catches
+    //
+    //     self.spell = profile.get("knows_fire")
+    //
+    // and misses the two-line form anybody would actually write:
+    //
+    //     local known = profile.get("knows_fire")
+    //     self.spell = known
+    //
+    // A name is tainted when it is assigned from a profile read, and stays
+    // tainted for the rest of the file. Crude in the same direction as the
+    // rest of this lint: it would rather name a safe write than miss an
+    // unsafe one.
+    let mut tainted: std::collections::BTreeSet<String> = Default::default();
     for (index, raw) in source.lines().enumerate() {
         let line = index + 1;
         let code = blank_strings(&strip_comment(raw));
@@ -78,7 +93,14 @@ pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
             }
         }
 
-        if code.contains("profile.get") && writes_state(&code) {
+        // A local taking a profile value becomes tainted.
+        if code.contains("profile.get") {
+            if let Some(name) = assigned_local(&code) {
+                tainted.insert(name);
+            }
+        }
+
+        if (code.contains("profile.get") || reads_tainted(&code, &tainted)) && writes_state(&code) {
             out.push(
                 Diagnostic::new(
                     Code::SCRIPT_NONDETERMINISM,
@@ -199,6 +221,59 @@ fn float_literal(code: &str) -> Option<String> {
 /// `self.x = ...`, a node handle's field, or `set_var`. Deliberately shallow:
 /// the point is to notice a hazard and a write on the same line, not to prove
 /// one flows into the other.
+/// The name a `local x = ...` or plain `x = ...` binds, when the line binds one.
+///
+/// Only bare names: a `self.x` or a `t.y` on the left is a state write rather
+/// than a local, and is the thing being looked for elsewhere.
+fn assigned_local(code: &str) -> Option<String> {
+    let eq = find_assignment(code)?;
+    let mut left = code[..eq].trim();
+    if let Some(rest) = left.strip_prefix("local ") {
+        left = rest.trim();
+    }
+    // `local a, b = ...` binds two names and this lint is not a parser. Taint
+    // both rather than neither.
+    if left.contains(',') {
+        return None;
+    }
+    if left.is_empty() || left.contains('.') || left.contains(':') || left.contains('[') {
+        return None;
+    }
+    if !left.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    Some(left.to_string())
+}
+
+/// Does the right-hand side mention a name that holds a profile value?
+fn reads_tainted(code: &str, tainted: &std::collections::BTreeSet<String>) -> bool {
+    let Some(eq) = find_assignment(code) else {
+        return false;
+    };
+    let right = &code[eq + 1..];
+    tainted.iter().any(|name| mentions_word(right, name))
+}
+
+/// A whole-word search, so `known` does not match `unknown`.
+fn mentions_word(haystack: &str, word: &str) -> bool {
+    let mut from = 0;
+    while let Some(at) = haystack[from..].find(word) {
+        let start = from + at;
+        let end = start + word.len();
+        let before_ok = start == 0
+            || !haystack.as_bytes()[start - 1].is_ascii_alphanumeric()
+                && haystack.as_bytes()[start - 1] != b'_';
+        let after_ok = end >= haystack.len()
+            || !haystack.as_bytes()[end].is_ascii_alphanumeric()
+                && haystack.as_bytes()[end] != b'_';
+        if before_ok && after_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
 fn writes_state(code: &str) -> bool {
     let Some(eq) = find_assignment(code) else {
         return false;

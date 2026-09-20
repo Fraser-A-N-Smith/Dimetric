@@ -94,8 +94,60 @@ fn a_profile_read_reaching_a_state_write_is_flagged() {
 }
 
 #[test]
+fn a_profile_read_reaches_state_through_a_local() {
+    // The form the one-line check missed, and the form anybody would write.
+    // Naming a value before using it is the normal way to write Lua, so the
+    // hazard that slipped through was the *ordinary* spelling of the mistake.
+    let found = hazards(
+        "local known = profile.get(\"knows_fire\")\n\
+         self.spell = known\n",
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("profile"), "{found:?}");
+}
+
+#[test]
+fn a_profile_taint_survives_intervening_lines() {
+    let found = hazards(
+        "local known = profile.get(\"seen\")\n\
+         local other = 1\n\
+         log.info(\"thinking\")\n\
+         self.spell = known\n",
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+}
+
+#[test]
+fn a_name_that_merely_contains_a_tainted_one_is_not_flagged() {
+    // `known` is tainted; `unknown` and `knownish` are different names, and a
+    // substring match would have flagged both.
+    assert_eq!(
+        count(
+            "local known = profile.get(\"seen\")\n\
+             self.spell = unknown\n"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            "local known = profile.get(\"seen\")\n\
+             self.spell = knownish\n"
+        ),
+        0
+    );
+}
+
+#[test]
 fn a_profile_read_that_goes_nowhere_near_state_is_not() {
     assert_eq!(count("local unlocked = profile.get(\"knows_fire\")"), 0);
+    // Tainting a local is not itself a hazard: the local has to reach state.
+    assert_eq!(
+        count(
+            "local unlocked = profile.get(\"knows_fire\")\n\
+             log.info(tostring(unlocked))\n"
+        ),
+        0
+    );
     assert_eq!(
         count("if profile.get(\"seen\") then log.info(\"hi\") end"),
         0
