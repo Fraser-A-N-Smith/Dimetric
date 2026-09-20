@@ -257,6 +257,38 @@ impl UserData for NodeHandle {
             let id = resolve(&state, this.0)?;
             let value = from_lua(value)?;
             if let Some(node) = state.scene.node_mut_no_transform(id) {
+                // A write may not change a property's *type*.
+                //
+                // `from_lua` has no schema to consult, so a Lua string becomes
+                // a `Value::Str` whatever the property is declared as. Writing
+                // one into a colour used to succeed, and then:
+                //
+                //   * the renderer read it back with `as_color`, got nothing,
+                //     and silently stopped drawing that node;
+                //   * the save wrote the string, the loader typed it correctly
+                //     from the schema, and the restored state hashed
+                //     *differently from the live state it came from* — a save
+                //     that did not round-trip, with nothing saying so.
+                //
+                // The authored value is the type of record. It came through
+                // the parser, which did have the schema. Refusing a write that
+                // disagrees with it turns both of those silences into a
+                // diagnostic at the line that caused them.
+                if let Some(existing) = node.get(&key) {
+                    if existing.type_name() != value.type_name() {
+                        return Err(mlua::Error::external(Diagnostic::new(
+                            Code::SCRIPT_BAD_ARGUMENT,
+                            format!(
+                                "{:?} on this node is a {}, and this writes a {}. A script \
+                                 cannot change a property's type: the value would not be \
+                                 read back, and a save would not round-trip.",
+                                key,
+                                existing.type_name(),
+                                value.type_name()
+                            ),
+                        )));
+                    }
+                }
                 node.set(key, value);
             }
             Ok(())
