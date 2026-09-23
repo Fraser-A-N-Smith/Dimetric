@@ -14,6 +14,39 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `TileLayer.tile_size`, so a dimetric board can be drawn
+
+`Projection::Isometric` is `screen = (x - y, (x + y) / 2)`. Work out what
+tessellates under it and you get one answer: the grid's step must be **square**
+and the tile sprite must be **2:1**. That is the standard dimetric arrangement,
+and it is the one this engine is named for — and the single node kind for
+drawing a floor could not express it.
+
+`cell` was three things at once: the slice out of the sheet, the size drawn,
+and the step between neighbours. A square step therefore forced a square
+sprite. `cell = [32, 16]` steps twice as far as a tessellating neighbour, so
+every other tile gaps and the board reads as scattered tiles; `cell = [16, 16]`
+cuts 16×16 out of a 32×16 tile and draws half of each, so the floor collapses.
+There is no third value.
+
+`tile_size` is the sprite — the slice and the size it draws at, in pixels.
+`cell` stays the step, in world units:
+
+```toml
+[[node]]
+kind = "TileLayer"
+cell = [16, 16]        # world step: square, as Isometric requires
+tile_size = [32, 16]   # the sprite: 2:1, as a dimetric tile is
+```
+
+Absent means `cell`, so a layer that says nothing draws exactly as it did and
+top-down projects are untouched.
+
+Does not move the state hash. `cell` is read only by the renderer and written
+only by the LDtk importer; nothing in the simulation reads either, so picking,
+collision and `tiles.*` are unchanged — `tile_size` cannot move a cell, only
+cover more of one.
+
 ### Added: a script can set a colour, and read any property back into itself
 
 `modulate` is on every `Sprite2D` and `AnimatedSprite2D`, `node:get` hands it

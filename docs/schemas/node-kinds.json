@@ -835,8 +835,15 @@
         },
         {
           "default": "[16, 16]",
-          "doc": "Tile size in pixels.",
+          "doc": "The grid's step in world units. Square under Isometric, which is what makes a 2:1 diamond tessellate.",
           "name": "cell",
+          "required": false,
+          "type": "vec2i"
+        },
+        {
+          "default": null,
+          "doc": "The sprite's size in pixels, for slicing the sheet and drawing. Absent means `cell`. A dimetric floor wants `cell = [16, 16]` with `tile_size = [32, 16]`.",
+          "name": "tile_size",
           "required": false,
           "type": "vec2i"
         },

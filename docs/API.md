@@ -284,7 +284,8 @@ A grid of tiles, stored as run-length encoded chunks.
 | Property | Type | Default | Notes |
 |---|---|---|---|
 | `tileset` | `asset-ref` | **required** | Tileset to draw from. |
-| `cell` | `vec2i` | `[16, 16]` | Tile size in pixels. |
+| `cell` | `vec2i` | `[16, 16]` | The grid's step in world units. Square under Isometric, which is what makes a 2:1 diamond tessellate. |
+| `tile_size` | `vec2i` | — | The sprite's size in pixels, for slicing the sheet and drawing. Absent means `cell`. A dimetric floor wants `cell = [16, 16]` with `tile_size = [32, 16]`. |
 | `collision` | `bool` | `false` | Feed this layer into the collision grid. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
 

@@ -579,7 +579,16 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 "cell",
                 PropertyType::Vec2i,
                 Some(Value::Vec2i([16, 16])),
-                "Tile size in pixels.",
+                "The grid's step in world units. Square under Isometric, which is \
+                 what makes a 2:1 diamond tessellate.",
+            ),
+            prop(
+                "tile_size",
+                PropertyType::Vec2i,
+                None,
+                "The sprite's size in pixels, for slicing the sheet and drawing. \
+                 Absent means `cell`. A dimetric floor wants `cell = [16, 16]` with \
+                 `tile_size = [32, 16]`.",
             ),
             prop(
                 "collision",

@@ -537,13 +537,33 @@ fn tiles(
     else {
         return;
     };
-    let columns = (sheet.size.0 / cell[0] as u32).max(1);
+    // `cell` was the sheet slice, the draw size and the world step all at
+    // once, which made a square step force a square sprite — and under
+    // Isometric the step *has* to be square for the lattice to close, while
+    // the diamond that tessellates on it is 2:1. So the arrangement this
+    // engine is named for could not be expressed: `cell = [32, 16]` gaps every
+    // other neighbour, `cell = [16, 16]` slices half of each tile, and there
+    // is no third value to try.
+    //
+    // `tile_size` is the sprite — the slice out of the sheet and the size it
+    // draws at, both in pixels. `cell` stays the step, in world units. A
+    // project that says nothing gets the old behaviour exactly.
+    let tile_size = node
+        .get("tile_size")
+        .and_then(Value::as_vec2i)
+        .filter(|s| s[0] > 0 && s[1] > 0)
+        .unwrap_or(cell);
+    let columns = (sheet.size.0 / tile_size[0] as u32).max(1);
     let modulate = node
         .get("modulate")
         .and_then(Value::as_color)
         .unwrap_or(Color::WHITE);
-    let size = Vec2Fx::from_ints(cell[0], cell[1]);
-    let half = size / 2;
+    let size = Vec2Fx::from_ints(tile_size[0], tile_size[1]);
+    // Half a *cell*, not half a sprite: this offsets a world position to the
+    // middle of the cell it belongs to, and the sprite is then centred there.
+    // Under Isometric that puts a diamond's centre half a step below the
+    // cell's projected corner, which is where a diamond's centre is.
+    let half = Vec2Fx::from_ints(cell[0], cell[1]) / 2;
 
     for chunk in scene.chunks.iter().filter(|c| c.layer == node.uid) {
         let Some(cells) = chunk.cells() else { continue };
@@ -560,10 +580,10 @@ fn tiles(
             let sheet_index = *tile as u32 - 1;
             let uv = sheet
                 .sub(
-                    (sheet_index % columns) * cell[0] as u32,
-                    (sheet_index / columns) * cell[1] as u32,
-                    cell[0] as u32,
-                    cell[1] as u32,
+                    (sheet_index % columns) * tile_size[0] as u32,
+                    (sheet_index / columns) * tile_size[1] as u32,
+                    tile_size[0] as u32,
+                    tile_size[1] as u32,
                 )
                 .uv;
 
