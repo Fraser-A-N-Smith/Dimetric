@@ -1,0 +1,28 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Stage"
+script = "script:scripts/tint.lua"
+
+[[node]]
+id = "n_lamp0000"
+kind = "Light2D"
+name = "Lamp"
+parent = "n_root0000"          # /Stage
+color = "#ff8f4aff"
+cone_angle = 29.9981689453125
+radius = 96.0
+shape = "Cone"
+
+[[node]]
+id = "n_panel000"
+kind = "Panel"
+name = "Backdrop"
+parent = "n_root0000"          # /Stage
+modulate = "#102030c0"

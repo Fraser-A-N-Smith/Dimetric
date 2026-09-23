@@ -75,6 +75,11 @@ pub const GLOBALS: &[Global] = &[
         about: "`vec2(x, y)`, building a fixed-point vector",
     },
     Global {
+        name: "color",
+        about: "`rgba(r, g, b, a)`, `rgb(r, g, b)`, `parse(\"#rrggbbaa\")` — channels are \
+                bytes, and a colour is state like any other property",
+    },
+    Global {
         name: "fx",
         about: "`new`, `parse`, `sin`, `cos`, `from_angle`",
     },

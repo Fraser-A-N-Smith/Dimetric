@@ -346,6 +346,31 @@ fn render_markdown(
          `kind`, `valid`, and — on a `Sound` node — `play` and `stop`. Indexing a handle\n\
          reads and writes script variables, except for `pos`, `rot` and `visible`, which\n\
          reach the node's transform.\n\n\
+         ### Reading a property and writing it back\n\n\
+         `node:get` and `node:set` address the *kind properties* — the ones a kind's\n\
+         schema declares. The keys every node has are not among them: they live on the\n\
+         node itself, so `node:set(\"visible\", false)` would shadow the real one rather\n\
+         than change it, and is refused with `DIM0104`. Write `self.visible = false`,\n\
+         which reaches the node.\n\n\
+         A write may not change a property's type (`DIM0505`). The authored value is\n\
+         the type of record, because it came through the parser, which had the schema.\n\n\
+         Four types reach a script as a string, because a string is how they are\n\
+         written: a colour is `#rrggbbaa`, an angle is degrees, a reference is\n\
+         `asset:sprites/bogling`, an enum is its variant. Writing one of those back is\n\
+         *not* a type change — the text is re-read by the same parser the scene format\n\
+         uses, so `node:set(k, node:get(k))` round-trips on every type, and text that\n\
+         does not parse is refused with the reason rather than stored.\n\n\
+         ### Colours\n\n\
+         ```lua\n\
+         bar:set(\"modulate\", color.rgba(255, 143, 74, 255))\n\
+         bar:set(\"modulate\", color.rgb(255, 143, 74))   -- opaque, said aloud\n\
+         bar:set(\"modulate\", \"#ff8f4aff\")              -- what `get` hands back\n\
+         ```\n\n\
+         Channels are bytes and are refused outside `0..255` rather than clamped: a\n\
+         clamp makes a colour the author did not write and does not mention the\n\
+         arithmetic that produced it. Alpha is explicit, here as in a `.dim` file —\n\
+         `#ff8f4a` is not a colour in this engine, and `color.rgb` is how to mean\n\
+         opaque. A colour is a node property, so it is hashed and replays like `pos`.\n\n\
          ### Spawning\n\n\
          `scene.spawn` returns the id the node *will* have and creates nothing yet.\n\
          A node inserted mid-tick would be going into a tree another script may be\n\

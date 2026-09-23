@@ -73,6 +73,15 @@ pub struct LuaFx(pub Fx);
 #[derive(Clone, Copy, Debug)]
 pub struct LuaVec2(pub Vec2Fx);
 
+/// An RGBA colour, as Lua sees it.
+///
+/// Bytes rather than a float per channel, deliberately. A colour lands in
+/// `modulate`, which is a node property and therefore hashed, so it is state —
+/// and a channel built out of Lua floats would be the one place a float could
+/// get into the hash without going through `fx`.
+#[derive(Clone, Copy, Debug)]
+pub struct LuaColor(pub dimetric_scene::Color);
+
 /// A validated reference to a node.
 #[derive(Clone, Copy, Debug)]
 pub struct NodeHandle(pub NodeUid);
@@ -171,6 +180,61 @@ impl UserData for LuaVec2 {
     }
 }
 
+impl UserData for LuaColor {
+    fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
+        m.add_method("r", |_, this, ()| Ok(this.0.r as i64));
+        m.add_method("g", |_, this, ()| Ok(this.0.g as i64));
+        m.add_method("b", |_, this, ()| Ok(this.0.b as i64));
+        m.add_method("a", |_, this, ()| Ok(this.0.a as i64));
+        m.add_method("to_hex", |_, this, ()| Ok(this.0.to_hex()));
+        m.add_method("with_alpha", |_, this, a: i64| {
+            Ok(LuaColor(dimetric_scene::Color {
+                a: channel(a, "a")?,
+                ..this.0
+            }))
+        });
+        m.add_meta_method("__eq", |_, this, o: LuaColor| Ok(this.0 == o.0));
+        // The written form, so `tostring(c)` and `node:get("modulate")` agree
+        // and a colour can be logged without a conversion.
+        m.add_meta_method("__tostring", |_, this, ()| Ok(this.0.to_hex()));
+        m.add_meta_method("__index", |_, this, key: String| {
+            Ok(match key.as_str() {
+                "r" => mlua::Value::Integer(this.0.r as i64),
+                "g" => mlua::Value::Integer(this.0.g as i64),
+                "b" => mlua::Value::Integer(this.0.b as i64),
+                "a" => mlua::Value::Integer(this.0.a as i64),
+                _ => mlua::Value::Nil,
+            })
+        });
+    }
+}
+
+/// One channel of a colour, refused rather than clamped.
+///
+/// Clamping would turn `color.rgba(255, 300, 0, 255)` into a colour the author
+/// did not write and would not be told about; the arithmetic that produced the
+/// 300 is the bug, and it is still there afterwards.
+fn channel(v: i64, name: &str) -> mlua::Result<u8> {
+    u8::try_from(v)
+        .map_err(|_| mlua::Error::runtime(format!("a colour channel is 0..255, and {name} is {v}")))
+}
+
+impl mlua::FromLua for LuaColor {
+    fn from_lua(value: mlua::Value, _lua: &Lua) -> mlua::Result<LuaColor> {
+        match value {
+            mlua::Value::UserData(ud) => Ok(*ud.borrow::<LuaColor>()?),
+            mlua::Value::String(s) => dimetric_scene::Color::parse(s.to_str()?.as_ref())
+                .map(LuaColor)
+                .map_err(|e| mlua::Error::runtime(e.to_string())),
+            other => Err(mlua::Error::FromLuaConversionError {
+                from: other.type_name(),
+                to: "color".into(),
+                message: Some("expected a color or an \"#rrggbbaa\" string".into()),
+            }),
+        }
+    }
+}
+
 impl mlua::FromLua for LuaVec2 {
     fn from_lua(value: mlua::Value, _lua: &Lua) -> mlua::Result<LuaVec2> {
         match value {
@@ -256,6 +320,25 @@ impl UserData for NodeHandle {
             let mut state = state.borrow_mut();
             let id = resolve(&state, this.0)?;
             let value = from_lua(value)?;
+            // `get` and `set` address the property map, and a reserved key is
+            // not in it — `pos`, `rot` and `visible` live on the node itself.
+            // So a write here did not fail, it *shadowed*: `set("visible",
+            // false)` left a prop nothing reads and the node on screen, and
+            // `set("rot", "45")` wrote a string the scene writer emitted and
+            // the scene parser then refused, turning a save into a file that
+            // could not be loaded. Both silent at the line that caused them,
+            // which is the thing this method already refuses type changes to
+            // avoid. The reserved keys have accessors of their own.
+            if dimetric_scene::schema::is_reserved(&key) {
+                return Err(mlua::Error::external(Diagnostic::new(
+                    Code::RESERVED_KEY,
+                    format!(
+                        "{key:?} is a reserved key, not a kind property, so setting it \
+                         here would shadow the real one rather than change it. Write \
+                         `self.{key} = ...` instead, which reaches the node."
+                    ),
+                )));
+            }
             if let Some(node) = state.scene.node_mut_no_transform(id) {
                 // A write may not change a property's *type*.
                 //
@@ -274,19 +357,50 @@ impl UserData for NodeHandle {
                 // the parser, which did have the schema. Refusing a write that
                 // disagrees with it turns both of those silences into a
                 // diagnostic at the line that caused them.
+                let mut value = value;
                 if let Some(existing) = node.get(&key) {
                     if existing.type_name() != value.type_name() {
-                        return Err(mlua::Error::external(Diagnostic::new(
-                            Code::SCRIPT_BAD_ARGUMENT,
-                            format!(
-                                "{:?} on this node is a {}, and this writes a {}. A script \
-                                 cannot change a property's type: the value would not be \
-                                 read back, and a save would not round-trip.",
-                                key,
-                                existing.type_name(),
-                                value.type_name()
-                            ),
-                        )));
+                        // A colour, an angle, a reference and an enum all reach
+                        // a script as a string, because a string is what they
+                        // are written as. So `node:set(k, node:get(k))` used to
+                        // be refused — `get` and `set` were not symmetric — and
+                        // with no constructor for a colour either, `modulate`
+                        // could be read and could not be written at all.
+                        //
+                        // The text is re-read as the property's own type rather
+                        // than trusted, so what lands in state is what the
+                        // scene parser would have made of the same characters.
+                        // Everything else is still a type change and still
+                        // refused: this widens what counts as writing the same
+                        // type, not what counts as a type.
+                        let text = value.as_str().unwrap_or_default().to_string();
+                        match value.as_str().and_then(|t| existing.reparse(t)) {
+                            Some(Ok(parsed)) => value = parsed,
+                            Some(Err(why)) => {
+                                return Err(mlua::Error::external(Diagnostic::new(
+                                    Code::SCRIPT_BAD_ARGUMENT,
+                                    format!(
+                                        "{key:?} on this node is a {}, and {text:?} is not \
+                                         one: {why}",
+                                        existing.type_name()
+                                    ),
+                                )))
+                            }
+                            None => {
+                                return Err(mlua::Error::external(Diagnostic::new(
+                                    Code::SCRIPT_BAD_ARGUMENT,
+                                    format!(
+                                        "{:?} on this node is a {}, and this writes a {}. A \
+                                         script cannot change a property's type: the value \
+                                         would not be read back, and a save would not \
+                                         round-trip.",
+                                        key,
+                                        existing.type_name(),
+                                        value.type_name()
+                                    ),
+                                )))
+                            }
+                        }
                     }
                 }
                 node.set(key, value);
@@ -639,6 +753,8 @@ fn from_lua(value: mlua::Value) -> mlua::Result<Value> {
                 Value::Scalar(v.0)
             } else if let Ok(v) = ud.borrow::<LuaVec2>() {
                 Value::Vec2(v.0)
+            } else if let Ok(c) = ud.borrow::<LuaColor>() {
+                Value::Color(c.0)
             } else if let Ok(h) = ud.borrow::<NodeHandle>() {
                 Value::Str(h.0.to_text())
             } else {
@@ -1002,6 +1118,58 @@ fn install_api(
         .create_function(|_, (x, y): (LuaFx, LuaFx)| Ok(LuaVec2(Vec2Fx::new(x.0, y.0))))
         .map_err(err)?;
     env.set("vec2", vec2).map_err(err)?;
+
+    // color: the one value type a script could read and could not write.
+    //
+    // `modulate` is on every Sprite2D and AnimatedSprite2D and `node:get` hands
+    // it back as `#rrggbbaa`; there was no constructor for one and no way to
+    // spell it, so eight sheets plus a tint per variant — the arrangement that
+    // makes an art budget survivable — could not be expressed at all.
+    let color = lua.create_table().map_err(err)?;
+    color
+        .set(
+            "rgba",
+            lua.create_function(|_, (r, g, b, a): (i64, i64, i64, i64)| {
+                Ok(LuaColor(dimetric_scene::Color::rgba(
+                    channel(r, "r")?,
+                    channel(g, "g")?,
+                    channel(b, "b")?,
+                    channel(a, "a")?,
+                )))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    color
+        .set(
+            "rgb",
+            lua.create_function(|_, (r, g, b): (i64, i64, i64)| {
+                Ok(LuaColor(dimetric_scene::Color::rgba(
+                    channel(r, "r")?,
+                    channel(g, "g")?,
+                    channel(b, "b")?,
+                    255,
+                )))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    // The same parser the scene format uses, so a colour means one thing in
+    // this engine rather than two. That includes the explicit alpha: `#rrggbb`
+    // is refused here exactly as it is in a `.dim` file, and `color.rgb` is
+    // the way to say "opaque" out loud.
+    color
+        .set(
+            "parse",
+            lua.create_function(|_, s: String| {
+                dimetric_scene::Color::parse(&s)
+                    .map(LuaColor)
+                    .map_err(|e| mlua::Error::runtime(e.to_string()))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    env.set("color", color).map_err(err)?;
 
     // fx: fixed-point construction and the trig the sandbox withholds.
     let fx = lua.create_table().map_err(err)?;

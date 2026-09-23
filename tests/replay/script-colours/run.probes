@@ -1,0 +1,8 @@
+# The colour a script built from bytes, landing in state and hashing there.
+tick 40 /Stage var:r == 40
+tick 40 /Stage var:g == 215
+tick 40 /Stage var:b == 128
+
+# An enum read as text and written back keeps its own type, so it comes back
+# as the same variant rather than as a string the scene parser would refuse.
+tick 40 /Stage var:shape == Cone

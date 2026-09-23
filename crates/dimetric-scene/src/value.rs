@@ -212,6 +212,42 @@ pub enum Value {
 }
 
 impl Value {
+    /// Re-read `text` as this value's own type.
+    ///
+    /// Four of these types reach a script as a string, because a string is
+    /// their written form: a colour is `#rrggbbaa`, an angle is degrees, a
+    /// reference is `asset:sprites/bogling`, an enum is its variant's name.
+    /// So a script that reads one and writes it somewhere else is handing back
+    /// exactly what it was given — and without this it would be refused, as a
+    /// string written over a colour.
+    ///
+    /// That mattered more than the symmetry: with no way to *construct* one of
+    /// these in Lua either, a colour could be read and could not be set at all.
+    ///
+    /// `None` means this type has no written form to re-read, so a string over
+    /// it really is a change of type and is refused as one. The text is
+    /// checked rather than trusted: what comes back is the value the parser
+    /// makes of it, or the reason it could not.
+    pub fn reparse(&self, text: &str) -> Option<Result<Value, String>> {
+        Some(match self {
+            Value::Color(_) => Color::parse(text)
+                .map(Value::Color)
+                .map_err(|e| e.to_string()),
+            Value::Angle(_) => Angle::from_degrees_str(text)
+                .map(Value::Angle)
+                .map_err(|e| e.to_string()),
+            Value::Ref(_) => Reference::parse(text)
+                .map(Value::Ref)
+                .map_err(|e| e.to_string()),
+            // An enum's variants come from the schema, and the simulation does
+            // not carry one — the same reason the guard this serves is about
+            // changing a type rather than checking one. The variant is the
+            // schema's business; the type is this function's.
+            Value::Enum(_) => Ok(Value::Enum(text.to_string())),
+            _ => return None,
+        })
+    }
+
     /// The schema type name, for error messages.
     pub fn type_name(&self) -> &'static str {
         match self {

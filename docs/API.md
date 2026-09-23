@@ -437,6 +437,7 @@ Scripts see exactly these globals and nothing else.
 | `tick` | `count()`, `dt()`, `rate` |
 | `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |
 | `vec2` | `vec2(x, y)`, building a fixed-point vector |
+| `color` | `rgba(r, g, b, a)`, `rgb(r, g, b)`, `parse("#rrggbbaa")` — channels are bytes, and a colour is state like any other property |
 | `fx` | `new`, `parse`, `sin`, `cos`, `from_angle` |
 | `log` | `info`, `warn`, `error` — collected per tick, never hashed |
 | `tween` | `to(node, property, target, ticks, easing)`, `cancel(node, property)`, `running(node, property)` |
@@ -450,6 +451,38 @@ A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,
 `kind`, `valid`, and — on a `Sound` node — `play` and `stop`. Indexing a handle
 reads and writes script variables, except for `pos`, `rot` and `visible`, which
 reach the node's transform.
+
+### Reading a property and writing it back
+
+`node:get` and `node:set` address the *kind properties* — the ones a kind's
+schema declares. The keys every node has are not among them: they live on the
+node itself, so `node:set("visible", false)` would shadow the real one rather
+than change it, and is refused with `DIM0104`. Write `self.visible = false`,
+which reaches the node.
+
+A write may not change a property's type (`DIM0505`). The authored value is
+the type of record, because it came through the parser, which had the schema.
+
+Four types reach a script as a string, because a string is how they are
+written: a colour is `#rrggbbaa`, an angle is degrees, a reference is
+`asset:sprites/bogling`, an enum is its variant. Writing one of those back is
+*not* a type change — the text is re-read by the same parser the scene format
+uses, so `node:set(k, node:get(k))` round-trips on every type, and text that
+does not parse is refused with the reason rather than stored.
+
+### Colours
+
+```lua
+bar:set("modulate", color.rgba(255, 143, 74, 255))
+bar:set("modulate", color.rgb(255, 143, 74))   -- opaque, said aloud
+bar:set("modulate", "#ff8f4aff")              -- what `get` hands back
+```
+
+Channels are bytes and are refused outside `0..255` rather than clamped: a
+clamp makes a colour the author did not write and does not mention the
+arithmetic that produced it. Alpha is explicit, here as in a `.dim` file —
+`#ff8f4a` is not a colour in this engine, and `color.rgb` is how to mean
+opaque. A colour is a node property, so it is hashed and replays like `pos`.
 
 ### Spawning
 

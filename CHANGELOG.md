@@ -14,6 +14,61 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a script can set a colour, and read any property back into itself
+
+`modulate` is on every `Sprite2D` and `AnimatedSprite2D`, `node:get` hands it
+back as `#rrggbbaa`, and there was no way to write one. The sandbox had a
+`vec2` constructor and no `color` one, so the read gave you a string the write
+would not take — and the refusal was *correct*: a script changing a property's
+type stops the renderer drawing that node and stops a save round-tripping.
+The gap was that a colour could not be expressed in Lua at all, which put
+"eight sheets plus a tint per variant" out of reach and left a per-colour node
+and a `visible` toggle in its place.
+
+There is a `color` global now, beside `vec2`:
+
+```lua
+node:set("modulate", color.rgba(255, 143, 74, 255))
+node:set("modulate", color.rgb(255, 143, 74))   -- opaque, said aloud
+node:set("modulate", "#ff8f4aff")               -- what `get` hands back
+```
+
+Channels are bytes, and are **refused** outside `0..255` rather than clamped: a
+clamp invents a colour the author did not write and says nothing about the
+arithmetic that produced the 300. Alpha stays explicit, here as in a `.dim`
+file — `#ff8f4a` is refused in both, and `color.rgb` is how to mean opaque.
+
+**And the same defect four types over.** A colour, an angle, a reference and an
+enum all reach a script as a string, because a string is what they are written
+as — so `node:set(k, node:get(k))` was a type change on all four and was
+refused. A string over one of those is now re-read as the property's own type,
+by the same parser the scene format uses. Text that does not parse is refused
+with the reason and the text quoted back, rather than stored. This widens what
+counts as writing the same type; it does not widen what counts as a type, and a
+number into a colour is still refused as before.
+
+### Fixed: `node:set` on a reserved key shadowed it rather than writing it
+
+Found while closing the gap above, and the same silence one key over. `get` and
+`set` address the kind properties; `pos`, `rot`, `visible` and the rest live on
+the node itself. So a write went into the property map beside the real one:
+
+* `node:set("visible", false)` left the node on screen and said nothing — the
+  renderer reads the node, not the prop.
+* `node:set("rot", "45")` wrote a value the scene writer emitted as
+  `rot = "45"` and the scene parser then refused as *"rot should be a angle"* —
+  **a save written without complaint that could not be loaded.**
+
+Both are refused now with `DIM0104`, naming the spelling that works
+(`self.visible = false`), which has been there all along.
+
+Moves the state hash **only for a script that was already broken**: one writing
+a reserved key through `node:set` (which did nothing, or corrupted a save), or
+writing a string into a colour, angle, reference or enum (which was refused).
+A script doing neither hashes exactly as before — every replay fixture is
+unchanged, and there is a new one, `tests/replay/script-colours`, that tints
+from a script and hashes the result.
+
 ### Fixed: a project's settings reach what actually draws
 
 Two halves of one defect: a setting that exists, is documented, and does not
