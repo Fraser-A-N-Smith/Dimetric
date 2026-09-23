@@ -277,24 +277,84 @@ impl fmt::Display for ProbeResult {
     }
 }
 
+/// Everything before an unquoted `#`.
+///
+/// Quote-aware, because a `#` is also the first character of every colour this
+/// engine writes. Stripping comments first would turn `== "#ff8f4aff"` into
+/// `== "` and report a missing closing quote on a line that had one.
+fn without_comment(line: &str) -> &str {
+    let mut quoted = false;
+    for (at, ch) in line.char_indices() {
+        match ch {
+            '"' => quoted = !quoted,
+            '#' if !quoted => return &line[..at],
+            _ => {}
+        }
+    }
+    line
+}
+
+/// A probe's expected value, with its quotes taken off if it has them.
+///
+/// A quoted literal used to be compared *including its quote characters*, so
+/// it never matched anything — and quoting is the natural thing to write,
+/// since every other literal in this toolchain is TOML-ish. It is also the
+/// only way to write a value with a leading or trailing space, or an empty
+/// one: bare, `""` is two quote characters against nothing.
+fn unquote(text: &str) -> Result<String, &'static str> {
+    let Some(rest) = text.strip_prefix('"') else {
+        return Ok(text.to_string());
+    };
+    // `rest` has already lost the opening quote, so a lone `"` leaves nothing
+    // for `strip_suffix` to take and is reported rather than read as empty.
+    match rest.strip_suffix('"') {
+        Some(inner) => Ok(inner.to_string()),
+        None => Err("a quoted value needs a closing quote"),
+    }
+}
+
 /// Parse a probe file.
 ///
 /// One probe per line: `tick <n> <path> <field> <op> <value>`. Blank lines and
-/// `#` comments are ignored.
+/// `#` comments are ignored, except inside a quoted value.
+///
+/// The value runs to the end of the line, so it may contain spaces. Quoting it
+/// is optional and the quotes are not part of the value — `== none` and
+/// `== "none"` mean the same thing, and `== ""` means the empty string.
 pub fn parse_probes(text: &str) -> Result<Vec<Probe>, Diagnostic> {
     let mut out = Vec::new();
     for (number, raw) in text.lines().enumerate() {
-        let line = raw.split('#').next().unwrap_or("").trim();
+        let line = without_comment(raw).trim();
         if line.is_empty() {
             continue;
         }
-        let parts: Vec<&str> = line.split_whitespace().collect();
         let bad = |what: &str| {
             Diagnostic::new(Code::PROBE_FAILED, format!("line {}: {what}", number + 1))
                 .with_field("line", (number + 1) as i64)
                 .with_field("text", raw.to_string())
         };
-        if parts.len() < 6 || parts[0] != "tick" {
+
+        // The first five fields are words; the sixth is the rest of the line.
+        // Taken by hand rather than with `split_whitespace` so the value keeps
+        // its own spacing — joining the tail back together with single spaces
+        // would quietly rewrite `"two  words"`.
+        let mut rest = line;
+        let mut parts: Vec<&str> = Vec::new();
+        for _ in 0..5 {
+            rest = rest.trim_start();
+            match rest.find(char::is_whitespace) {
+                Some(at) => {
+                    parts.push(&rest[..at]);
+                    rest = &rest[at..];
+                }
+                None => {
+                    parts.push(rest);
+                    rest = "";
+                }
+            }
+        }
+        let value = rest.trim();
+        if parts[0] != "tick" || value.is_empty() {
             return Err(bad("expected `tick <n> <path> <field> <op> <value>`"));
         }
         let tick: u64 = parts[1].parse().map_err(|_| bad("tick is not a number"))?;
@@ -305,7 +365,7 @@ pub fn parse_probes(text: &str) -> Result<Vec<Probe>, Diagnostic> {
             path: parts[2].to_string(),
             field: parts[3].to_string(),
             op,
-            value: parts[5..].join(" "),
+            value: unquote(value).map_err(bad)?,
         });
     }
     Ok(out)

@@ -25,3 +25,21 @@ fixture is that you have to decide which.
 
 When a replay does diverge, `dim replay` reports the **first** divergent tick
 and stops. Every later tick is downstream of it, so that is the one to debug.
+
+## Probes
+
+One per line, in `run.probes`:
+
+```
+tick <n> <path> <field> <op> <value>
+```
+
+The value runs to the end of the line, so it may contain spaces. Quoting it is
+optional and the quotes are **not** part of the value — `== none` and
+`== "none"` mean the same thing. Quote it when the value has a leading or
+trailing space, when it is empty (`== ""`), or when it contains a `#`, which
+outside quotes starts a comment and which is the first character of every
+colour this engine writes.
+
+A probe at tick *N* is evaluated **after** tick *N* has been stepped, so it
+sees one more tick than `dim state dump --tick N` does.
