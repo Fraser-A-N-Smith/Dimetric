@@ -33,7 +33,10 @@ struct Args {
     /// Write the session's input log here, so the run can be replayed.
     #[arg(long)]
     record: Option<std::path::PathBuf>,
-    /// Internal resolution, as `WIDTHxHEIGHT`.
+    /// Override `[render] resolution` for this run, as `WIDTHxHEIGHT`. The
+    /// project's own is used when this is absent, and overriding it warns:
+    /// the simulation still picks against the project's, so a click will not
+    /// land where the cursor is.
     #[arg(long)]
     internal: Option<String>,
     /// Window size, as `WIDTHxHEIGHT`.
@@ -94,10 +97,10 @@ fn parse_keys(text: &str) -> Result<Vec<(u64, String)>, String> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let mut settings = dimetric_render::RenderSettings::default();
-    if let Some(text) = &args.internal {
-        settings.internal_resolution = parse_size(text)?;
-    }
+    let internal_override = match &args.internal {
+        Some(text) => Some(parse_size(text)?),
+        None => None,
+    };
     let window_size = parse_size(&args.window)?;
 
     let root = match &args.project {
@@ -121,6 +124,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut project = Project::open(&root, 0);
     let project_settings = project.settings.clone();
+    // The world is drawn at the resolution the project declared. A packaged
+    // game has no command line — `dim build` makes something a player
+    // double-clicks — so a project that could only be drawn at the engine's
+    // default was a project that could only ship at it.
+    let (internal_resolution, override_warning) = project.render_resolution(internal_override);
+    if let Some(d) = &override_warning {
+        eprintln!("{d}");
+    }
+    let settings = dimetric_render::RenderSettings {
+        internal_resolution,
+        ..Default::default()
+    };
     let mut session = Session::open(
         &mut project,
         SessionConfig {

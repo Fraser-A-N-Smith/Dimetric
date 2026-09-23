@@ -20,7 +20,7 @@ use dimetric_render::{
     Renderer,
 };
 use dimetric_scene::{Color, Scene, Value};
-use dimetric_sim::{InputLog, LuaHost, Sim, SimConfig, SimState};
+use dimetric_sim::{InputLog, LuaHost, Sim, SimState};
 
 use crate::project::Project;
 
@@ -243,7 +243,14 @@ pub fn capture(
     let (scene, mut diagnostics) = project.runtime_scene()?;
     diagnostics.extend(project.load_scripts());
 
-    let mut host = LuaHost::new(SimConfig::default().tick_rate).map_err(one)?;
+    // The project's declared settings, not the engine's defaults. A capture
+    // taken on the defaults while the project asked for something else
+    // photographs a differently-configured game from the one the runtime
+    // plays — which is what every golden image taken through here used to be.
+    let config = project.sim_config();
+    diagnostics.extend(project.settings_diagnostics.clone());
+
+    let mut host = LuaHost::new(config.tick_rate).map_err(one)?;
     host.set_fonts(project.fonts());
     for d in host.load_all(
         project
@@ -264,7 +271,7 @@ pub fn capture(
     // With the project's clips and prefabs, so a capture shows what the game
     // would actually be doing at that tick rather than a version of it that
     // cannot spawn anything.
-    let mut sim = Sim::new(scene, request.seed, Box::new(host), SimConfig::default())
+    let mut sim = Sim::new(scene, request.seed, Box::new(host), config)
         .with_clips(project.clips())
         .with_templates(templates);
     let log = request

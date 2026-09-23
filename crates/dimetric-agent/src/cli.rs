@@ -485,7 +485,9 @@ pub enum FrameCmd {
         /// Output height in pixels.
         #[arg(long, default_value_t = 270)]
         height: u32,
-        /// Resolution the world is drawn at before upscaling, as `WxH`.
+        /// Override `[render] resolution` for this capture, as `WxH`. The
+        /// project's own is used when this is absent, and overriding it
+        /// warns, because picking still uses the project's.
         #[arg(long)]
         internal: Option<String>,
         /// Scale by whole numbers only. On by default, for pixel art.

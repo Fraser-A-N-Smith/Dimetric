@@ -13,7 +13,7 @@ use dimetric_host::speaker::Speaker;
 use dimetric_host::Project;
 use dimetric_render::{Atlas, Camera, Frame, Interpolation, RenderSettings};
 use dimetric_sim::profile::Profile;
-use dimetric_sim::{InputFrame, InputLog, LuaHost, PlayerInput, Sim, SimConfig, SimState};
+use dimetric_sim::{InputFrame, InputLog, LuaHost, PlayerInput, Sim, SimState};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -80,11 +80,7 @@ impl Session {
         // while the project asked for something else would produce recordings
         // the project itself could not replay.
         diagnostics.extend(project.settings_diagnostics.clone());
-        let sim_config = SimConfig {
-            tick_rate: project.settings.tick_rate,
-            canvas: project.settings.canvas,
-            resolution: project.settings.resolution,
-        };
+        let sim_config = project.sim_config();
         let mut host = LuaHost::new(sim_config.tick_rate).map_err(|d| Diagnostics(vec![d]))?;
         host.set_fonts(project.fonts());
 

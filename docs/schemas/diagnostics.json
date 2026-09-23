@@ -216,6 +216,11 @@
       "summary": "An input binding names an action the engine does not have"
     },
     {
+      "code": "DIM0904",
+      "severity": "warning",
+      "summary": "A flag overrode a project setting the simulation also depends on"
+    },
+    {
       "code": "DIM1001",
       "severity": "error",
       "summary": "A save file could not be read or written"

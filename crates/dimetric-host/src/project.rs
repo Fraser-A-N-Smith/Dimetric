@@ -412,6 +412,68 @@ impl Project {
         (templates, diagnostics)
     }
 
+    /// The simulation config this project declared.
+    ///
+    /// One place, because there are several ways to start this project's
+    /// simulation — the player, the editor's playback, a headless capture —
+    /// and any of them running on the engine's defaults while the project
+    /// asked for something else is a different game. `dim frame capture` did
+    /// exactly that, and nothing could tell, because a project whose settings
+    /// happen to equal the defaults is photographed correctly either way.
+    pub fn sim_config(&self) -> dimetric_sim::SimConfig {
+        dimetric_sim::SimConfig {
+            tick_rate: self.settings.tick_rate,
+            canvas: self.settings.canvas,
+            resolution: self.settings.resolution,
+        }
+    }
+
+    /// The internal resolution to render at, and what an override costs.
+    ///
+    /// `[render] resolution` is documented as the resolution the world is
+    /// drawn at, and it is in the state hash because a script unprojects a
+    /// click through it. So the renderer has to draw at the same number the
+    /// simulation picks with: if they differ, a click lands somewhere other
+    /// than under the cursor, and nothing says so.
+    ///
+    /// They were independent. `RenderSettings::internal_resolution` defaulted
+    /// to `(480, 270)` on its own, which is why a project could declare
+    /// `resolution = [1920, 1080]`, pick against it, and still be drawn at
+    /// 480×270.
+    ///
+    /// A `--internal` override is still allowed, for a one-off capture at a
+    /// size worth looking at. It is not allowed to be silent: overriding it
+    /// re-creates exactly the disagreement above for as long as the flag is
+    /// there, so this hands back a warning to go with it. What it must not do
+    /// is move the simulation's resolution to match — that is hashed, and a
+    /// flag that quietly changed the run would make a recording replayable
+    /// only by someone who passed the same flag.
+    pub fn render_resolution(
+        &self,
+        override_with: Option<(u32, u32)>,
+    ) -> ((u32, u32), Option<Diagnostic>) {
+        let declared = self.settings.resolution;
+        match override_with {
+            None => (declared, None),
+            Some(size) if size == declared => (size, None),
+            Some(size) => (
+                size,
+                Some(
+                    Diagnostic::new(
+                        Code::SETTINGS_OVERRIDDEN,
+                        format!(
+                            "drawing at {}x{} while the project's `[render] resolution` \
+                             is {}x{}; the simulation still picks against {}x{}, so a \
+                             click will not land where the cursor is",
+                            size.0, size.1, declared.0, declared.1, declared.0, declared.1
+                        ),
+                    )
+                    .with_severity(dimetric_core::Severity::Warning),
+                ),
+            ),
+        }
+    }
+
     /// Load every `.lua` file under `scripts/`.
     pub fn load_scripts(&mut self) -> Diagnostics {
         let mut diags = Diagnostics::new();

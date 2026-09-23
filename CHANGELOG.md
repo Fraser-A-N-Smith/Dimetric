@@ -14,6 +14,49 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: a project's settings reach what actually draws
+
+Two halves of one defect: a setting that exists, is documented, and does not
+reach the thing it names.
+
+**`dim frame capture` ran on the engine's defaults.** `SimConfig` carries
+`tick_rate`, `canvas` and `resolution`, all three declared in `project.toml`,
+and the capture path built `SimConfig::default()`. The runtime got it right and
+said why — *"a session that ran on the defaults while the project asked for
+something else would produce recordings the project itself could not
+replay."* The capture path just did not do it, and so every golden image taken
+through `frame capture` photographed a differently-configured game from the one
+the runtime plays. It survived because `Canvas::default()` is 320×180 and the
+example project declares 320×180: a project whose settings happen to equal the
+defaults is photographed correctly either way. The editor's playback had the
+same defect and is fixed with it.
+
+All five places that start this engine's simulation now go through one
+`Project::sim_config()` rather than four hand-rolled copies and two defaults.
+
+**`[render] resolution` never reached the renderer.** It reached
+`SimConfig.resolution`, which is what `camera.to_world` unprojects a click
+through, and not `RenderSettings.internal_resolution`, which is what draws. So
+the number the simulation picked against and the number the renderer drew at
+were independent and nothing kept them in step. A packaged game has no command
+line, so the only resolution a shipped game could have was the default.
+`internal_resolution` now defaults from the project.
+
+`--internal` still overrides it for a one-off capture, and is no longer silent:
+overriding re-creates exactly that disagreement for as long as the flag is
+there, so it now warns with **`DIM0904`** naming both numbers and what it costs.
+What it deliberately does *not* do is move the simulation's resolution to
+match — that is hashed, and a flag that quietly changed the run would make a
+recording replayable only by someone who passed the same flag.
+
+Does not move the state hash for a project that declared nothing, which is
+every golden fixture. **It does move it for a project that declared a
+`tick_rate`, `canvas` or `resolution` other than the default and has
+recordings made through `dim frame capture` or the editor's playback** — those
+were taken against the wrong configuration and have to be retaken. A recording
+made by the runtime or by `dim replay` is unaffected; both already read the
+project.
+
 ### Fixed: a save dropped `resolution`, so a resumed run was a different run
 
 `SimState.resolution` is in the state hash — a script unprojects a click

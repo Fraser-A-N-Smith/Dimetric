@@ -358,6 +358,7 @@ message. Codes are never reused for a different meaning.
 | `DIM0901` | error | project.toml exists but could not be read or parsed |
 | `DIM0902` | error | A project setting is out of range or the wrong shape |
 | `DIM0903` | error | An input binding names an action the engine does not have |
+| `DIM0904` | warning | A flag overrode a project setting the simulation also depends on |
 | `DIM1001` | error | A save file could not be read or written |
 | `DIM1002` | error | A save was written by a different format or engine version |
 

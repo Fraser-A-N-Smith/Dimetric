@@ -397,7 +397,7 @@
             "type": "string"
           },
           "internal": {
-            "description": "Resolution the world is drawn at before upscaling, as `WxH`",
+            "description": "Override `[render] resolution` for this capture, as `WxH`. The project's own is used when this is absent, and overriding it warns, because picking still uses the project's",
             "type": "string"
           },
           "json": {

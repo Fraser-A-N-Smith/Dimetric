@@ -1190,11 +1190,7 @@ fn build_sim(project: &mut Project, seed: u64) -> Result<BuiltSim, Diagnostics> 
     let mut host = dimetric_sim::LuaHost::new(settings.tick_rate).map_err(one)?;
     host.set_fonts(project.fonts());
     diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
-    let config = dimetric_sim::SimConfig {
-        tick_rate: settings.tick_rate,
-        canvas: settings.canvas,
-        resolution: settings.resolution,
-    };
+    let config = project.sim_config();
     let profile = host.profile_handle();
     Ok((
         dimetric_sim::Sim::new(scene, seed, Box::new(host), config)
@@ -1547,13 +1543,19 @@ fn frame_command(project: &mut Project, cmd: FrameCmd) -> Result<Output, Diagnos
         ambient,
     } = cmd;
 
+    // The world is drawn at the resolution the project declared, because that
+    // is the number the simulation picks against. `--internal` still overrides
+    // it for a one-off, and says what that costs.
+    let override_with = match &internal {
+        Some(text) => Some(parse_size(text)?),
+        None => None,
+    };
+    let (internal_resolution, warning) = project.render_resolution(override_with);
     let mut settings = dimetric_render::RenderSettings {
         integer_upscale: !no_integer_upscale,
+        internal_resolution,
         ..Default::default()
     };
-    if let Some(text) = &internal {
-        settings.internal_resolution = parse_size(text)?;
-    }
     if let Some(text) = &ambient {
         settings.ambient = dimetric_scene::Color::parse(text).map_err(|e| {
             one(Diagnostic::new(
@@ -1607,6 +1609,7 @@ fn frame_command(project: &mut Project, cmd: FrameCmd) -> Result<Output, Diagnos
         ),
     );
     out.warnings = captured.diagnostics.0;
+    out.warnings.extend(warning);
     Ok(out)
 }
 
@@ -1682,11 +1685,7 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     // Same settings the run used: replaying a log under a different tick rate
     // or canvas is not replaying it.
     // Read before the project is borrowed for the run itself.
-    let replay_config = dimetric_sim::SimConfig {
-        tick_rate: project.settings.tick_rate,
-        canvas: project.settings.canvas,
-        resolution: project.settings.resolution,
-    };
+    let replay_config = project.sim_config();
     let report = replay.run_in(Some(project), scene, Box::new(host), replay_config);
 
     let mut text = format!("replayed {} ticks from seed {}", report.ticks, report.seed);
