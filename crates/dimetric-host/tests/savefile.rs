@@ -66,9 +66,29 @@ fn load_scene() -> Scene {
 }
 
 fn sim() -> Sim {
-    let mut host = LuaHost::new(60).expect("lua host");
+    sim_with(SimConfig::default())
+}
+
+/// A project's settings, rather than the engine's.
+///
+/// Every test above this line used the defaults, which is how a hashed field
+/// went unsaved without anything noticing: a field that happens to equal its
+/// default round-trips whether it is written or not.
+fn configured() -> SimConfig {
+    SimConfig {
+        tick_rate: 60,
+        canvas: dimetric_scene::ui::Canvas {
+            width: 1920,
+            height: 1080,
+        },
+        resolution: (1920, 1080),
+    }
+}
+
+fn sim_with(config: SimConfig) -> Sim {
+    let mut host = LuaHost::new(config.tick_rate).expect("lua host");
     host.load("scripts/hero.lua", HERO).expect("loads");
-    Sim::new(load_scene(), 4242, Box::new(host), SimConfig::default())
+    Sim::new(load_scene(), 4242, Box::new(host), config)
 }
 
 fn run(sim: &mut Sim, ticks: u32) {
@@ -275,4 +295,39 @@ fn a_missing_save_says_which_file() {
     let err = savefile::load(dir.path(), &registry()).expect_err("nothing there");
     assert_eq!(err.code.0, "DIM1001");
     assert!(err.message.contains("state.toml"), "{}", err.message);
+}
+
+#[test]
+fn a_run_on_a_projects_own_settings_restores_to_the_same_hash() {
+    // The generalisation of the test at the top of this file, and the one that
+    // would have caught `resolution` going unsaved: every other round-trip
+    // here runs on `SimConfig::default()`, where a dropped field restores to
+    // the value it had anyway.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut original = sim_with(configured());
+    run(&mut original, 6);
+    let want = original.hash();
+
+    savefile::save(dir.path(), &original.state(), "scene", &registry()).expect("save");
+    let (restored, _) = savefile::load(dir.path(), &registry()).expect("load");
+    assert_eq!(
+        restored.hash(),
+        want,
+        "a resumed run is not the run that was saved"
+    );
+}
+
+#[test]
+fn the_save_carries_every_hashed_setting() {
+    // Named individually, so the next field added to the hash and forgotten
+    // here fails on the field rather than on an opaque hash mismatch.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut original = sim_with(configured());
+    run(&mut original, 2);
+    savefile::save(dir.path(), &original.state(), "scene", &registry()).expect("save");
+
+    let (state, _) = savefile::load(dir.path(), &registry()).expect("load");
+    assert_eq!(state.canvas.width, 1920);
+    assert_eq!(state.canvas.height, 1080);
+    assert_eq!(state.resolution, (1920, 1080));
 }

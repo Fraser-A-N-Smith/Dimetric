@@ -14,6 +14,28 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: a save dropped `resolution`, so a resumed run was a different run
+
+`SimState.resolution` is in the state hash — a script unprojects a click
+through it, so it decides which cell was clicked — and `savefile.rs` did not
+write it. On load it fell back to the default `(480, 270)`, and the restored
+state hashed differently from the state that was saved. The load succeeded and
+said nothing.
+
+It only bit a project that asked for a resolution other than the default, which
+is why it survived: every round-trip test in the suite ran on
+`SimConfig::default()`, where a dropped field restores to the value it had
+anyway. A field that equals its default round-trips whether it is written or
+not. There are now two tests on a project's own settings — one on the hash, one
+naming `canvas` and `resolution` individually so the next field forgotten here
+fails on the field rather than on an opaque mismatch.
+
+The save carries `resolution` beside `canvas` now. The field defaults to
+`(480, 270)` when absent, so a save written before this loads exactly as it did
+before — no format bump.
+
+Does not move the state hash. It stops a save from moving it.
+
 ### Fixed: `dim script check` can resolve `require`, and checks a project
 
 Two defects and an absence, all in the same command, all of which made the

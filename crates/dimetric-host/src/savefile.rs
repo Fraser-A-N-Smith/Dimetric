@@ -95,6 +95,19 @@ pub struct SaveFile {
     pub previous_input: dimetric_sim::InputFrame,
     /// The UI canvas the run was laid out against.
     pub canvas: [i32; 2],
+    /// The resolution the world was drawn at.
+    ///
+    /// Hashed, like the canvas, because a script unprojects a click through
+    /// it — so a run restored at a different resolution is a different run.
+    /// Defaulted rather than required so a save written before this field
+    /// existed loads exactly as it did then.
+    #[serde(default = "default_resolution")]
+    pub resolution: [u32; 2],
+}
+
+/// What `SimState::new` starts a run at, for a save that predates the field.
+fn default_resolution() -> [u32; 2] {
+    [480, 270]
 }
 
 impl SaveFile {
@@ -136,6 +149,7 @@ impl SaveFile {
             autoplayed: state.autoplayed.iter().map(uid).collect(),
             previous_input: state.previous_input.clone(),
             canvas: [state.canvas.width, state.canvas.height],
+            resolution: [state.resolution.0, state.resolution.1],
         }
     }
 
@@ -189,6 +203,7 @@ impl SaveFile {
             width: self.canvas[0],
             height: self.canvas[1],
         };
+        state.resolution = (self.resolution[0], self.resolution[1]);
         state.previous_input = self.previous_input.clone();
 
         for (node, table) in &self.vars {
