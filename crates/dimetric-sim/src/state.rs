@@ -228,6 +228,27 @@ impl SimState {
         self.vars.entry(node).or_default().insert(key.into(), value);
     }
 
+    /// Remove a script variable, as `self.key = nil` does in Lua.
+    ///
+    /// The node's whole table goes when its last variable does. `vars.len()`
+    /// is hashed, so a node left holding an empty table would make "cleared
+    /// the only variable" hash differently from "never had one" — two states a
+    /// script cannot tell apart, diverging.
+    pub fn clear_var(&mut self, node: NodeUid, key: &str) {
+        let Some(table) = self.vars.get_mut(&node) else {
+            return;
+        };
+        // `shift_remove`, not `remove`: the latter is `swap_remove`, which
+        // moves the last entry into the hole. The hash sorts these keys before
+        // reading them, so it would not notice — but a save writes the table
+        // in its own order, so two runs that cleared different variables would
+        // write different files for the same state (I4).
+        table.shift_remove(key);
+        if table.is_empty() {
+            self.vars.remove(&node);
+        }
+    }
+
     /// A body's velocity, zero when it has none.
     pub fn velocity_of(&self, node: NodeUid) -> Vec2Fx {
         self.velocity.get(&node).copied().unwrap_or(Vec2Fx::ZERO)

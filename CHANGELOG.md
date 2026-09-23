@@ -14,6 +14,55 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: `self.thing = nil` stored `false`
+
+`SimState.vars` holds a `Value` and `Value` has no nil variant, so the write
+stored the nearest thing it had. The read-back was `false`, the standard
+`if self.thing ~= nil` guard passed, and the next line indexed a boolean. The
+engine reported that correctly and the per-tick log swallowed it, so the only
+symptom was a caption that would not hide.
+
+Nil now **removes** the variable, which is what it does to every other table in
+Lua, and `self.thing` reads back as `nil`. That needed no new variant in a
+value type the scene format also uses: the honest round-trip for "no value" is
+no entry. A node's whole table goes when its last variable does, because
+`vars.len()` is hashed and a node left holding an empty table would make
+"cleared the only variable" hash differently from "never had one".
+
+Nil anywhere else — `node:set`, `profile.put`, a tween target — is now refused
+with a diagnostic naming the one place it means something, rather than becoming
+a `false` nobody wrote. `profile.clear(key)` was already the way to clear a
+profile key.
+
+Moves the state hash only for a script that wrote a nil, which was already
+doing something other than what it said. The example game is one: `arena.lua`
+clears `self.offered` after an upgrade is taken, so its state used to carry an
+`offered = false` nobody wrote. `examples/sorcerer/tests/arena01.hashes` is
+re-recorded from tick 40 on. The run itself is unchanged — every probe beside
+it still passes, same five rooms, same twenty kills, same `Forking Arc`
+evolution — only the state is now honest about a variable that is not there.
+
+### Fixed: a quoted string in a `--assert` probe never matched
+
+The expected value was everything after the operator, quotes included, so
+`== "none"` compared six characters against four and could not pass. Quoting is
+the natural thing to write, since every other literal in this toolchain is
+TOML-ish.
+
+Quotes are now optional and are not part of the value. Three things follow:
+
+* an **empty string** can be asserted (`== ""`), which bare was two quote
+  characters against nothing — the earlier finding, closed by the same change;
+* a value keeps its **own spacing**, where rejoining a whitespace split with
+  single spaces used to rewrite `"two  words"`;
+* a `#` **inside quotes is not a comment**, so a colour can be asserted on —
+  relevant now that a script can set one.
+
+An unterminated quote is reported rather than read raw.
+
+Neither moves a recorded hash. Probes are assertions over a replay, not part
+of it.
+
 ### Added: `TileLayer.tile_size`, so a dimetric board can be drawn
 
 `Projection::Isometric` is `screen = (x - y, (x + y) / 2)`. Work out what

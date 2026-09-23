@@ -453,6 +453,11 @@ A node handle supports `get`, `set`, `find`, `parent`, `children`, `emit`,
 reads and writes script variables, except for `pos`, `rot` and `visible`, which
 reach the node's transform.
 
+`self.thing = nil` clears a script variable, as it clears a key from any
+other Lua table, and `self.thing` then reads back as `nil`. Nil is not a value
+the engine stores, so anywhere else — `node:set`, `profile.put`, a tween
+target — it is refused rather than turned into something else.
+
 ### Reading a property and writing it back
 
 `node:get` and `node:set` address the *kind properties* — the ones a kind's

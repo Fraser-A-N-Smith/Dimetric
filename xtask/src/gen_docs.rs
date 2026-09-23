@@ -346,6 +346,10 @@ fn render_markdown(
          `kind`, `valid`, and — on a `Sound` node — `play` and `stop`. Indexing a handle\n\
          reads and writes script variables, except for `pos`, `rot` and `visible`, which\n\
          reach the node's transform.\n\n\
+         `self.thing = nil` clears a script variable, as it clears a key from any\n\
+         other Lua table, and `self.thing` then reads back as `nil`. Nil is not a value\n\
+         the engine stores, so anywhere else — `node:set`, `profile.put`, a tween\n\
+         target — it is refused rather than turned into something else.\n\n\
          ### Reading a property and writing it back\n\n\
          `node:get` and `node:set` address the *kind properties* — the ones a kind's\n\
          schema declares. The keys every node has are not among them: they live on the\n\

@@ -603,6 +603,14 @@ impl UserData for NodeHandle {
                             node.visible = *b;
                         }
                     }
+                    // `self.thing = nil` removes the variable, as it removes
+                    // a key from any other Lua table. It used to store the
+                    // nearest thing `Value` had, which was `false` — so the
+                    // standard `if self.thing ~= nil` guard passed and the
+                    // next line indexed a boolean. The engine reported that
+                    // correctly and the per-tick log swallowed it, which left
+                    // a caption that would not hide and no idea why.
+                    _ if value.is_nil() => state.clear_var(this.0, &key),
                     _ => {
                         let v = from_lua(value)?;
                         state.set_var(this.0, key, v);
@@ -742,7 +750,18 @@ fn to_lua(lua: &Lua, value: &Value) -> mlua::Result<mlua::Value> {
 /// and writing the result here, which is why the fixed-point userdata exists.
 fn from_lua(value: mlua::Value) -> mlua::Result<Value> {
     Ok(match value {
-        mlua::Value::Nil => Value::Bool(false),
+        // Not `false`. There is no nil in the scene format's value type, and
+        // substituting the nearest thing made `x = nil` read back as something
+        // the standard nil check does not catch. Clearing is spelled
+        // `self.key = nil`, which removes the variable; everywhere else a nil
+        // is an argument that was not supplied, and saying so beats storing a
+        // value nobody wrote.
+        mlua::Value::Nil => {
+            return Err(mlua::Error::runtime(
+                "nil is not a value the engine can store. `self.key = nil` clears a \
+                 script variable; anywhere else, pass a value.",
+            ))
+        }
         mlua::Value::Boolean(b) => Value::Bool(b),
         mlua::Value::Integer(i) => Value::Int(i),
         // I3-exempt: the scripting boundary, as above.
