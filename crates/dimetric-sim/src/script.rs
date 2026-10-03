@@ -2057,14 +2057,35 @@ fn install_api(
                     finished: false,
                 });
             // Playing the clip that is already playing does not restart it,
-            // so `anim.play(self, "walk")` every tick is harmless.
+            // so `anim.play(self, "walk")` every tick is harmless. Use
+            // `anim.restart` to go back to the first frame deliberately.
             if entry.clip != clip {
-                entry.clip = clip;
+                entry.clip = clip.clone();
                 entry.frame = 0;
                 entry.ticks_in_frame = 0;
             }
             entry.playing = true;
             entry.finished = false;
+            set_animation_property(&mut state, node.0, &clip);
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    anim.set(
+        "restart",
+        lua.create_function(|lua, node: NodeHandle| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            // Only something already playing can be restarted. Inventing an
+            // entry here would put playback state on a node that has none, and
+            // `anim` is hashed — a phantom entry is a divergence.
+            if let Some(entry) = state.anim.get_mut(&node.0) {
+                entry.frame = 0;
+                entry.ticks_in_frame = 0;
+                entry.playing = true;
+                entry.finished = false;
+            }
             Ok(())
         })
         .map_err(err)?,
@@ -2183,6 +2204,35 @@ fn install_api(
     env.set("require", require).map_err(err)?;
 
     Ok(())
+}
+
+/// Put the clip a script asked for onto the node's own `animation` property.
+///
+/// `anim::advance` reads that property every tick and switches back to it when
+/// the running clip differs, so without this `anim.play` on an
+/// `AnimatedSprite2D` lasted exactly until the next `Advance` phase — on the
+/// one kind that has clips, the documented script route did nothing and
+/// reported nothing. Writing the property makes the two routes one, which also
+/// means the node carries what it is playing: a save round-trips to the same
+/// animation, and the renderer and the scene cannot disagree.
+///
+/// Only on an `AnimatedSprite2D`. Any other kind has no such property, and
+/// adding one would write a scene its own parser refuses (`DIM0301`) — a save
+/// that could not be loaded, which is a worse bug than the one being fixed.
+fn set_animation_property(state: &mut SimState, uid: NodeUid, clip: &str) {
+    let Some(id) = state.scene.by_uid(uid) else {
+        return;
+    };
+    let animated = state
+        .scene
+        .get(id)
+        .is_some_and(|n| n.base == "AnimatedSprite2D");
+    if !animated {
+        return;
+    }
+    if let Some(node) = state.scene.node_mut_no_transform(id) {
+        node.set("animation", Value::Str(clip.to_string()));
+    }
 }
 
 /// Evaluate a module, or hand back the one already evaluated.

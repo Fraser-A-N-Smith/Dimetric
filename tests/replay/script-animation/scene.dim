@@ -1,0 +1,19 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Stage"
+script = "script:scripts/burst.lua"
+
+[[node]]
+id = "n_fx000000"
+kind = "AnimatedSprite2D"
+name = "Fx"
+parent = "n_root0000"          # /Stage
+animation = "idle"
+frames = "asset:sprites/burst"

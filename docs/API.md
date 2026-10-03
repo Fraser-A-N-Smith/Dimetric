@@ -442,7 +442,7 @@ Scripts see exactly these globals and nothing else.
 | `fx` | `new`, `parse`, `sin`, `cos`, `from_angle` |
 | `log` | `info`, `warn`, `error` — collected per tick, never hashed |
 | `tween` | `to(node, property, target, ticks, easing)`, `cancel(node, property)`, `running(node, property)` |
-| `anim` | `play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |
+| `anim` | `play(node, clip)`, `restart(node)`, `stop(node)`, `frame(node)`, `playing(node)`, `finished(node)` |
 | `require` | `require(path)`, another script's returned table |
 
 Plus the parts of the Lua standard library the sandbox re-exports: `assert`, `error`, `ipairs`, `next`, `pairs`, `pcall`, `select`, `tonumber`, `tostring`, `type`, `xpcall`, `rawequal`, `rawget`, `rawlen`, `setmetatable`, `getmetatable`, `string`, `table`, and a reduced `math` holding only the exactly-defined integer operations. `rawset` is deliberately absent: it writes past the `__newindex` that keeps a required module read-only.
@@ -704,6 +704,17 @@ Animation clips come from the importer with their frame durations already in
 ticks. `on_anim_event(self, name)` fires when playback reaches a frame that
 carries an event, which is how a hitbox opens on the swing frame rather than
 on a timer someone has to keep in sync by hand.
+
+An `AnimatedSprite2D` has two ways to say what it is playing and they are one
+thing: `anim.play(node, clip)` writes the node's `animation` property, so the
+node carries what it is playing and a save round-trips to the same clip.
+Authoring `animation` in the scene is the same change made by hand.
+
+`anim.play` of the clip already running is deliberately **not** a restart, so
+calling it every tick is harmless. `anim.restart(node)` is the restart: frame
+zero, not finished, playing. Without it a non-looping clip that had finished
+stayed on its last frame for the life of the node, which is a pooled effect
+sprite that plays once and then shows the final frame forever.
 
 ### Sound
 

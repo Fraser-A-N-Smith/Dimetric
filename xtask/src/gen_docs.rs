@@ -570,6 +570,15 @@ fn render_markdown(
          ticks. `on_anim_event(self, name)` fires when playback reaches a frame that\n\
          carries an event, which is how a hitbox opens on the swing frame rather than\n\
          on a timer someone has to keep in sync by hand.\n\n\
+         An `AnimatedSprite2D` has two ways to say what it is playing and they are one\n\
+         thing: `anim.play(node, clip)` writes the node\'s `animation` property, so the\n\
+         node carries what it is playing and a save round-trips to the same clip.\n\
+         Authoring `animation` in the scene is the same change made by hand.\n\n\
+         `anim.play` of the clip already running is deliberately **not** a restart, so\n\
+         calling it every tick is harmless. `anim.restart(node)` is the restart: frame\n\
+         zero, not finished, playing. Without it a non-looping clip that had finished\n\
+         stayed on its last frame for the life of the node, which is a pooled effect\n\
+         sprite that plays once and then shows the final frame forever.\n\n\
          ### Sound\n\n\
          `node:play()` on a `Sound` node asks for its clip; `node:stop()` stops what\n\
          that node started. The script says *when* and the node's properties say what,\n\

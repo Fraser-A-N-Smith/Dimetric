@@ -1,0 +1,17 @@
+id = "a_burst001"
+source_hash = "82d49a67a0ab4c11539f11c9ef7a51464bb59595ee8b153323c99706e8720be4"
+nearest = true
+atlas = true
+frames = 3
+frame_ms = 100
+
+[[clip]]
+name = "idle"
+from = 0
+to = 0
+
+[[clip]]
+name = "burst"
+from = 0
+to = 2
+looping = false

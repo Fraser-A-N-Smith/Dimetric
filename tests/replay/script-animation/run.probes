@@ -1,0 +1,13 @@
+# Switched by a script on tick 2, and still switched twenty ticks later. This
+# is the defect: the Advance phase read the node's `animation` property every
+# tick and put the clip back, so the documented script route did nothing.
+tick 20 /Stage var:clip == burst
+
+# The property carries what is playing, so the two routes are one route and a
+# save round-trips to the same animation.
+tick 20 /Stage/Fx animation == burst
+
+# A finished non-looping clip went back to its first frame rather than sitting
+# on its last one for the life of the node.
+tick 39 /Stage var:replays == 2
+tick 39 /Stage var:frame == 0

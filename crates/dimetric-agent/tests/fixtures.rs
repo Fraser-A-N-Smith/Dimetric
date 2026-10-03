@@ -33,6 +33,15 @@ fn fixtures() -> Vec<PathBuf> {
 /// Replay one fixture and return its report.
 fn replay(dir: &Path) -> dimetric_host::ReplayReport {
     let mut project = Project::open(dir, 0);
+    // A fixture's assets, so `project.clips()` has something in it. Without
+    // this no fixture could cover animation at all: frame advance is
+    // simulation state and comes from clips the importer produced, and a
+    // project that was never imported hands back an empty map, so a script
+    // playing a clip would hold frame zero and the fixture would pass having
+    // tested nothing. The timing is resolved at import against the project's
+    // tick rate, so it is the same on every machine; atlas packing moves UVs,
+    // which are render-only and not hashed.
+    project.import_assets();
     project
         .load_scene("scene")
         .unwrap_or_else(|d| panic!("{}: {d}", dir.display()));

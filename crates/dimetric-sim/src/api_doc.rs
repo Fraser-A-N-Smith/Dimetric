@@ -94,8 +94,8 @@ pub const GLOBALS: &[Global] = &[
     },
     Global {
         name: "anim",
-        about: "`play(node, clip)`, `stop(node)`, `frame(node)`, `playing(node)`, \
-                `finished(node)`",
+        about: "`play(node, clip)`, `restart(node)`, `stop(node)`, `frame(node)`, \
+                `playing(node)`, `finished(node)`",
     },
     Global {
         name: "require",

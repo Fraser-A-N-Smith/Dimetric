@@ -14,6 +14,47 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: `anim.play` did nothing on an `AnimatedSprite2D`, and a finished clip could not replay
+
+Two halves, both silent.
+
+`anim::advance` reads every `AnimatedSprite2D`'s `animation` property each tick
+and switches back to it when the running clip differs. So `anim.play(node,
+"burst")` set the clip and the next `Advance` phase put it back — on the one
+node kind that *has* clips, the documented script route did nothing and
+reported nothing. `docs/API.md` listed both routes and did not say one
+cancelled the other.
+
+`anim.play` now writes the node's `animation` property too, so the two routes
+are one route: the node carries what it is playing, the renderer and the scene
+cannot disagree, and a save round-trips to the same clip. Only on an
+`AnimatedSprite2D` — any other kind has no such property, and adding one would
+write a scene its own parser refuses (`DIM0301`), which is a worse bug than the
+one being fixed.
+
+And nothing restarted a clip. Setting `animation` to the value it already holds
+is rightly not a restart, and `anim.play` of the running clip is documented as
+not one either — so a non-looping clip that had finished stayed on its last
+frame for the life of the node. A pooled effect sprite played its burst once
+and then showed the final frame forever. **`anim.restart(node)`** is the
+restart: frame zero, not finished, playing. It restarts only something already
+playing; inventing an entry for a node with no playback would put a phantom
+record in `anim`, which is hashed.
+
+Moves the state hash for a script that called `anim.play` on an
+`AnimatedSprite2D`, which until now was a call that did nothing.
+
+### Changed: replay fixtures import their project's assets
+
+No fixture could cover animation. Frame advance is simulation state and comes
+from clips the importer produced, and the harness never imported — so
+`project.clips()` handed back an empty map, a script playing a clip held frame
+zero, and a fixture would have passed having tested nothing. The harness now
+imports first. Timing is resolved at import against the project's tick rate, so
+it is the same on every machine; atlas packing moves UVs, which are render-only
+and not hashed. `tests/replay/script-animation` is the first fixture with an
+asset in it.
+
 ### Fixed: `self.thing = nil` stored `false`
 
 `SimState.vars` holds a `Value` and `Value` has no nil variant, so the write
