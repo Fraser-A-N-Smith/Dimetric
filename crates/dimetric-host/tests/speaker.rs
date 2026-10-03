@@ -255,3 +255,54 @@ fn a_missing_clip_is_a_warning_rather_than_silence_with_no_explanation() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn asking_for_a_device_this_build_has_not_got_says_so() {
+    // `dimetric-player`'s `sound` feature is off by default, so the build line
+    // in most of this repo's own documentation produces a game that resolves
+    // every `Sound` node, plays nothing, and used to report nothing. The
+    // fallback was taken for two unrelated reasons — no device, or no device
+    // *compiled in* — and said the same nothing for both.
+    let project = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        project.path().join("main.dim"),
+        "format = \"dimetric\"\nversion = 1\n\n[scene]\nroot = \"n_root0000\"\n\n\
+         [[node]]\nid = \"n_root0000\"\nkind = \"Node2D\"\nname = \"Root\"\n",
+    )
+    .expect("scene");
+    let opened = dimetric_host::Project::open(project.path(), 0);
+    let speaker = dimetric_host::speaker::Speaker::open(&opened, dimetric_audio::Device::System);
+
+    let said: Vec<String> = speaker.diagnostics.iter().map(|d| d.to_string()).collect();
+    let joined = said.join("\n");
+    assert!(
+        joined.contains("DIM1101"),
+        "a silent runtime reported nothing: {joined:?}"
+    );
+    // Which of the two it is matters: one is a machine to fix, the other is a
+    // build flag, and they want different responses. Whichever this build
+    // takes, the message has to say which — `kira` is a feature of
+    // `dimetric-audio`, so this crate cannot tell from a `cfg` which one to
+    // expect, and asserting on the content is the honest check anyway.
+    assert!(
+        joined.contains("built without the `sound` feature") || joined.contains("would not open"),
+        "it reported a silent runtime without saying why: {joined}"
+    );
+}
+
+#[test]
+fn asking_for_no_device_is_not_a_warning() {
+    // A headless run and a test suite ask for silence on purpose. Warning
+    // about it would put a line in every CI log and teach everyone to ignore
+    // the one that matters.
+    let project = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        project.path().join("main.dim"),
+        "format = \"dimetric\"\nversion = 1\n\n[scene]\nroot = \"n_root0000\"\n\n\
+         [[node]]\nid = \"n_root0000\"\nkind = \"Node2D\"\nname = \"Root\"\n",
+    )
+    .expect("scene");
+    let opened = dimetric_host::Project::open(project.path(), 0);
+    let speaker = dimetric_host::speaker::Speaker::open(&opened, dimetric_audio::Device::Silent);
+    assert!(speaker.diagnostics.is_empty(), "{}", speaker.diagnostics);
+}

@@ -162,7 +162,7 @@ fn stopping_a_bus_leaves_the_others_playing() {
 
 #[test]
 fn the_headless_backend_is_what_a_default_device_opens() {
-    let backend = dimetric_audio::Device::default().open();
+    let (backend, _) = dimetric_audio::Device::default().open();
     assert_eq!(backend.name(), "mock", "no device I/O in a headless run");
 }
 

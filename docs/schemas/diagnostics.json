@@ -234,6 +234,11 @@
       "code": "DIM1002",
       "severity": "error",
       "summary": "A save was written by a different format or engine version"
+    },
+    {
+      "code": "DIM1101",
+      "severity": "warning",
+      "summary": "The system audio device was asked for and not obtained"
     }
   ]
 }

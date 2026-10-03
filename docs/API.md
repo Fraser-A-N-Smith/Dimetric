@@ -363,6 +363,7 @@ message. Codes are never reused for a different meaning.
 | `DIM0904` | warning | A flag overrode a project setting the simulation also depends on |
 | `DIM1001` | error | A save file could not be read or written |
 | `DIM1002` | error | A save was written by a different format or engine version |
+| `DIM1101` | warning | The system audio device was asked for and not obtained |
 
 ## MCP tools
 

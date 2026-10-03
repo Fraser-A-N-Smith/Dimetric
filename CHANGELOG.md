@@ -14,6 +14,29 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `DIM1101`, when the system audio device was asked for and not obtained
+
+`Device::open` fell back to the mock backend both when the device would not open
+and when the `kira` feature was not compiled in, indistinguishably, and said
+nothing either way. `dimetric-player`'s `sound` feature is off by default, so
+the build line in most of this repo's own documentation produces a game that
+resolves every `Sound` node, plays nothing, and reports nothing — which is
+indistinguishable from a scene with no sounds in it, and sends somebody looking
+for the bug in their scene.
+
+Two warnings now, worded differently, because one is a machine to fix and the
+other is a build flag: *"the system audio device would not open (…)"*, and
+*"asked for the system audio device, but this runtime was built without the
+`sound` feature — rebuild with `--features gui,sound`"*. They go into the
+speaker's diagnostics, which the session already drains and the player already
+prints.
+
+`Device::Silent` stays quiet. A headless run and a test suite ask for no device
+on purpose, and a warning there would put a line in every CI log and teach
+everyone to ignore the one that matters.
+
+Does not move the state hash. Audio is never in it.
+
 ### Added: `DIM0507`, for a write into a table that is a copy of script state
 
 `self.bag.b = 2` lands in a temporary and is dropped. A script variable holding

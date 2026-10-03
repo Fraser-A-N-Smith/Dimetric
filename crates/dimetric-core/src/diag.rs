@@ -171,6 +171,9 @@ codes! {
     // 10xx — saved state
     SAVE_UNREADABLE   = "DIM1001", Error,   "A save file could not be read or written";
     SAVE_VERSION      = "DIM1002", Error,   "A save was written by a different format or engine version";
+
+    // 11xx — audio
+    AUDIO_UNAVAILABLE = "DIM1101", Warning, "The system audio device was asked for and not obtained";
 }
 
 /// Look up a registered code.

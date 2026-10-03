@@ -38,7 +38,7 @@ pub use tween::{Curve, Tween};
 
 use std::collections::BTreeMap;
 
-use dimetric_core::Rng;
+use dimetric_core::{Code, Diagnostic, Rng, Severity};
 use serde::{Deserialize, Serialize};
 
 /// Where a sound is routed.
@@ -255,16 +255,45 @@ impl Device {
     ///
     /// Falling back rather than failing: a machine with no sound card should
     /// still run the game.
-    pub fn open(self) -> Box<dyn backend::Backend> {
+    ///
+    /// The diagnostic is the other half of that, and the half that was missing.
+    /// The fallback was taken for two completely different reasons —  a device
+    /// that would not open, and a build with no device in it — and said nothing
+    /// in either case. Since `dimetric-player`'s `sound` feature is off by
+    /// default, the build line in most of this repo's own documentation
+    /// produces a game that resolves every `Sound` node, plays nothing, and
+    /// reports nothing. Somebody then goes looking for the bug in their scene.
+    ///
+    /// `Device::Silent` is not a fallback and says nothing: a headless run and
+    /// a test suite ask for no device on purpose.
+    pub fn open(self) -> (Box<dyn backend::Backend>, Option<Diagnostic>) {
+        let warn = |message: &str| {
+            Some(
+                Diagnostic::new(Code::AUDIO_UNAVAILABLE, message.to_string())
+                    .with_severity(Severity::Warning),
+            )
+        };
         match self {
-            Device::Silent => Box::new(Mock::new()),
+            Device::Silent => (Box::new(Mock::new()), None),
             #[cfg(feature = "kira")]
             Device::System => match kira_backend::Kira::new() {
-                Ok(kira) => Box::new(kira),
-                Err(_) => Box::new(Mock::new()),
+                Ok(kira) => (Box::new(kira), None),
+                Err(e) => (
+                    Box::new(Mock::new()),
+                    warn(&format!(
+                        "the system audio device would not open ({e}); this run is silent"
+                    )),
+                ),
             },
             #[cfg(not(feature = "kira"))]
-            Device::System => Box::new(Mock::new()),
+            Device::System => (
+                Box::new(Mock::new()),
+                warn(
+                    "asked for the system audio device, but this runtime was built \
+                     without the `sound` feature — rebuild with `--features gui,sound`; \
+                     this run is silent",
+                ),
+            ),
         }
     }
 }

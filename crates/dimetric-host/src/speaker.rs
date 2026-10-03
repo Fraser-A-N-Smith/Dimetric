@@ -53,7 +53,16 @@ impl Speaker {
     /// A clip that will not load is a warning: a game missing one sound should
     /// still run, and the diagnostic says which.
     pub fn open(project: &Project, device: Device) -> Speaker {
-        Speaker::with_backend(project, device.open())
+        let (backend, unavailable) = device.open();
+        let mut speaker = Speaker::with_backend(project, backend);
+        // A runtime that cannot make a noise says so, here, beside the other
+        // startup diagnostics. The session drains these and the player prints
+        // them, which is the whole point: a silent game that reports nothing is
+        // indistinguishable from a scene with no sounds in it.
+        if let Some(d) = unavailable {
+            speaker.diagnostics.push(d);
+        }
+        speaker
     }
 
     /// The same, over a backend the caller built.
