@@ -48,6 +48,14 @@ pub struct SoundCue {
     pub pitch_variation: Fx,
     /// Whether it repeats.
     pub looping: bool,
+    /// Whether it survives a scene load.
+    ///
+    /// A voice from a continuous node is keyed by its stream and bus rather than
+    /// by the node, so the next scene's copy of the same track continues the one
+    /// already sounding instead of starting a second. Music wants this; a
+    /// projectile's loop emphatically does not, which is why it is a property
+    /// rather than the default.
+    pub continuous: bool,
 }
 
 impl SoundCue {
@@ -79,6 +87,10 @@ impl SoundCue {
                 .unwrap_or(Fx::ZERO),
             looping: node
                 .get("looping")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            continuous: node
+                .get("continuous")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
         })

@@ -688,6 +688,14 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 "Repeat when finished.",
             ),
             prop(
+                "continuous",
+                PropertyType::Bool,
+                boolean(false),
+                "Survives a scene load. Keyed by stream and bus rather than by \
+                 node, so the next scene's copy of the same track continues it \
+                 instead of restarting it. For music.",
+            ),
+            prop(
                 "volume_db",
                 PropertyType::Scalar,
                 scalar("0.0"),

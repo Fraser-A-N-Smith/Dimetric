@@ -41,8 +41,21 @@ pub struct Speaker {
     backend: Box<dyn Backend>,
     /// The presentation RNG, which the simulation never sees.
     rng: Rng,
-    /// Which voice each node started, so stopping one is possible.
-    playing: BTreeMap<NodeUid, u64>,
+    /// Which voice each node started, and what clip it is, so stopping one is
+    /// possible and a reused node id is noticeable.
+    playing: BTreeMap<NodeUid, (u64, String)>,
+    /// Voices that outlive the node that asked for them, by stream and bus.
+    ///
+    /// A scene load swaps the whole tree, and the sweep below stops voices whose
+    /// node has gone — correctly, because a projectile's loop must not outlive
+    /// it. So a region theme restarted from bar one on every floor, and "music
+    /// continues across a level transition" is the default expectation of every
+    /// game with levels.
+    ///
+    /// Keyed by `(stream, bus)` rather than by node, which is the whole trick:
+    /// the next scene's own `Sound` node asks for the same track on the same bus,
+    /// finds it already sounding, and continues it.
+    themes: BTreeMap<(String, String), u64>,
     /// Anything that went wrong and did not stop the sound.
     pub diagnostics: Diagnostics,
 }
@@ -78,6 +91,7 @@ impl Speaker {
             // recorded session sounds the same when it is played back.
             rng: Rng::new(0x5000_0000, 0xa0d1),
             playing: BTreeMap::new(),
+            themes: BTreeMap::new(),
             diagnostics: Diagnostics::new(),
         };
         speaker.load_clips(project);
@@ -121,6 +135,12 @@ impl Speaker {
         self.pool.voices().iter().filter(|v| v.clip == clip).count()
     }
 
+    /// Whether a continuous voice for this stream and bus is sounding.
+    pub fn theme_playing(&self, stream: &str, bus: &str) -> bool {
+        self.themes
+            .contains_key(&(stream.to_string(), bus.to_string()))
+    }
+
     /// Set a bus's gain, over `seconds`.
     pub fn set_bus_gain(&mut self, bus: Bus, gain: f32, seconds: f32) {
         self.pool.set_gain(bus, gain);
@@ -138,20 +158,85 @@ impl Speaker {
 
         // A looping sound on a node that has been destroyed would otherwise
         // play forever, and a destroy is the normal way a projectile ends.
-        let gone: Vec<NodeUid> = self
-            .playing
-            .keys()
-            .copied()
-            .filter(|uid| !state.scene.contains_uid(*uid))
-            .collect();
+        //
+        // A node id that is still in the tree but now belongs to a *different*
+        // node is the trap underneath this: two scene files that reuse an id —
+        // easy when ids come from a generator — would leave a voice attached to
+        // whatever landed on that id after the swap, and two tracks would play
+        // at once. Saying so is cheap and the alternative is an afternoon.
+        let mut gone: Vec<NodeUid> = Vec::new();
+        for (uid, (_, clip)) in &self.playing {
+            match state.scene.by_uid(*uid).and_then(|id| state.scene.get(id)) {
+                None => gone.push(*uid),
+                Some(node) => {
+                    let still_ours = dimetric_sim::sound::SoundCue::of(node)
+                        .is_some_and(|cue| &cue.stream == clip);
+                    if !still_ours {
+                        self.diagnostics.push(
+                            Diagnostic::new(
+                                Code::SOUND_NODE_REUSED,
+                                format!(
+                                    "a voice playing {clip:?} belongs to node {}, which is \
+                                     now a different node — two scenes reusing one id will \
+                                     leave both sounding",
+                                    uid.to_text()
+                                ),
+                            )
+                            .with_severity(dimetric_core::Severity::Warning),
+                        );
+                        gone.push(*uid);
+                    }
+                }
+            }
+        }
         for uid in gone {
-            self.stop(uid);
+            self.stop_node(uid);
+        }
+
+        // A theme nobody in the new scene asks for stops. The question is asked
+        // of the *scene* rather than of a timer: a floor that still has the
+        // region's music node keeps it, and one that does not loses it on the
+        // tick the swap happens rather than N ticks later. No magic interval,
+        // and nothing to tune.
+        let wanted: std::collections::BTreeSet<(String, String)> = state
+            .scene
+            .walk()
+            .into_iter()
+            .filter_map(|id| state.scene.get(id))
+            .filter_map(dimetric_sim::sound::SoundCue::of)
+            .filter(|cue| cue.continuous)
+            .map(|cue| (cue.stream, cue.bus))
+            .collect();
+        let orphaned: Vec<(String, String)> = self
+            .themes
+            .keys()
+            .filter(|key| !wanted.contains(*key))
+            .cloned()
+            .collect();
+        for key in orphaned {
+            self.stop_theme(&key);
         }
 
         for event in &state.sounds {
             match event {
                 SoundEvent::Play(cue) => self.play(cue),
-                SoundEvent::Stop { node } => self.stop(*node),
+                SoundEvent::Stop { node } => {
+                    // A continuous voice is not the node's, so stopping it means
+                    // stopping the track the node names rather than the handle
+                    // the node started — which may have been a node in a scene
+                    // that is no longer loaded.
+                    let cue = state
+                        .scene
+                        .by_uid(*node)
+                        .and_then(|id| state.scene.get(id))
+                        .and_then(dimetric_sim::sound::SoundCue::of);
+                    match cue {
+                        Some(cue) if cue.continuous => {
+                            self.stop_theme(&(cue.stream, cue.bus));
+                        }
+                        _ => self.stop_node(*node),
+                    }
+                }
             }
         }
     }
@@ -168,9 +253,31 @@ impl Speaker {
             );
             return;
         }
-        // A node that is already sounding restarts rather than doubling: two
-        // copies of one node's own sound is a bug every time.
-        self.stop(cue.node);
+        let key = (cue.stream.clone(), cue.bus.clone());
+        if cue.continuous {
+            // Already sounding: continue it rather than starting it again. This
+            // is the whole point — the next floor's own music node asks for the
+            // same track and the bar it is on does not move.
+            if self.themes.contains_key(&key) {
+                return;
+            }
+            // A different track on the same bus replaces what is there. Stopping
+            // fades out while the new one starts at full gain, which is a
+            // cross-fade with the mechanism the mixer already has.
+            let others: Vec<(String, String)> = self
+                .themes
+                .keys()
+                .filter(|(_, bus)| bus == &cue.bus)
+                .cloned()
+                .collect();
+            for other in others {
+                self.stop_theme(&other);
+            }
+        } else {
+            // A node that is already sounding restarts rather than doubling: two
+            // copies of one node's own sound is a bug every time.
+            self.stop_node(cue.node);
+        }
 
         // I3-exempt: presentation-side audio maths, below the line the
         // simulation can see.
@@ -204,7 +311,17 @@ impl Speaker {
                     self.pool.stop(handle);
                     return;
                 }
-                self.playing.insert(cue.node, handle);
+                match cue.continuous {
+                    // Deliberately *not* in `playing`: that map is what the
+                    // destroyed-node sweep walks, and a theme outliving its node
+                    // is the feature.
+                    true => {
+                        self.themes.insert(key, handle);
+                    }
+                    false => {
+                        self.playing.insert(cue.node, (handle, cue.stream.clone()));
+                    }
+                }
             }
             // Not a diagnostic: a full pool is the pool working. A hundred
             // copies of one impact sound is both inaudible and expensive, which
@@ -213,8 +330,16 @@ impl Speaker {
         }
     }
 
-    fn stop(&mut self, node: NodeUid) {
-        let Some(handle) = self.playing.remove(&node) else {
+    fn stop_node(&mut self, node: NodeUid) {
+        let Some((handle, _)) = self.playing.remove(&node) else {
+            return;
+        };
+        self.pool.stop(handle);
+        self.backend.stop(handle, STOP_FADE);
+    }
+
+    fn stop_theme(&mut self, key: &(String, String)) {
+        let Some(handle) = self.themes.remove(key) else {
             return;
         };
         self.pool.stop(handle);

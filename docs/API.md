@@ -260,6 +260,7 @@ A sound attached to a node. Presentation only — never hashed, never snapshotte
 | `bus` | `enum(Music | Sfx | Ui)` | `"Sfx"` | Mixer bus to route through. |
 | `autoplay` | `bool` | `false` | Start on ready. |
 | `looping` | `bool` | `false` | Repeat when finished. |
+| `continuous` | `bool` | `false` | Survives a scene load. Keyed by stream and bus rather than by node, so the next scene's copy of the same track continues it instead of restarting it. For music. |
 | `volume_db` | `scalar` | `0.0` | Gain in decibels. |
 | `pitch_variation` | `scalar` | `0.0` | Random pitch spread per trigger, drawn from the presentation RNG stream so it can never perturb gameplay. |
 
@@ -391,6 +392,7 @@ message. Codes are never reused for a different meaning.
 | `DIM1001` | error | A save file could not be read or written |
 | `DIM1002` | error | A save was written by a different format or engine version |
 | `DIM1101` | warning | The system audio device was asked for and not obtained |
+| `DIM1102` | warning | A playing voice's node id now belongs to a different node |
 
 ## MCP tools
 
@@ -835,6 +837,24 @@ sprite that plays once and then shows the final frame forever.
 that node started. The script says *when* and the node's properties say what,
 on which bus, how loud and how far the pitch wanders — so an instance override
 can change a sound and a designer can find it.
+
+**`continuous = true` survives a scene load.** A floor change swaps the whole
+tree, and a voice whose node has left it is stopped — which is right for a
+projectile's loop and wrong for a region theme, so music restarted from bar one
+on every floor. A continuous voice is keyed by its stream and bus rather than by
+its node: the next scene's own copy of the same track finds it sounding and
+continues it, a different track on the same bus replaces it (the outgoing one
+fades, so it cross-fades), and `node:stop()` still stops it.
+
+A floor that has no node asking for the track loses it, on the tick the swap
+happens. The question is asked of the *scene* rather than of a timer, so there is
+no interval to tune and no window in which music plays over a floor that did not
+want it.
+
+A node id that is still in the tree but now belongs to a **different** node is
+reported (`DIM1102`) and its voice stopped. Two scene files reusing an id — easy
+when ids come from a generator — would otherwise leave a voice attached to
+whatever landed on that id, and two tracks would play at once.
 
 The simulation never plays anything. It appends to a list that is cleared at
 the start of every tick and **is not hashed**, and whoever is listening reads

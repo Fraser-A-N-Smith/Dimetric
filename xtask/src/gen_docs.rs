@@ -648,6 +648,21 @@ fn render_markdown(
          that node started. The script says *when* and the node's properties say what,\n\
          on which bus, how loud and how far the pitch wanders — so an instance override\n\
          can change a sound and a designer can find it.\n\n\
+         **`continuous = true` survives a scene load.** A floor change swaps the whole\n\
+         tree, and a voice whose node has left it is stopped — which is right for a\n\
+         projectile\'s loop and wrong for a region theme, so music restarted from bar one\n\
+         on every floor. A continuous voice is keyed by its stream and bus rather than by\n\
+         its node: the next scene\'s own copy of the same track finds it sounding and\n\
+         continues it, a different track on the same bus replaces it (the outgoing one\n\
+         fades, so it cross-fades), and `node:stop()` still stops it.\n\n\
+         A floor that has no node asking for the track loses it, on the tick the swap\n\
+         happens. The question is asked of the *scene* rather than of a timer, so there is\n\
+         no interval to tune and no window in which music plays over a floor that did not\n\
+         want it.\n\n\
+         A node id that is still in the tree but now belongs to a **different** node is\n\
+         reported (`DIM1102`) and its voice stopped. Two scene files reusing an id — easy\n\
+         when ids come from a generator — would otherwise leave a voice attached to\n\
+         whatever landed on that id, and two tracks would play at once.\n\n\
          The simulation never plays anything. It appends to a list that is cleared at\n\
          the start of every tick and **is not hashed**, and whoever is listening reads\n\
          it. If a trigger consumed a random number or wrote hashed state, muting a game\n\

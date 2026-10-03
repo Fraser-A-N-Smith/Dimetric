@@ -174,6 +174,7 @@ codes! {
 
     // 11xx — audio
     AUDIO_UNAVAILABLE = "DIM1101", Warning, "The system audio device was asked for and not obtained";
+    SOUND_NODE_REUSED = "DIM1102", Warning, "A playing voice's node id now belongs to a different node";
 }
 
 /// Look up a registered code.

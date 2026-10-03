@@ -239,6 +239,11 @@
       "code": "DIM1101",
       "severity": "warning",
       "summary": "The system audio device was asked for and not obtained"
+    },
+    {
+      "code": "DIM1102",
+      "severity": "warning",
+      "summary": "A playing voice's node id now belongs to a different node"
     }
   ]
 }

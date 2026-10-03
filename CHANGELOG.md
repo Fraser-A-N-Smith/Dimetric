@@ -14,6 +14,39 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `Sound.continuous`, so music survives a scene load
+
+A floor change is `scene.request_load`, which swaps the whole tree, and the
+speaker stops voices whose node has left it — correctly, because a projectile's
+loop must not outlive the projectile. So a region theme restarted from bar one on
+every floor, and "music continues across a level transition" is the default
+expectation of every game with levels.
+
+A voice from a `continuous` node is keyed by `(stream, bus)` rather than by its
+node. The next scene's own copy of the same track finds it sounding and continues
+it; a different track on the same bus replaces it, with the outgoing one fading,
+which is a cross-fade using the mechanism the mixer already had; `node:stop()`
+still stops it, by track rather than by a handle some unloaded scene's node
+started. It is deliberately not recorded in the map the destroyed-node sweep
+walks, because outliving its node is the point.
+
+**A floor with no node asking for the track loses it**, on the tick the swap
+happens. The proposal was a sweep after N ticks of nobody re-requesting; this asks
+the *scene* instead — is there a live node that would ask for this track? — which
+needs no interval to tune and leaves no window in which music plays over a floor
+that did not want it.
+
+### Added: `DIM1102`, when a playing voice's node id becomes a different node
+
+The trap underneath that sweep, which the game hit and fixed in its generator.
+"Destroyed" was decided by whether the id was still in the tree, so two scene
+files reusing an id — easy when ids come from a generator — left a voice attached
+to whatever landed on that id after the swap, and two tracks played at once. A
+voice now carries the clip it is playing, so a node that is still there but is no
+longer the one that asked is reported and its voice stopped.
+
+Neither moves the state hash. Audio is never in it, by construction.
+
 ### Added: `app.quit()`, and the pause key reaches the game
 
 **Nothing a script could call ended the process.** A Quit row in a menu could

@@ -752,6 +752,13 @@
           "type": "bool"
         },
         {
+          "default": "false",
+          "doc": "Survives a scene load. Keyed by stream and bus rather than by node, so the next scene's copy of the same track continues it instead of restarting it. For music.",
+          "name": "continuous",
+          "required": false,
+          "type": "bool"
+        },
+        {
           "default": "0.0",
           "doc": "Gain in decibels.",
           "name": "volume_db",
