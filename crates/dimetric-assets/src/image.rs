@@ -98,8 +98,18 @@ impl ImageError {
 
 /// Read a PNG into RGBA pixels.
 pub fn decode_png(path: &std::path::Path) -> Result<Image, ImageError> {
-    let file = std::fs::File::open(path).map_err(|e| ImageError::io(path, e))?;
-    let decoder = png::Decoder::new(std::io::BufReader::new(file));
+    let bytes = std::fs::read(path).map_err(|e| ImageError::io(path, e))?;
+    decode_png_bytes(&bytes, path)
+}
+
+/// The same, from bytes already in hand.
+///
+/// `origin` is only what a diagnostic names. The import reads through the
+/// project's source now — a single-file game's assets live in an archive
+/// appended to the runtime — so the decoders cannot open paths themselves.
+pub fn decode_png_bytes(bytes: &[u8], origin: &std::path::Path) -> Result<Image, ImageError> {
+    let path = origin;
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     let mut reader = decoder
         .read_info()
         .map_err(|e| ImageError::decode(path, e))?;

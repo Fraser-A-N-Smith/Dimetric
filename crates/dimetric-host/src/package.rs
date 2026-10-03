@@ -208,6 +208,68 @@ pub fn stage(project: &mut Project, request: PackageRequest) -> Result<Staged, D
     Ok(staged)
 }
 
+/// Fold a staged directory into one executable.
+///
+/// Reads back what [`stage`] just wrote and appends it to a copy of the runtime,
+/// so the bytes in the single file are the staged bytes — the property the
+/// module note defends, kept by reading rather than by rewriting. The staged
+/// directory is left alone: it is the thing that was verified, and a build worth
+/// shipping is a build worth keeping beside the one-file copy of it.
+///
+/// The runtime itself is not in the archive; it *is* the file.
+pub fn fold(staged: &Staged) -> Result<Folded, Diagnostics> {
+    let Some(runtime) = &staged.runtime else {
+        return Err(Diagnostics(vec![Diagnostic::new(
+            Code::NOT_IMPLEMENTED,
+            "a single-file build is a runtime with the game appended to it, so it needs \
+             --runtime with a dim-play built for this target",
+        )]));
+    };
+    let runtime_name = runtime
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let mut files = Vec::new();
+    for relative in &staged.files {
+        // Everything but the runtime, which the archive is appended to.
+        if relative == &runtime_name {
+            continue;
+        }
+        let from = staged.out.join(relative);
+        let bytes = std::fs::read(&from).map_err(|e| cannot(&from, e))?;
+        files.push((relative.replace('\\', "/"), bytes));
+    }
+
+    let out = staged.out.join(format!("{runtime_name}-single"));
+    let manifest = crate::archive::write(runtime, &out, &files).map_err(|e| cannot(&out, e))?;
+    copy_permissions(runtime, &out);
+    // Named after the runtime once it exists, so what ships is `sorcerer`
+    // rather than `sorcerer-single`.
+    let final_path = staged.out.join(&runtime_name);
+    std::fs::rename(&out, &final_path).map_err(|e| cannot(&final_path, e))?;
+
+    let bytes = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
+    Ok(Folded {
+        path: final_path,
+        files: files.len(),
+        bytes,
+        hash: manifest.hash,
+    })
+}
+
+/// What folding a staged game produced.
+pub struct Folded {
+    /// The one file.
+    pub path: PathBuf,
+    /// How many files are inside it.
+    pub files: usize,
+    /// How big it is.
+    pub bytes: u64,
+    /// BLAKE3 of the appended payload, which `dim inspect` checks.
+    pub hash: String,
+}
+
 /// The manifest a staged game boots from.
 fn manifest_text(request: &PackageRequest, name: String) -> String {
     format!(

@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use dimetric_core::AssetId;
 
 use crate::clip::Clip;
-use crate::image::{decode_png, encode_png, Image, ImageError};
+use crate::image::{encode_png, Image, ImageError};
 use crate::meta::{
     content_hash, ImportSettings, MetaError, SourceKind, IMPORT_DIR, META_EXTENSION,
 };
@@ -82,17 +82,24 @@ impl Catalog {
     /// stop a project opening, and the missing asset reports itself where it is
     /// used.
     pub fn scan(root: &Path) -> Catalog {
-        let mut paths = Vec::new();
-        collect(&root.join(ASSETS_DIR), root, &mut paths);
-        paths.sort();
+        Catalog::scan_from(&dimetric_core::Directory::new(root), root)
+    }
+
+    /// The same, over anything a project's files can be read from.
+    ///
+    /// A shipped single-file game reads its `assets/` out of an archive appended
+    /// to the runtime, and the import itself is pure — it is only the cache
+    /// *write* that needs somewhere to write. `root` is carried for the paths in
+    /// diagnostics and for the cache writer, which refuses when there is nowhere.
+    pub fn scan_from(source: &dyn dimetric_core::Source, root: &Path) -> Catalog {
+        let paths = source.list(ASSETS_DIR);
 
         let mut entries = BTreeMap::new();
         for path in paths {
             let Some(kind) = SourceKind::of(Path::new(&path)) else {
                 continue;
             };
-            let full = root.join(&path);
-            let Ok(bytes) = std::fs::read(&full) else {
+            let Ok(bytes) = source.read(&path) else {
                 continue;
             };
             let name = asset_name(&path);
@@ -101,7 +108,7 @@ impl Catalog {
             // the scan needs *something* — but the error travels with the
             // entry, the import reports it, and `write_metas` then refuses to
             // overwrite the file it could not read.
-            let (settings, meta_error) = match read_meta(&full) {
+            let (settings, meta_error) = match read_meta_from(source, &path) {
                 Ok(Some(settings)) => (settings, None),
                 Ok(None) => (ImportSettings::new(derive_id(&name)), None),
                 Err(e) => (ImportSettings::new(derive_id(&name)), Some(e.to_string())),
@@ -249,6 +256,25 @@ impl Imported {
 /// `tick_rate` is baked into animation clips here, at import, which is the
 /// whole reason this function needs to know it.
 pub fn import(catalog: &Catalog, tick_rate: u32) -> Imported {
+    import_from(
+        &dimetric_core::Directory::new(catalog.root()),
+        catalog,
+        tick_rate,
+    )
+}
+
+/// The same, reading the sources out of wherever the project lives.
+///
+/// The import is a pure function of bytes and settings, and this is what makes
+/// that true in the code as well: the decoders are handed bytes rather than
+/// opening paths, so a single-file game imports its own assets out of the
+/// archive appended to the runtime. Only the *cache write* needs a filesystem,
+/// and a shipped game skips it.
+pub fn import_from(
+    source: &dyn dimetric_core::Source,
+    catalog: &Catalog,
+    tick_rate: u32,
+) -> Imported {
     let mut artifacts = BTreeMap::new();
     let mut failures = Vec::new();
     let mut warnings = Vec::new();
@@ -279,7 +305,14 @@ pub fn import(catalog: &Catalog, tick_rate: u32) -> Imported {
         for warning in entry.settings.clip_warnings() {
             warnings.push((entry.name.clone(), warning));
         }
-        match import_one(&full, entry, tick_rate) {
+        let bytes = match source.read(&entry.path) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                failures.push((entry.name.clone(), format!("{}: {e}", full.display())));
+                continue;
+            }
+        };
+        match import_one(&bytes, &full, entry, tick_rate) {
             Ok(artifact) => {
                 if entry.settings.atlas {
                     match &artifact {
@@ -318,10 +351,19 @@ pub fn import(catalog: &Catalog, tick_rate: u32) -> Imported {
     }
 }
 
-fn import_one(full: &Path, entry: &Entry, tick_rate: u32) -> Result<Artifact, ImageError> {
+/// Turn one asset's bytes into what the engine draws or plays.
+///
+/// `full` is only what a diagnostic names — the bytes are already in hand, which
+/// is what lets a single-file game import from an archive.
+fn import_one(
+    bytes: &[u8],
+    full: &Path,
+    entry: &Entry,
+    tick_rate: u32,
+) -> Result<Artifact, ImageError> {
     match entry.kind {
         SourceKind::Png => {
-            let mut image = decode_png(full)?;
+            let mut image = crate::image::decode_png_bytes(bytes, full)?;
             image.name = entry.name.clone();
             let frames = entry.settings.frames.max(1);
             if frames == 1 {
@@ -381,7 +423,7 @@ fn import_one(full: &Path, entry: &Entry, tick_rate: u32) -> Result<Artifact, Im
             })
         }
         SourceKind::Aseprite => {
-            let ase = crate::aseprite::import(full, tick_rate)?;
+            let ase = crate::aseprite::import_bytes(bytes, full, tick_rate)?;
             Ok(Artifact::Animation {
                 sheet: ase.sheet,
                 frame_width: ase.frame_width,
@@ -391,13 +433,12 @@ fn import_one(full: &Path, entry: &Entry, tick_rate: u32) -> Result<Artifact, Im
             })
         }
         SourceKind::Audio => Ok(Artifact::Audio {
-            bytes: std::fs::read(full).map_err(|e| ImageError::io(full, e))?,
+            bytes: bytes.to_vec(),
         }),
         SourceKind::Ldtk => Ok(Artifact::Level),
         SourceKind::Font => {
-            let bytes = std::fs::read(full).map_err(|e| ImageError::io(full, e))?;
             let (font, mut page) =
-                crate::font::bake(&bytes, entry.settings.font_size, &entry.settings.charset)
+                crate::font::bake(bytes, entry.settings.font_size, &entry.settings.charset)
                     .map_err(|e| ImageError::decode(full, e.to_string()))?;
             page.name = entry.name.clone();
             Ok(Artifact::Font { font, page })
@@ -481,26 +522,20 @@ pub fn meta_path(source: &Path) -> PathBuf {
     source.with_file_name(name)
 }
 
-/// Read a source's sidecar, distinguishing "absent" from "would not parse".
-///
-/// The two want opposite recoveries and used to share a code path, which is
-/// how a malformed `.meta` got silently replaced by defaults and then written
-/// back over the author's file.
-///
-/// * **Absent** is `Ok(None)` — no opinion. Inventing one is helpful, and is
-///   the documented behaviour that makes dropping a PNG into `assets/` work.
-/// * **Present and unparseable** is `Err` — an opinion that did not survive
-///   parsing. Inventing one in its place destroys it.
-///
-/// A sidecar that exists and cannot be *read* (permissions, a directory in its
-/// place) is the second kind too: something is there and we cannot honour it.
-fn read_meta(source: &Path) -> Result<Option<ImportSettings>, MetaError> {
-    let path = meta_path(source);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(MetaError::Unreadable(e.to_string())),
-    };
+/// The same, over a project-relative path in whatever the project is read from.
+fn read_meta_from(
+    source: &dyn dimetric_core::Source,
+    path: &str,
+) -> Result<Option<ImportSettings>, MetaError> {
+    let sidecar = format!("{path}.{META_EXTENSION}");
+    if !source.exists(&sidecar) {
+        return Ok(None);
+    }
+    let bytes = source
+        .read(&sidecar)
+        .map_err(|e| MetaError::Unreadable(e.to_string()))?;
+    let text =
+        String::from_utf8(bytes).map_err(|e| MetaError::Unreadable(format!("not text: {e}")))?;
     ImportSettings::parse(&text).map(Some)
 }
 
@@ -530,23 +565,4 @@ pub fn derive_id(name: &str) -> AssetId {
         .map(|i| ALPHABET[((bits >> (i * 5)) & 31) as usize] as char)
         .collect();
     AssetId::parse(&format!("{}{body}", AssetId::PREFIX)).expect("the alphabet is valid")
-}
-
-fn collect(dir: &Path, root: &Path, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.is_dir() {
-            collect(&path, root, out);
-        } else {
-            out.push(
-                path.strip_prefix(root)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .replace('\\', "/"),
-            );
-        }
-    }
 }

@@ -22,6 +22,7 @@ pub mod id;
 pub mod projection;
 pub mod rect;
 pub mod rng;
+pub mod source;
 mod trig_table;
 pub mod vec;
 
@@ -33,6 +34,7 @@ pub use id::{AssetId, NodeId, NodeUid};
 pub use projection::Projection;
 pub use rect::Rect;
 pub use rng::{Rng, RngState, RngStreams};
+pub use source::{Directory, Source};
 pub use vec::{vec2, Vec2Fx};
 
 /// A tick number. Simulation sees these and never a wall clock (I5).

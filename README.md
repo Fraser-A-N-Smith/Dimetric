@@ -107,6 +107,22 @@ runtime reads that manifest from beside itself, so the staged directory runs
 with no arguments. `dim` does not compile Rust — cargo does — so `--runtime`
 takes a `dim-play` built for the target you asked for.
 
+Add `--single` and the staged files are appended to a copy of the runtime, so the
+game is **one file** you can send somebody. It is a read path rather than a
+bundler: the files go in unmodified and uncompressed and the runtime reads them
+where they lie, so nothing is unpacked at startup, nothing is written beside the
+executable, and the bytes that ship are the bytes that were staged. Which means a
+build stays checkable:
+
+```sh
+dim inspect build/linux/mygame --verify
+```
+
+lists what is inside and confirms the payload against the BLAKE3 in its footer. A
+test in the engine's own suite replays an input log against the folder build and
+the single-file build and asserts the hashes match tick for tick — if they ever
+differ, the archive has stopped being a read path.
+
 ## Scenes
 
 Scenes are TOML. Nodes are a flat list, each naming its parent by id, and the

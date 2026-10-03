@@ -9,6 +9,7 @@
 
 #![warn(missing_docs)]
 
+pub mod archive;
 pub mod bus;
 pub mod command;
 pub mod ldtk;
@@ -27,7 +28,7 @@ pub mod template;
 
 pub use bus::CommandBus;
 pub use command::{apply, Applied, Command};
-pub use project::{DiskScenes, Project};
+pub use project::{Project, SourceScenes};
 pub use render::{capture, draw_scene, CaptureRequest, CapturedFrame};
 pub use replay::{Divergence, Probe, Replay, ReplayReport};
 pub use run::{Accumulator, RunMode};

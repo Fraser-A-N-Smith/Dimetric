@@ -73,6 +73,8 @@ pub enum Top {
     Build(BuildArgs),
     /// Write a new project to start from.
     New(NewArgs),
+    /// List what is inside a single-file game, and check its hash.
+    Inspect(InspectArgs),
     /// Print the engine's diagnostic codes, node kinds and command set.
     #[command(subcommand)]
     Api(ApiCmd),
@@ -537,6 +539,27 @@ pub struct BuildArgs {
     /// Seed the packaged game starts from.
     #[arg(long, default_value_t = 0)]
     pub seed: u64,
+    /// Also fold the staged files into the runtime, so the game is one file.
+    ///
+    /// A read path rather than a bundler: the files are appended unmodified and
+    /// the runtime reads them where they lie, so nothing is unpacked at startup
+    /// and `dim inspect` can list and hash what is inside. The staged directory
+    /// is kept beside it.
+    #[arg(long)]
+    pub single: bool,
+}
+
+/// Arguments for `dim inspect`.
+#[derive(clap::Args, Debug)]
+pub struct InspectArgs {
+    /// The game to look inside.
+    pub game: String,
+    /// Read the whole payload back and check it against the recorded hash.
+    ///
+    /// Off by default because it reads the entire file: starting a game does not
+    /// do it, and verifying is a thing you do deliberately.
+    #[arg(long)]
+    pub verify: bool,
 }
 
 /// Arguments for `dim new`.

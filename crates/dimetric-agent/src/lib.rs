@@ -34,6 +34,11 @@ pub fn run(cli: Cli) -> Result<Output, Diagnostics> {
         return new_command(args);
     }
 
+    // Looking inside a shipped game is a question about a file, not a project.
+    if let Top::Inspect(args) = &cli.command {
+        return inspect_command(args);
+    }
+
     // The server opens whatever project each call names, so it must not need
     // one to start — an agent connects first and decides what to work on after.
     if let Top::Mcp = &cli.command {
@@ -71,7 +76,9 @@ pub fn run(cli: Cli) -> Result<Output, Diagnostics> {
         Top::Frame(cmd) => frame_command(&mut project, cmd)?,
         Top::Replay(args) => replay_command(&mut project, args)?,
         Top::Build(args) => build_command(&mut project, &scene_path, args)?,
-        Top::Api(_) | Top::Mcp | Top::New(_) => unreachable!("handled above"),
+        Top::Api(_) | Top::Mcp | Top::New(_) | Top::Inspect(_) => {
+            unreachable!("handled above")
+        }
     };
     out.warnings.extend(load_diags.0);
     Ok(out)
@@ -1770,13 +1777,27 @@ fn build_command(
         },
     )?;
 
-    let text = format!(
+    let folded = match args.single {
+        true => Some(package::fold(&staged)?),
+        false => None,
+    };
+
+    let mut text = format!(
         "staged {} files ({:.1} MB) for {} in {}",
         staged.files.len(),
         staged.bytes as f64 / 1_048_576.0,
         platform.name,
         staged.out.display()
     );
+    if let Some(folded) = &folded {
+        text.push_str(&format!(
+            "\nfolded {} files into {} ({:.1} MB, {})",
+            folded.files,
+            folded.path.display(),
+            folded.bytes as f64 / 1_048_576.0,
+            &folded.hash[..16]
+        ));
+    }
     let mut out = Output::new(
         json!({
             "target": platform.name,
@@ -1787,10 +1808,100 @@ fn build_command(
             "files": staged.files,
             "bytes": staged.bytes,
             "runtime": staged.runtime.as_ref().map(|p| p.display().to_string()),
+            "single": folded.as_ref().map(|f| json!({
+                "path": f.path.display().to_string(),
+                "files": f.files,
+                "bytes": f.bytes,
+                "hash": f.hash,
+            })),
         }),
         text,
     );
     out.warnings.extend(staged.diagnostics.0);
+    Ok(out)
+}
+
+/// List what is inside a single-file game.
+///
+/// A build that cannot be looked into is a build nobody can check, which is the
+/// objection to bundling in the first place — so the archive is listable, the
+/// index is text, and the payload hashes. This is what makes appending the files
+/// a read path rather than a black box.
+fn inspect_command(args: &InspectArgs) -> Result<Output, Diagnostics> {
+    let path = std::path::PathBuf::from(&args.game);
+    let manifest = dimetric_host::archive::read_manifest(&path)
+        .map_err(|e| {
+            one(Diagnostic::new(
+                Code::ASSET_MISSING,
+                format!("reading {}: {e}", path.display()),
+            ))
+        })?
+        .ok_or_else(|| {
+            one(Diagnostic::new(
+                Code::ASSET_MISSING,
+                format!(
+                    "{} has no game appended to it; `dim build --single` makes one that has",
+                    path.display()
+                ),
+            ))
+        })?;
+
+    let verified = match args.verify {
+        true => Some(
+            dimetric_host::archive::verify(&path, &manifest).map_err(|e| {
+                one(Diagnostic::new(
+                    Code::ASSET_MISSING,
+                    format!("verifying {}: {e}", path.display()),
+                ))
+            })?,
+        ),
+        false => None,
+    };
+
+    let total: u64 = manifest.entries.iter().map(|e| e.len).sum();
+    let mut text = format!(
+        "{} files, {} bytes of game, payload at {}, {}",
+        manifest.entries.len(),
+        total,
+        manifest.payload_at,
+        manifest.hash
+    );
+    for entry in &manifest.entries {
+        text.push_str(&format!("\n  {:>9}  {}", entry.len, entry.path));
+    }
+    match verified {
+        Some(true) => text.push_str("\nthe payload matches its hash"),
+        Some(false) => text.push_str("\nthe payload DOES NOT match its hash"),
+        None => {}
+    }
+
+    let files: Vec<serde_json::Value> = manifest
+        .entries
+        .iter()
+        .map(|e| json!({ "path": e.path, "offset": e.offset, "bytes": e.len }))
+        .collect();
+    let mut out = Output::new(
+        json!({
+            "game": path.display().to_string(),
+            "files": files,
+            "bytes": total,
+            "payload_at": manifest.payload_at,
+            "hash": manifest.hash,
+            "verified": verified,
+        }),
+        text,
+    );
+    // A build whose payload does not hash is a build that was truncated or
+    // edited, which is worth more than a line in the middle of a listing.
+    if verified == Some(false) {
+        out.warnings.push(
+            Diagnostic::new(
+                Code::ASSET_MISSING,
+                "the appended payload does not match the hash in its footer",
+            )
+            .with_severity(dimetric_core::Severity::Warning),
+        );
+    }
     Ok(out)
 }
 

@@ -94,6 +94,30 @@ impl Settings {
         }
     }
 
+    /// The same, over anything the project's files can be read from.
+    ///
+    /// `root` is only for the path a diagnostic names; the bytes come from the
+    /// source, which for a single-file game is an archive appended to the
+    /// runtime. Settings are where the replay contract lives, so a shipped game
+    /// reading its own is not optional.
+    pub fn read_from(source: &dyn dimetric_core::Source, root: &Path) -> (Settings, Diagnostics) {
+        let origin = root.join(SETTINGS_FILE).display().to_string();
+        if !source.exists(SETTINGS_FILE) {
+            return (Settings::default(), Diagnostics::new());
+        }
+        match dimetric_core::source::read_to_string(source, SETTINGS_FILE) {
+            Ok(text) => Settings::parse(&text, &origin),
+            Err(e) => {
+                let mut diagnostics = Diagnostics::new();
+                diagnostics.push(Diagnostic::new(
+                    Code::SETTINGS_UNREADABLE,
+                    format!("{SETTINGS_FILE} could not be read: {e}"),
+                ));
+                (Settings::default(), diagnostics)
+            }
+        }
+    }
+
     /// Parse settings from TOML text.
     pub fn parse(text: &str, origin: &str) -> (Settings, Diagnostics) {
         let mut out = Settings::default();

@@ -51,7 +51,21 @@ impl Aseprite {
 ///
 /// `tick_rate` is the project's, and it is baked into the clips that come back.
 pub fn import(path: &std::path::Path, tick_rate: u32) -> Result<Aseprite, ImageError> {
-    let file = AsepriteFile::read_file(path).map_err(|e| ImageError::decode(path, e))?;
+    let bytes = std::fs::read(path).map_err(|e| ImageError::io(path, e))?;
+    import_bytes(&bytes, path, tick_rate)
+}
+
+/// The same, from bytes already in hand.
+///
+/// `origin` is only what a diagnostic names; see [`crate::image::decode_png_bytes`].
+pub fn import_bytes(
+    bytes: &[u8],
+    origin: &std::path::Path,
+    tick_rate: u32,
+) -> Result<Aseprite, ImageError> {
+    let path = origin;
+    let file =
+        AsepriteFile::read(std::io::Cursor::new(bytes)).map_err(|e| ImageError::decode(path, e))?;
     let (frame_width, frame_height) = (file.width() as u32, file.height() as u32);
     let frame_count = file.num_frames();
 

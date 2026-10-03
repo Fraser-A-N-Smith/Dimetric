@@ -364,6 +364,10 @@
             "description": "Seed the packaged game starts from",
             "type": "string"
           },
+          "single": {
+            "description": "Also fold the staged files into the runtime, so the game is one file",
+            "type": "boolean"
+          },
           "target": {
             "description": "Target platform: `linux`, `macos`, `windows`, or a Rust target triple",
             "type": "string"
@@ -439,6 +443,42 @@
         "type": "object"
       },
       "name": "frame_capture"
+    },
+    {
+      "description": "List what is inside a single-file game, and check its hash",
+      "inputSchema": {
+        "properties": {
+          "game": {
+            "description": "The game to look inside",
+            "type": "string"
+          },
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          },
+          "verify": {
+            "description": "Read the whole payload back and check it against the recorded hash",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "game"
+        ],
+        "type": "object"
+      },
+      "name": "inspect"
     },
     {
       "description": "Write a new project to start from",

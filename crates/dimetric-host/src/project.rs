@@ -1,7 +1,7 @@
 //! The project: paths, the open scene, and the bus that edits it.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use dimetric_core::{Code, Diagnostic, Diagnostics, NodeUid, Rng};
 use dimetric_scene::{KindRegistry, Reference, Scene, SceneDoc, SceneSource};
@@ -58,11 +58,37 @@ pub struct Project {
     /// Seeded rather than drawn from the operating system, so that replaying a
     /// recorded command log produces the same ids and the same file.
     ids: Rng,
+    /// Where this project's files are read from.
+    ///
+    /// A directory for a project being developed, an appended archive for a
+    /// single-file shipped game. Reads go through it; writes do not, and ask it
+    /// for a root first — a shipped game has none, which is how it refuses to
+    /// author rather than writing into a path that does not exist.
+    source: Box<dyn dimetric_core::Source>,
 }
 
 impl Project {
     /// Open a project rooted at `root`.
     pub fn open(root: impl Into<PathBuf>, id_seed: u64) -> Project {
+        let root: PathBuf = root.into();
+        Project::open_from(
+            Box::new(dimetric_core::Directory::new(&root)),
+            root,
+            id_seed,
+        )
+    }
+
+    /// Open a project out of anything its files can be read from.
+    ///
+    /// `root` is still carried: it is what a diagnostic names and what a *write*
+    /// needs. A source with no root of its own — an archive — gets the path of
+    /// the file it was read out of, so a diagnostic says which game it came from
+    /// and nothing tries to write beside it.
+    pub fn open_from(
+        source: Box<dyn dimetric_core::Source>,
+        root: impl Into<PathBuf>,
+        id_seed: u64,
+    ) -> Project {
         let root: PathBuf = root.into();
         // A project's own node kinds, if it declares any. Read here rather than
         // on demand because the registry has to be complete before the first
@@ -70,16 +96,18 @@ impl Project {
         // failed to load.
         let mut registry = KindRegistry::with_builtins();
         let mut kind_diagnostics = Diagnostics::new();
-        let kinds_path = root.join(dimetric_scene::project_kinds::KINDS_FILE);
-        if let Ok(text) = std::fs::read_to_string(&kinds_path) {
+        let kinds_file = dimetric_scene::project_kinds::KINDS_FILE;
+        if let Ok(text) = dimetric_core::source::read_to_string(source.as_ref(), kinds_file) {
             kind_diagnostics = dimetric_scene::project_kinds::merge(
                 &mut registry,
                 &text,
-                &kinds_path.display().to_string(),
+                &root.join(kinds_file).display().to_string(),
             );
         }
-        let (settings, settings_diagnostics) = crate::settings::Settings::load(&root);
+        let (settings, settings_diagnostics) =
+            crate::settings::Settings::read_from(source.as_ref(), &root);
         Project {
+            source,
             tick_rate: settings.tick_rate,
             settings,
             settings_diagnostics,
@@ -111,7 +139,7 @@ impl Project {
     /// modification times: a build step that rewrites a file byte for byte
     /// should not trigger a reload, and a file restored from a backup should.
     pub fn scan_assets(&mut self) -> Vec<String> {
-        let fresh = Catalog::scan(&self.root);
+        let fresh = Catalog::scan_from(self.source.as_ref(), &self.root);
         let changed = fresh.changed_since(&self.catalog);
         self.catalog = fresh;
         changed
@@ -126,9 +154,19 @@ impl Project {
         if self.catalog.is_empty() {
             self.scan_assets();
         }
-        let imported = dimetric_assets::import(&self.catalog, self.tick_rate);
-        let _ = dimetric_assets::cache::write_metas(&self.catalog, &imported);
-        let _ = dimetric_assets::cache::write_cache(&self.root, &imported);
+        let imported = dimetric_assets::cache::import_from(
+            self.source.as_ref(),
+            &self.catalog,
+            self.tick_rate,
+        );
+        // The import is pure; only the cache write touches the filesystem. A
+        // single-file game has nowhere to write — and nothing to gain, since it
+        // just imported from bytes that cannot have gone stale — so it skips it
+        // rather than failing or writing beside the executable.
+        if self.writable() {
+            let _ = dimetric_assets::cache::write_metas(&self.catalog, &imported);
+            let _ = dimetric_assets::cache::write_cache(&self.root, &imported);
+        }
         self.imported.insert(imported)
     }
 
@@ -212,16 +250,27 @@ impl Project {
         }
     }
 
+    /// The project-relative path of a scene reference, for a source lookup.
+    pub fn scene_key(&self, name: &str) -> String {
+        let trimmed = name.trim_start_matches("scene:");
+        match trimmed.ends_with(&format!(".{SCENE_EXTENSION}")) {
+            true => trimmed.to_string(),
+            false => format!("{trimmed}.{SCENE_EXTENSION}"),
+        }
+    }
+
     /// Load a scene into the project.
     pub fn load_scene(&mut self, relative: &str) -> Result<Diagnostics, Diagnostics> {
         let path = self.scene_path(relative);
-        let source = std::fs::read_to_string(&path).map_err(|e| {
-            Diagnostics(vec![Diagnostic::new(
-                Code::ASSET_MISSING,
-                format!("cannot read {}: {e}", path.display()),
-            )
-            .with_span(dimetric_core::Span::file(path.display().to_string()))])
-        })?;
+        let key = self.scene_key(relative);
+        let source =
+            dimetric_core::source::read_to_string(self.source.as_ref(), &key).map_err(|e| {
+                Diagnostics(vec![Diagnostic::new(
+                    Code::ASSET_MISSING,
+                    format!("cannot read {}: {e}", path.display()),
+                )
+                .with_span(dimetric_core::Span::file(path.display().to_string()))])
+            })?;
         let display = path.display().to_string();
         let out = dimetric_scene::parse(&source, &display, &self.registry);
         if out.diagnostics.has_errors() {
@@ -351,10 +400,7 @@ impl Project {
                 "no scene is open",
             )])
         })?;
-        let sources = DiskScenes {
-            root: self.root.clone(),
-            registry: self.registry.clone(),
-        };
+        let sources = self.scenes();
         Ok(dimetric_scene::resolve(
             &doc.scene,
             &sources,
@@ -371,26 +417,18 @@ impl Project {
     pub fn templates(&self) -> (dimetric_sim::spawn::Templates, Diagnostics) {
         let mut templates = dimetric_sim::spawn::Templates::new();
         let mut diagnostics = Diagnostics::new();
-        let dir = self.root.join("prefabs");
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            return (templates, diagnostics);
-        };
-        // Sorted, so what is loaded — and what a duplicate name resolves to —
-        // never depends on directory order.
-        let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
-        paths.sort();
-
-        let sources = DiskScenes {
-            root: self.root.clone(),
-            registry: self.registry.clone(),
-        };
-        for path in paths {
-            if path.extension().and_then(|e| e.to_str()) != Some(SCENE_EXTENSION) {
+        // Sorted by the source, so what is loaded — and what a duplicate name
+        // resolves to — never depends on directory order.
+        let sources = self.scenes();
+        for path in self.source.list("prefabs") {
+            if !path.ends_with(&format!(".{SCENE_EXTENSION}")) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&path) else {
+            let Ok(text) = dimetric_core::source::read_to_string(self.source.as_ref(), &path)
+            else {
                 continue;
             };
+            let path = self.root.join(&path);
             let display = path.display().to_string();
             let out = dimetric_scene::parse(&text, &display, &self.registry);
             let Some(doc) = out.doc else {
@@ -475,11 +513,50 @@ impl Project {
     }
 
     /// Load every `.lua` file under `scripts/`.
+    ///
+    /// Through the project's source, so a single-file game loads its scripts out
+    /// of the archive appended to the runtime. Sorted by the source, because
+    /// `require` resolves against the set and a load order that depended on the
+    /// machine would be a divergence (I4).
     pub fn load_scripts(&mut self) -> Diagnostics {
         let mut diags = Diagnostics::new();
-        let dir = self.root.join("scripts");
-        collect_scripts(&dir, &self.root, &mut self.scripts, &mut diags);
+        for path in self.source.list("scripts") {
+            if !path.ends_with(".lua") {
+                continue;
+            }
+            match dimetric_core::source::read_to_string(self.source.as_ref(), &path) {
+                Ok(source) => {
+                    self.scripts.insert(path, source);
+                }
+                Err(e) => diags.push(Diagnostic::new(
+                    Code::ASSET_MISSING,
+                    format!("cannot read {}: {e}", self.root.join(&path).display()),
+                )),
+            }
+        }
         diags
+    }
+
+    /// A reader for the project's prefabs, over whatever it reads from.
+    pub fn scenes(&self) -> SourceScenes<'_> {
+        SourceScenes {
+            source: self.source.as_ref(),
+            root: self.root.clone(),
+            registry: self.registry.clone(),
+        }
+    }
+
+    /// Where this project reads from, for a caller that has to know.
+    pub fn source(&self) -> &dyn dimetric_core::Source {
+        self.source.as_ref()
+    }
+
+    /// Whether this project can be written to.
+    ///
+    /// False for a single-file game: there is nowhere to put a scene, a script
+    /// or a re-imported cache, and saying so beats writing beside an executable.
+    pub fn writable(&self) -> bool {
+        self.source.root().is_some()
     }
 }
 
@@ -487,69 +564,31 @@ fn one(d: Diagnostic) -> Diagnostics {
     Diagnostics(vec![d])
 }
 
-fn collect_scripts(
-    dir: &Path,
-    root: &Path,
-    out: &mut BTreeMap<String, String>,
-    diags: &mut Diagnostics,
-) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    // Sorted, so scripts load in the same order everywhere. Directory order is
-    // filesystem-dependent and would make load order a property of the machine.
-    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
-    paths.sort();
-    for path in paths {
-        if path.is_dir() {
-            collect_scripts(&path, root, out, diags);
-            continue;
-        }
-        if path.extension().and_then(|e| e.to_str()) != Some("lua") {
-            continue;
-        }
-        match std::fs::read_to_string(&path) {
-            Ok(source) => {
-                let key = path
-                    .strip_prefix(root)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                out.insert(key, source);
-            }
-            Err(e) => diags.push(Diagnostic::new(
-                Code::ASSET_MISSING,
-                format!("cannot read {}: {e}", path.display()),
-            )),
-        }
-    }
-}
-
-/// Loads prefabs from the project directory.
-pub struct DiskScenes {
-    /// Project root.
-    pub root: PathBuf,
+/// Loads prefabs out of whatever a project reads from.
+pub struct SourceScenes<'a> {
+    source: &'a dyn dimetric_core::Source,
+    /// Project root, for the paths diagnostics name.
+    root: PathBuf,
     /// Kinds the prefabs may use.
-    pub registry: KindRegistry,
+    registry: KindRegistry,
 }
 
-impl SceneSource for DiskScenes {
+impl SceneSource for SourceScenes<'_> {
     fn load(&self, reference: &Reference) -> Result<Scene, Diagnostic> {
         let name = reference.target();
-        let path = if name.ends_with(&format!(".{SCENE_EXTENSION}")) {
-            self.root.join(name)
-        } else {
-            self.root.join(format!("{name}.{SCENE_EXTENSION}"))
+        let key = match name.ends_with(&format!(".{SCENE_EXTENSION}")) {
+            true => name.to_string(),
+            false => format!("{name}.{SCENE_EXTENSION}"),
         };
-        let source = std::fs::read_to_string(&path).map_err(|e| {
+        let display = self.root.join(&key).display().to_string();
+        let text = dimetric_core::source::read_to_string(self.source, &key).map_err(|e| {
             Diagnostic::new(
                 Code::ASSET_MISSING,
-                format!("cannot read prefab {}: {e}", path.display()),
+                format!("cannot read prefab {display}: {e}"),
             )
             .with_field("reference", reference.to_text())
         })?;
-        let display = path.display().to_string();
-        let out = dimetric_scene::parse(&source, &display, &self.registry);
+        let out = dimetric_scene::parse(&text, &display, &self.registry);
         if out.diagnostics.has_errors() {
             return Err(Diagnostic::new(
                 Code::ASSET_MISSING,
@@ -559,6 +598,6 @@ impl SceneSource for DiskScenes {
         }
         out.doc
             .map(|d| d.scene)
-            .ok_or_else(|| Diagnostic::new(Code::ASSET_MISSING, format!("{display} is empty")))
+            .ok_or_else(|| Diagnostic::new(Code::ASSET_MISSING, format!("{display} has no scene")))
     }
 }

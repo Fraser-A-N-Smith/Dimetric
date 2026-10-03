@@ -415,8 +415,9 @@ arguments column.
 | `asset_info` | `name`* | Describe one asset: its id, its hash, and what it imported to |
 | `asset_list` | `stale` | List the project's source assets and their import state |
 | `asset_reimport` | `all` | Import everything whose cache is behind its source |
-| `build` | `out`, `runtime`, `seed`, `target`* | Package the project for a platform |
+| `build` | `out`, `runtime`, `seed`, `single`, `target`* | Package the project for a platform |
 | `frame_capture` | `ambient`, `height`, `input`, `internal`, `no_integer_upscale`, `png`*, `seed`, `tick`, `width` | Render one frame to a PNG |
+| `inspect` | `game`*, `verify` | List what is inside a single-file game, and check its hash |
 | `new` | `name`, `path`* | Write a new project to start from |
 | `node_clear` | `key`*, `path`* | Clear one property, restoring its default |
 | `node_create` | `id`, `kind`*, `name`*, `parent`*, `set` | Add a node |

@@ -14,6 +14,52 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `dim build --single`, a game that is one file
+
+`package.rs` argues for staging files beside the runtime and the argument is
+right: the files a game ships are the files it was developed against, byte for
+byte, which is what makes "it worked on my machine" checkable. But "send me the
+game" means a folder of ~360 files that breaks the moment somebody drags the
+executable out of it, and every fix on the game's side — a self-extractor, an
+unpacker writing to a temporary directory — breaks exactly the property the
+module protects.
+
+So this is a **read path**, not a bundler, in four parts:
+
+- **`dimetric_core::Source`** — read a file, list a directory, ask if something
+  is there. A directory is one implementation; an archive is the other. Writing
+  is deliberately absent, and `Project::writable()` is false for an archive, so a
+  shipped game declines to re-import or save beside itself rather than writing
+  into a path that is not a directory.
+- **`dim build --single`** appends the staged files to a copy of the runtime,
+  unmodified and uncompressed, with a 64-byte footer carrying the index offset,
+  the file count and a BLAKE3 of the payload. The staged directory is kept: it is
+  the thing that was verified.
+- **`dim-play` prefers its own tail.** An explicit `--project` still wins, so a
+  developer pointing at a changed project is not silently reading a stale copy.
+- **`dim inspect <game> --verify`** lists what is inside and checks the hash. A
+  build nobody can look into is the objection to bundling in the first place, so
+  the index is text and the payload hashes.
+
+The import became a pure function of bytes and settings, which it always claimed
+to be: the PNG, Aseprite, font and audio decoders are handed bytes instead of
+opening paths. Only the cache *write* needs a filesystem, and a shipped game
+skips it — it just imported from bytes that cannot have gone stale.
+
+Verified end to end: the example game folded onto a real `dim-play`, copied
+somewhere with nothing beside it, draws a **byte-identical frame** to the folder
+build. And a test in the engine's suite replays an input log against both and
+asserts the hashes match tick for tick, which is the thing that would break first
+if the archive ever stopped being a read path.
+
+**Breaking:** `DiskScenes` is replaced by `Project::scenes()`, which returns a
+reader over whatever the project reads from. `Catalog::scan`,
+`dimetric_assets::import`, `Settings::load` and `Project::open` all keep working
+on a directory; each has a `*_from` sibling that takes a `Source`.
+
+Does not move the state hash — proven by the replay-equivalence test rather than
+asserted.
+
 ### Added: `Sound.continuous`, so music survives a scene load
 
 A floor change is `scene.request_load`, which swaps the whole tree, and the

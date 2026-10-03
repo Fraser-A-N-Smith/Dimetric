@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use clap::Parser;
 use dimetric_host::Project;
-use dimetric_player::{Action, Bindings, Clock, Held, Session, SessionConfig};
+use dimetric_player::{Bindings, Clock, Held, Session, SessionConfig};
 use dimetric_render::{Renderer, Target};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
@@ -107,9 +107,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(root) => std::path::PathBuf::from(root),
         None => beside_the_executable()?,
     };
+    // A game appended to this executable wins over a folder beside it.
+    //
+    // `--project` is the exception and is checked first: somebody who names a
+    // directory means that directory, and a developer running a single-file build
+    // against a changed project would otherwise be reading a stale copy of it
+    // without being told.
+    //
+    // Nothing is unpacked. The archive is read where it lies, so the bytes a
+    // game ships are the bytes it was staged from — which is the property
+    // `package.rs` defends and the reason this is a read path rather than a
+    // bundler.
+    let appended = match args.project.is_some() {
+        true => None,
+        false => {
+            let me = std::env::current_exe().map_err(|e| format!("cannot find myself: {e}"))?;
+            dimetric_host::archive::Archive::open(&me)
+                .map_err(|e| format!("reading the game appended to {}: {e}", me.display()))?
+                .map(|archive| (me, archive))
+        }
+    };
+
     // A packaged game carries a manifest saying what it is; a project being
     // developed does not, and falls back to the first scene it has.
-    let manifest = std::fs::read_to_string(root.join(dimetric_host::package::MANIFEST)).ok();
+    let manifest = match &appended {
+        Some((_, archive)) => {
+            dimetric_core::source::read_to_string(archive, dimetric_host::package::MANIFEST).ok()
+        }
+        None => std::fs::read_to_string(root.join(dimetric_host::package::MANIFEST)).ok(),
+    };
     let scene = match (&args.scene, &manifest) {
         (Some(scene), _) => scene.clone(),
         (None, Some(manifest)) => dimetric_host::package::boot_scene(manifest)
@@ -122,7 +148,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (seed, _) => seed,
     };
 
-    let mut project = Project::open(&root, 0);
+    let mut project = match appended {
+        Some((path, archive)) => {
+            // The root is the executable's own path, so a diagnostic names the
+            // game it came from — and `Project::writable()` is false, which is
+            // how a shipped game declines to re-import or save beside itself.
+            Project::open_from(Box::new(archive), path, 0)
+        }
+        None => Project::open(&root, 0),
+    };
     let project_settings = project.settings.clone();
     // The world is drawn at the resolution the project declared. A packaged
     // game has no command line — `dim build` makes something a player
@@ -210,7 +244,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             //
             // The freeze key is ignored: a capture that froze itself would be a
             // photograph of a stopped game, and nobody drives it from `--keys`.
-            let mut press_scripted = |tick: u64, down: bool, held: &mut Held| {
+            let press_scripted = |tick: u64, down: bool, held: &mut Held| {
                 for (at, key) in &scripted {
                     if *at != tick {
                         continue;
