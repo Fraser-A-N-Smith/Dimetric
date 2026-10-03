@@ -594,6 +594,20 @@ fn render_markdown(
          form as `DIM0507`, with the file, the line and the variable, because it cannot\n\
          be caught at the write: a metatable on a table sees only keys that are absent,\n\
          and `docs/ENGINE-GAPS.md` has the rest of the argument.\n\n\
+         ### Images in the UI\n\n\
+         `TextureRect` is a `Control` that draws a texture at its own rectangle: the\n\
+         same anchors, offsets and hit testing every other control has, plus `texture`,\n\
+         `region`, `modulate`, the flips and a blend mode. It is drawn by the UI walk in\n\
+         tree order with the panels around it, out of the atlas the world pass already\n\
+         uses, so it costs no pass and no pipeline of its own.\n\n\
+         It **fills** its rectangle rather than keeping the texture\'s aspect. A\n\
+         control\'s size is what its anchors and offsets say, and a node that quietly\n\
+         ignored them would not be a control.\n\n\
+         An imported animation works in one too: `animation`, `playing` and the engine\n\
+         -written `frame` behave as they do on an `AnimatedSprite2D`, and `anim.play`\n\
+         and `anim.restart` reach it. A `Sprite2D` under a control is still drawn by the\n\
+         *world* pass, at a world position under the camera — which is almost never what\n\
+         a HUD wants.\n\n\
          ### Tweens and animation\n\n\
          Tweens and animation are simulation state, not presentation. They advance on\n\
          ticks, they are snapshotted, and they are in the state hash — a tween outside\n\

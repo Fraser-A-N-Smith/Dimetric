@@ -43,14 +43,21 @@ pub fn advance(
     let mut events = Vec::new();
     for id in scene.walk() {
         let Some(node) = scene.get(id) else { continue };
-        if node.base != "AnimatedSprite2D" {
+        // A `TextureRect` is a control rather than a sprite, so it does not
+        // behave as an `AnimatedSprite2D` — but an animated icon is the same
+        // question about the same clips, and the frame index it needs is written
+        // the same way.
+        if node.base != "AnimatedSprite2D" && node.kind != "TextureRect" {
             continue;
         }
         let uid = node.uid;
         // The sheet the node draws from decides which clips it can play. Two
         // sheets are allowed a clip called "walk" each.
+        // `frames` on a sprite, `texture` on a `TextureRect`: the same sheet
+        // asked for by the name each kind uses for it.
         let Some(sheet) = node
             .get("frames")
+            .or_else(|| node.get("texture"))
             .and_then(Value::as_ref_value)
             .map(|r| r.target().to_string())
         else {
@@ -125,7 +132,7 @@ pub fn advance(
             scene
                 .by_uid(*uid)
                 .and_then(|id| scene.get(id))
-                .is_none_or(|n| n.base != "AnimatedSprite2D")
+                .is_none_or(|n| n.base != "AnimatedSprite2D" && n.kind != "TextureRect")
         })
         .collect();
     for uid in scripted {

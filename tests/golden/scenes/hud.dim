@@ -1,0 +1,52 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Hud"
+
+[[node]]
+id = "n_card0000"
+kind = "Panel"
+name = "Card"
+parent = "n_root0000"          # /Hud
+modulate = "#202840ff"
+offset_bottom = 56.0
+offset_left = 8.0
+offset_right = 120.0
+offset_top = 8.0
+
+[[node]]
+id = "n_icon0000"
+kind = "TextureRect"
+name = "Icon"
+parent = "n_card0000"          # /Hud/Card
+offset_bottom = 38.0
+offset_left = 6.0
+offset_right = 38.0
+offset_top = 6.0
+texture = "asset:sprites/hero"
+
+[[node]]
+id = "n_tint0000"
+kind = "TextureRect"
+name = "Tinted"
+parent = "n_card0000"          # /Hud/Card
+modulate = "#ff8f4aff"
+offset_bottom = 38.0
+offset_left = 44.0
+offset_right = 76.0
+offset_top = 6.0
+texture = "asset:sprites/hero"
+
+[[node]]
+id = "n_caption0"
+kind = "Label"
+name = "Caption"
+parent = "n_card0000"          # /Hud/Card
+offset = [6.0, 40.0]
+text = "ICON"

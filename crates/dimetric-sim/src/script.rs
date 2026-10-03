@@ -2236,9 +2236,10 @@ fn quoted(value: &Value) -> String {
 /// means the node carries what it is playing: a save round-trips to the same
 /// animation, and the renderer and the scene cannot disagree.
 ///
-/// Only on an `AnimatedSprite2D`. Any other kind has no such property, and
-/// adding one would write a scene its own parser refuses (`DIM0301`) — a save
-/// that could not be loaded, which is a worse bug than the one being fixed.
+/// Only on a kind that declares `animation` — an `AnimatedSprite2D` or a
+/// `TextureRect`. Any other kind has no such property, and adding one would
+/// write a scene its own parser refuses (`DIM0301`), a save that could not be
+/// loaded, which is a worse bug than the one being fixed.
 fn set_animation_property(state: &mut SimState, uid: NodeUid, clip: &str) {
     let Some(id) = state.scene.by_uid(uid) else {
         return;
@@ -2246,7 +2247,7 @@ fn set_animation_property(state: &mut SimState, uid: NodeUid, clip: &str) {
     let animated = state
         .scene
         .get(id)
-        .is_some_and(|n| n.base == "AnimatedSprite2D");
+        .is_some_and(|n| n.base == "AnimatedSprite2D" || n.kind == "TextureRect");
     if !animated {
         return;
     }

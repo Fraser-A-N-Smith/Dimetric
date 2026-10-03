@@ -104,6 +104,18 @@ fn fixtures() -> Vec<Fixture> {
             ambient: Color::WHITE,
             tick: 0,
         },
+        // A card with two icons and a caption on it. The UI walk used to draw
+        // filled quads and glyphs and nothing else, so an icon had to be a
+        // world-space sprite — read at a world position, under the camera's
+        // projection and zoom, which is not where a control is.
+        Fixture {
+            scene: "hud",
+            reference: "hud-texture-rect.png",
+            size: (128, 64),
+            internal: (128, 64),
+            ambient: Color::WHITE,
+            tick: 0,
+        },
     ]
 }
 

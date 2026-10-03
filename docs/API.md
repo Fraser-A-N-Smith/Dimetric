@@ -277,6 +277,33 @@ A textured quad.
 | `flip_v` | `bool` | `false` | Mirror vertically. |
 | `blend` | `enum(Alpha | Additive | Multiply)` | `"Alpha"` | Blend mode. Also part of the batching key. |
 
+### `TextureRect`
+
+A control that draws a texture at its own rectangle.
+
+| Property | Type | Default | Notes |
+|---|---|---|---|
+| `anchor_left` | `scalar` | `0.0` | Left edge as a fraction of the parent's width. |
+| `anchor_top` | `scalar` | `0.0` | Top edge as a fraction of the parent's height. |
+| `anchor_right` | `scalar` | `0.0` | Right edge as a fraction of the parent's width. |
+| `anchor_bottom` | `scalar` | `0.0` | Bottom edge as a fraction of the parent's height. |
+| `offset_left` | `scalar` | `0.0` | Pixels from the left anchor. |
+| `offset_top` | `scalar` | `0.0` | Pixels from the top anchor. |
+| `offset_right` | `scalar` | `0.0` | Pixels from the right anchor. |
+| `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
+| `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
+| `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `state` | `int` | `0` | Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect. |
+| `texture` | `asset-ref` | **required** | Texture to draw. |
+| `region` | `rect` | — | Sub-rectangle of the texture, in pixels. Whole texture when absent. |
+| `modulate` | `color` | `"#ffffffff"` | Tint. |
+| `animation` | `string` | `""` | Clip to play, when the texture is an imported animation. Empty means the first. |
+| `playing` | `bool` | `true` | Whether the clip advances. |
+| `frame` | `int` | `0` | Written by the engine: the frame playback has reached. |
+| `flip_h` | `bool` | `false` | Mirror horizontally. |
+| `flip_v` | `bool` | `false` | Mirror vertically. |
+| `blend` | `enum(Alpha | Additive | Multiply)` | `"Alpha"` | Blend mode. Also part of the batching key. |
+
 ### `TileLayer`
 
 A grid of tiles, stored as run-length encoded chunks.
@@ -739,6 +766,24 @@ could write past a snapshot. `dim script check --determinism` reports the first
 form as `DIM0507`, with the file, the line and the variable, because it cannot
 be caught at the write: a metatable on a table sees only keys that are absent,
 and `docs/ENGINE-GAPS.md` has the rest of the argument.
+
+### Images in the UI
+
+`TextureRect` is a `Control` that draws a texture at its own rectangle: the
+same anchors, offsets and hit testing every other control has, plus `texture`,
+`region`, `modulate`, the flips and a blend mode. It is drawn by the UI walk in
+tree order with the panels around it, out of the atlas the world pass already
+uses, so it costs no pass and no pipeline of its own.
+
+It **fills** its rectangle rather than keeping the texture's aspect. A
+control's size is what its anchors and offsets say, and a node that quietly
+ignored them would not be a control.
+
+An imported animation works in one too: `animation`, `playing` and the engine
+-written `frame` behave as they do on an `AnimatedSprite2D`, and `anim.play`
+and `anim.restart` reach it. A `Sprite2D` under a control is still drawn by the
+*world* pass, at a world position under the camera — which is almost never what
+a HUD wants.
 
 ### Tweens and animation
 

@@ -823,6 +823,152 @@
       ]
     },
     {
+      "doc": "A control that draws a texture at its own rectangle.",
+      "kind": "TextureRect",
+      "properties": [
+        {
+          "default": "0.0",
+          "doc": "Left edge as a fraction of the parent's width.",
+          "name": "anchor_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Top edge as a fraction of the parent's height.",
+          "name": "anchor_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Right edge as a fraction of the parent's width.",
+          "name": "anchor_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Bottom edge as a fraction of the parent's height.",
+          "name": "anchor_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the left anchor.",
+          "name": "offset_left",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the top anchor.",
+          "name": "offset_top",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the right anchor.",
+          "name": "offset_right",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "0.0",
+          "doc": "Pixels from the bottom anchor.",
+          "name": "offset_bottom",
+          "required": false,
+          "type": "scalar"
+        },
+        {
+          "default": "true",
+          "doc": "Whether a pointer over this control hits it. False makes it scenery.",
+          "name": "catches_input",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Whether keyboard or pad focus can land on this control.",
+          "name": "focusable",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "0",
+          "doc": "Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect.",
+          "name": "state",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": null,
+          "doc": "Texture to draw.",
+          "name": "texture",
+          "required": true,
+          "type": "asset-ref"
+        },
+        {
+          "default": null,
+          "doc": "Sub-rectangle of the texture, in pixels. Whole texture when absent.",
+          "name": "region",
+          "required": false,
+          "type": "rect"
+        },
+        {
+          "default": "\"#ffffffff\"",
+          "doc": "Tint.",
+          "name": "modulate",
+          "required": false,
+          "type": "color"
+        },
+        {
+          "default": "\"\"",
+          "doc": "Clip to play, when the texture is an imported animation. Empty means the first.",
+          "name": "animation",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "default": "true",
+          "doc": "Whether the clip advances.",
+          "name": "playing",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "0",
+          "doc": "Written by the engine: the frame playback has reached.",
+          "name": "frame",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": "false",
+          "doc": "Mirror horizontally.",
+          "name": "flip_h",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "false",
+          "doc": "Mirror vertically.",
+          "name": "flip_v",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": "\"Alpha\"",
+          "doc": "Blend mode. Also part of the batching key.",
+          "name": "blend",
+          "required": false,
+          "type": "enum(Alpha | Additive | Multiply)"
+        }
+      ]
+    },
+    {
       "doc": "A grid of tiles, stored as run-length encoded chunks.",
       "kind": "TileLayer",
       "properties": [

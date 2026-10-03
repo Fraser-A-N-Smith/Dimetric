@@ -175,8 +175,15 @@ pub fn extract_with_canvas(
         }
         let depth = Fx::from_int(order as i32);
         if let Some(rect) = ui_layout.get(&id) {
-            if node.kind == "Panel" || node.kind == "Button" {
-                panel(node, *rect, depth, atlas, &mut ui);
+            match node.kind.as_str() {
+                "Panel" | "Button" => panel(node, *rect, depth, atlas, &mut ui),
+                // An icon, a portrait, a rune on the card that holds it. The UI
+                // walk drew filled quads and glyphs and nothing else, so one of
+                // these had to be a world-space `Sprite2D` — read at a world
+                // position, under the camera's projection and zoom, which is not
+                // where a control is.
+                "TextureRect" => texture_rect(node, *rect, depth, atlas, &mut ui),
+                _ => {}
             }
             continue;
         }
@@ -293,6 +300,60 @@ fn panel(
     });
 }
 
+/// Draw a `TextureRect` at its control rectangle.
+///
+/// The same `DrawItem` a filled panel produces, with a real sub-rectangle of the
+/// atlas instead of the solid-white pixel — so it batches with the panels around
+/// it and needs no pipeline, no pass and no hit test of its own.
+///
+/// It fills its rectangle rather than keeping the texture's aspect: a control's
+/// size comes from its anchors and offsets, which is the thing a layout
+/// controls, and a node that silently ignored them would not be a control.
+fn texture_rect(
+    node: &dimetric_scene::Node,
+    rect: dimetric_core::Rect,
+    depth: Fx,
+    atlas: &Atlas,
+    out: &mut Vec<DrawItem>,
+) {
+    let Some(key) = node
+        .get("texture")
+        .and_then(Value::as_ref_value)
+        .map(|r| r.target().to_string())
+    else {
+        return;
+    };
+    let Some(painted) = painted(node, &key, atlas) else {
+        return;
+    };
+    out.push(DrawItem {
+        // The walk index, not a position, exactly as a panel does: the UI is
+        // ordered by the tree, and the hit test agrees with the tree.
+        key: SortKey::new(
+            node.layer,
+            node.z,
+            depth,
+            crate::batch::batch_group(0, 0, painted.blend),
+            node.uid,
+        ),
+        atlas: 0,
+        blend: painted.blend,
+        shader: 0,
+        pos: rect.center(),
+        screen_offset: Vec2Fx::ZERO,
+        size: rect.size,
+        rotation: Angle::ZERO,
+        uv: painted.uv,
+        modulate: [
+            painted.modulate.r,
+            painted.modulate.g,
+            painted.modulate.b,
+            painted.modulate.a,
+        ],
+        node: node.uid,
+    });
+}
+
 /// A node is drawn only if it and every ancestor is visible.
 fn visible(scene: &Scene, id: dimetric_core::NodeId) -> bool {
     let mut cursor = Some(id);
@@ -327,33 +388,32 @@ fn interpolated(uid: NodeUid, current: Vec2Fx, previous: Option<&Scene>, alpha: 
 }
 
 /// Build a sprite from a `Sprite2D` or `AnimatedSprite2D`.
-fn sprite(
-    node: &dimetric_scene::Node,
-    pos: Vec2Fx,
-    rotation: Angle,
-    scale: Vec2Fx,
-    camera: &Camera,
-    atlas: &Atlas,
-) -> Option<DrawItem> {
-    let key = node
-        .get("texture")
-        .or_else(|| node.get("frames"))
-        .and_then(Value::as_ref_value)
-        .map(|r| r.target().to_string())
-        .unwrap_or_default();
+/// What a node asks for out of the atlas: a slice, its UVs, and how it paints.
+///
+/// Shared by the world sprite and the UI's `TextureRect`, because a textured
+/// control is the same question about the atlas asked from a different place.
+/// The sub-rectangle, the animation frame, the flips, the blend and the tint are
+/// all the node's business and none of them depend on where it is drawn.
+struct Painted {
+    region: crate::atlas::Region,
+    uv: [f32; 4],
+    blend: Blend,
+    modulate: Color,
+}
 
+fn painted(node: &dimetric_scene::Node, key: &str, atlas: &Atlas) -> Option<Painted> {
     // A missing texture draws the placeholder rather than nothing. A sprite
     // that silently fails to appear is far harder to diagnose than a magenta
     // checkerboard.
     let mut region = atlas
-        .region(&key)
+        .region(key)
         .or_else(|| atlas.region(PLACEHOLDER_NAME))?;
 
     // An animation sheet is one image holding its frames side by side, so the
     // frame showing now is a slice of it. The index comes off the node, which
     // the simulation wrote during its own tick: the renderer never asks the
     // simulation anything (I7).
-    let frames = atlas.frames(&key);
+    let frames = atlas.frames(key);
     if frames > 1 {
         let width = region.size.0 / frames;
         let index = node
@@ -381,6 +441,46 @@ fn sprite(
         uv.swap(1, 3);
     }
 
+    Some(Painted {
+        region,
+        uv,
+        blend: node
+            .get("blend")
+            .and_then(Value::as_str)
+            .and_then(Blend::parse)
+            .unwrap_or_default(),
+        modulate: node
+            .get("modulate")
+            .and_then(Value::as_color)
+            .unwrap_or(Color::WHITE),
+    })
+}
+
+fn sprite(
+    node: &dimetric_scene::Node,
+    pos: Vec2Fx,
+    rotation: Angle,
+    scale: Vec2Fx,
+    camera: &Camera,
+    atlas: &Atlas,
+) -> Option<DrawItem> {
+    let key = node
+        .get("texture")
+        .or_else(|| node.get("frames"))
+        .and_then(Value::as_ref_value)
+        .map(|r| r.target().to_string())
+        .unwrap_or_default();
+
+    // A missing texture draws the placeholder rather than nothing. A sprite
+    // that silently fails to appear is far harder to diagnose than a magenta
+    // checkerboard.
+    let Painted {
+        region,
+        uv,
+        blend,
+        modulate,
+    } = painted(node, &key, atlas)?;
+
     let offset = node
         .get("offset")
         .and_then(Value::as_vec2)
@@ -403,15 +503,6 @@ fn sprite(
     // glyphs without spreading them, because the advance is in screen pixels.
     // Both want a deliberate answer rather than this one.
     let size = Vec2Fx::from_ints(region.size.0 as i32, region.size.1 as i32).mul_components(scale);
-    let blend = node
-        .get("blend")
-        .and_then(Value::as_str)
-        .and_then(Blend::parse)
-        .unwrap_or_default();
-    let modulate = node
-        .get("modulate")
-        .and_then(Value::as_color)
-        .unwrap_or(Color::WHITE);
 
     Some(DrawItem {
         key: SortKey::new(

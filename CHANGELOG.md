@@ -14,6 +14,38 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `TextureRect`, a control that draws a texture
+
+The UI walk emitted two things — filled quads for `Panel` and `Button`, and
+glyphs for a `Label` under a control — so an icon, a portrait or a rune on the
+card holding it had to be a world-space `Sprite2D`, read at a world position
+under the camera's projection and zoom. That is not where a control is, so every
+button in a game built on this was a word.
+
+`TextureRect` behaves as a `Control`, which means anchors, offsets and hit
+testing come from the machinery every other control already uses; what it adds
+is `texture`, `region`, `modulate`, `flip_h`/`flip_v` and `blend`. It is drawn by
+the same UI walk in tree order, as the same `DrawItem` a filled panel produces
+with a real sub-rectangle instead of the solid-white pixel — so it batches with
+the panels around it and costs no pass, no pipeline and no hit test of its own.
+
+It **fills** its rectangle rather than keeping the texture's aspect: a control's
+size is what its anchors and offsets say, and a node that quietly ignored them
+would not be a control.
+
+An imported animation works in one. `animation`, `playing` and the
+engine-written `frame` behave as on an `AnimatedSprite2D`, the sheet comes off
+`texture` because that is what a control calls it, and `anim.play` and
+`anim.restart` reach it.
+
+A golden reference, `hud-texture-rect.png`: a card with an icon, the same icon
+tinted, and a caption.
+
+Does not move the state hash for an existing project. A `TextureRect` that
+animates puts an entry in `anim` like any other animated node, so a scene that
+has one hashes differently from the same scene without it — which is a new node,
+not a change to an old one.
+
 ### Fixed: `scale` is drawn, and a rect can be written from a script
 
 **`scale` was never read by the renderer.** It is a key every node has,

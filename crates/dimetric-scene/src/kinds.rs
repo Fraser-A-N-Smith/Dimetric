@@ -369,6 +369,70 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
         .based_on("Control"),
     );
 
+    // The UI layer drew filled quads and glyphs and nothing else, so an icon,
+    // a portrait or a rune on a card had to be a world-space `Sprite2D` — read
+    // at a world position, under the camera's projection and zoom, which is not
+    // where a control is. Every button in a game built on this was therefore a
+    // word.
+    //
+    // Behaves as a `Control`, so it gets anchors, offsets and hit testing from
+    // the same machinery every other control uses; what it adds is a texture.
+    kinds.push(
+        NodeKindSchema::new(
+            "TextureRect",
+            "A control that draws a texture at its own rectangle.",
+            control_props(vec![
+                interaction(),
+                prop("texture", PropertyType::AssetRef, None, "Texture to draw.").required(),
+                prop(
+                    "region",
+                    PropertyType::Rect,
+                    None,
+                    "Sub-rectangle of the texture, in pixels. Whole texture when absent.",
+                ),
+                prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
+                prop(
+                    "animation",
+                    PropertyType::Str,
+                    text(""),
+                    "Clip to play, when the texture is an imported animation. \
+                     Empty means the first.",
+                ),
+                prop(
+                    "playing",
+                    PropertyType::Bool,
+                    boolean(true),
+                    "Whether the clip advances.",
+                ),
+                prop(
+                    "frame",
+                    PropertyType::Int,
+                    int(0),
+                    "Written by the engine: the frame playback has reached.",
+                ),
+                prop(
+                    "flip_h",
+                    PropertyType::Bool,
+                    boolean(false),
+                    "Mirror horizontally.",
+                ),
+                prop(
+                    "flip_v",
+                    PropertyType::Bool,
+                    boolean(false),
+                    "Mirror vertically.",
+                ),
+                prop(
+                    "blend",
+                    enum_of(&["Alpha", "Additive", "Multiply"]),
+                    variant("Alpha"),
+                    "Blend mode. Also part of the batching key.",
+                ),
+            ]),
+        )
+        .based_on("Control"),
+    );
+
     // A button is a panel that knows what the pointer is doing to it. Three
     // colours rather than a theme lookup: a project that wants one palette
     // puts the colours in a prefab and instances it, which is a mechanism the

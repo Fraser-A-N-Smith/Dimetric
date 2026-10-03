@@ -212,3 +212,90 @@ fn a_script_playing_a_clip_the_sheet_does_not_have_is_still_quiet() {
     run(&mut sim, 5);
     assert!(!sim.diagnostics().has_errors(), "{}", sim.diagnostics());
 }
+
+/// A `TextureRect` is a control, not a sprite — and an animated icon is the
+/// same question about the same clips.
+mod animated_icon {
+    use super::*;
+
+    const UI: &str = r##"format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Hud"
+script = "script:scripts/mover.lua"
+
+[[node]]
+id = "n_icon0000"
+kind = "TextureRect"
+name = "Icon"
+parent = "n_root0000"
+texture = "asset:sprites/hero"
+animation = "a"
+"##;
+
+    fn icon() -> NodeUid {
+        NodeUid::parse("n_icon0000").unwrap()
+    }
+
+    fn sim(script: &str, list: Vec<Clip>) -> Sim {
+        let registry = KindRegistry::with_builtins();
+        let out = dimetric_scene::parse(UI, "ui.dim", &registry);
+        assert!(!out.diagnostics.has_errors(), "{}", out.diagnostics);
+        let mut host = LuaHost::new(60).expect("lua");
+        host.load("scripts/mover.lua", script).expect("loads");
+        let mut map = dimetric_sim::anim::Clips::new();
+        map.insert("sprites/hero".to_string(), list);
+        Sim::new(
+            out.doc.unwrap().scene,
+            1,
+            Box::new(host),
+            SimConfig::default(),
+        )
+        .with_clips(map)
+    }
+
+    #[test]
+    fn an_animated_icon_advances_without_a_script() {
+        // The sheet comes off `texture` rather than `frames`, because that is
+        // what a control calls it.
+        let mut s = sim("function on_tick(self) end\n", vec![clip("a", true)]);
+        run(&mut s, 3);
+        assert_eq!(s.state().anim[&icon()].frame, 1);
+    }
+
+    #[test]
+    fn a_script_can_switch_an_icons_clip() {
+        let script = "local done = false\n\
+                      function on_tick(self)\n\
+                      \x20 if not done then\n\
+                      \x20   done = true\n\
+                      \x20   anim.play(scene.find(\"/Hud/Icon\"), \"b\")\n\
+                      \x20 end\n\
+                      end\n";
+        let mut s = sim(script, vec![clip("a", true), clip("b", true)]);
+        run(&mut s, 6);
+        assert_eq!(s.state().anim[&icon()].clip, "b");
+    }
+
+    #[test]
+    fn the_frame_lands_on_the_node_where_the_renderer_reads_it() {
+        let mut s = sim("function on_tick(self) end\n", vec![clip("a", true)]);
+        run(&mut s, 3);
+        let state = s.state();
+        let id = state.scene.by_uid(icon()).expect("icon");
+        assert_eq!(
+            state
+                .scene
+                .get(id)
+                .and_then(|n| n.get("frame"))
+                .and_then(Value::as_int),
+            Some(1)
+        );
+    }
+}
