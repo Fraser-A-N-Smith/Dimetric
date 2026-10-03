@@ -32,9 +32,14 @@ fn write_project(root: &Path) {
 
     std::fs::write(
         root.join("project.toml"),
-        "[sim]\ntick_rate = 30\n\n[ui]\ncanvas = [640, 360]\n\n[render]\nresolution = [640, 360]\n",
+        "[game]\nname = \"Confluence\"\nicon = \"icon.png\"\n\n\
+         [sim]\ntick_rate = 30\n\n[ui]\ncanvas = [640, 360]\n\n\
+         [render]\nresolution = [640, 360]\n",
     )
     .expect("settings");
+    // Outside `assets/`, because an icon is not game art and has no reason to
+    // be imported and packed into the atlas.
+    std::fs::write(root.join("icon.png"), tiny_png()).expect("icon");
     std::fs::write(
         root.join("kinds.toml"),
         "[[kind]]\nname = \"Walker\"\nextends = \"Node2D\"\n\n\
@@ -155,6 +160,7 @@ fn build(dir: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
             seed: 11,
             out: Some(out.clone()),
             runtime: Some(runtime),
+            name: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -343,4 +349,33 @@ fn every_staged_file_but_the_runtime_is_in_the_archive() {
     assert!(archive.exists("scripts/helper.lua"));
     assert!(archive.exists("prefabs/mote.dim"));
     assert!(archive.exists(package::MANIFEST));
+}
+
+#[test]
+fn a_folded_game_carries_its_own_name_and_icon() {
+    // The window is created before any of the project is read, and with
+    // `--single` the manifest is folded in at build time, so there is no
+    // post-build step that could put either of these there. They have to
+    // survive the fold.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_, single) = build(dir.path());
+    let archive = archive::Archive::open(&single)
+        .expect("the archive opens")
+        .expect("there is one");
+
+    let manifest = dimetric_core::source::read_to_string(&archive, package::MANIFEST)
+        .expect("the game manifest is inside");
+    assert_eq!(
+        package::game_name(&manifest).as_deref(),
+        Some("Confluence"),
+        "{manifest}"
+    );
+    assert_eq!(package::game_icon(&manifest).as_deref(), Some("icon.png"));
+
+    // And the icon itself, decoded the way the runtime decodes it — out of the
+    // executable rather than from beside it, because there is no beside.
+    let bytes = archive.read("icon.png").expect("the icon is inside");
+    let image = dimetric_assets::image::decode_png_bytes(&bytes, Path::new("icon.png"))
+        .expect("the icon decodes");
+    assert_eq!((image.width, image.height), (2, 2));
 }

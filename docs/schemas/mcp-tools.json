@@ -344,6 +344,10 @@
             "description": "Emit JSON instead of text",
             "type": "boolean"
           },
+          "name": {
+            "description": "What the game calls itself, overriding `[game] name` in `project.toml`",
+            "type": "string"
+          },
           "out": {
             "description": "Where to stage it. Defaults to `build/<target>` under the project",
             "type": "string"

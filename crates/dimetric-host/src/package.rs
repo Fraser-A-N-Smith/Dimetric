@@ -69,6 +69,12 @@ pub struct PackageRequest {
     pub out: Option<PathBuf>,
     /// A runtime executable to copy in, if one has been built.
     pub runtime: Option<PathBuf>,
+    /// What the game calls itself, overriding `[game] name` in `project.toml`.
+    ///
+    /// For a build that ships under a different name from the one the project
+    /// is developed under. `None` means the project decides, and a project
+    /// that does not decide gets its directory's name, as it always has.
+    pub name: Option<String>,
 }
 
 /// What staging produced.
@@ -197,7 +203,34 @@ pub fn stage(project: &mut Project, request: PackageRequest) -> Result<Staged, D
         );
     }
 
-    let manifest = manifest_text(&request, project_name(&root));
+    // The window's title and icon: host presentation, carried in the manifest
+    // beside the boot scene because the window is created before any of the
+    // project is read and no script can reach it.
+    //
+    // Nothing further down the engine sees either of them. They cannot reach
+    // the simulation and so cannot reach the state hash, which is the same
+    // line audio is on.
+    let name = request
+        .name
+        .clone()
+        .or_else(|| project.settings.game.name.clone())
+        .unwrap_or_else(|| project_name(&root));
+    let icon = match &project.settings.game.icon {
+        None => None,
+        Some(declared) => match stage_icon(declared, &root, &out, &mut staged) {
+            Ok(()) => Some(declared.clone()),
+            Err(d) => {
+                // A warning, and the game ships without it. Refusing the whole
+                // build over a window decoration would be the wrong trade, and
+                // discovering it at launch instead of here would be worse than
+                // either.
+                diagnostics.push(d);
+                None
+            }
+        },
+    };
+
+    let manifest = manifest_text(&request, &name, icon.as_deref());
     let path = out.join(MANIFEST);
     std::fs::write(&path, &manifest).map_err(|e| cannot(&path, e))?;
     staged.bytes += manifest.len() as u64;
@@ -271,8 +304,8 @@ pub struct Folded {
 }
 
 /// The manifest a staged game boots from.
-fn manifest_text(request: &PackageRequest, name: String) -> String {
-    format!(
+fn manifest_text(request: &PackageRequest, name: &str, icon: Option<&str>) -> String {
+    let mut text = format!(
         "# What this game is and how it starts. Written by `dim build`.\n\
          format = \"dimetric-game\"\n\
          version = 1\n\
@@ -285,7 +318,75 @@ fn manifest_text(request: &PackageRequest, name: String) -> String {
         request.platform.triple,
         request.scene,
         request.seed,
-    )
+    );
+    // Omitted rather than written empty, so a game with no icon and a game
+    // whose icon could not be read produce the same manifest — there is one
+    // runtime behaviour for both, and the build already said which happened.
+    if let Some(icon) = icon {
+        text.push_str(&format!("icon = {icon:?}\n"));
+    }
+    text
+}
+
+/// Copy a declared icon into the staged game, checking it first.
+///
+/// Decoded here and not merely copied: an icon that is not a readable PNG is a
+/// mistake worth hearing about at build time, when the file is in front of the
+/// person who chose it, rather than at launch on somebody else's machine where
+/// nothing can be done about it.
+fn stage_icon(
+    declared: &str,
+    root: &Path,
+    out: &Path,
+    staged: &mut Staged,
+) -> Result<(), Diagnostic> {
+    let unusable = |why: String| {
+        Diagnostic::new(
+            Code::ICON_UNUSABLE,
+            format!(
+                "game.icon {declared:?}: {}; the game will ship without an icon",
+                why.trim_end_matches('.')
+            ),
+        )
+        .with_field("icon", declared.to_string())
+        .with_severity(dimetric_core::Severity::Warning)
+    };
+
+    // Inside the project. An icon from somewhere else would stage a file the
+    // project does not contain, which is the one thing a staged build is for
+    // not doing.
+    let relative = Path::new(declared);
+    if relative.is_absolute() || relative.components().any(|c| c.as_os_str() == "..") {
+        return Err(unusable(
+            "an icon is a path inside the project, relative to its root".into(),
+        ));
+    }
+    let from = root.join(relative);
+    let bytes = std::fs::read(&from).map_err(|e| unusable(e.to_string()))?;
+    dimetric_assets::image::decode_png_bytes(&bytes, &from).map_err(|e| unusable(e.to_string()))?;
+
+    // Already staged when it lives under `assets/`, which is where an icon
+    // usually goes. Copying it twice would double-count the bytes and list the
+    // file twice.
+    let listed = relative.to_string_lossy().replace('\\', "/");
+    if staged.files.contains(&listed) {
+        return Ok(());
+    }
+    copy_into(&from, root, out, staged).map_err(|d| {
+        d.0.into_iter()
+            .next()
+            .unwrap_or_else(|| unusable("could not be copied".into()))
+    })
+}
+
+/// The name a staged game's manifest gives it.
+pub fn game_name(manifest: &str) -> Option<String> {
+    field(manifest, "name")
+}
+
+/// The icon a staged game's manifest names, relative to the game's root.
+pub fn game_icon(manifest: &str) -> Option<String> {
+    field(manifest, "icon")
 }
 
 /// What a staged game calls itself: the project directory's name.

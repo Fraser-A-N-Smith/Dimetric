@@ -244,6 +244,11 @@
       "code": "DIM1102",
       "severity": "warning",
       "summary": "A playing voice's node id now belongs to a different node"
+    },
+    {
+      "code": "DIM1201",
+      "severity": "warning",
+      "summary": "The icon a project declared could not be read or decoded"
     }
   ]
 }

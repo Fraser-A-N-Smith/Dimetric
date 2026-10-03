@@ -64,6 +64,7 @@ fn stage_sorcerer(out: &std::path::Path, runtime: Option<std::path::PathBuf>) ->
             seed: 42,
             out: Some(out.to_path_buf()),
             runtime,
+            name: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"))
@@ -227,6 +228,7 @@ fn a_windows_build_names_its_executable_with_an_extension() {
             seed: 0,
             out: Some(out.clone()),
             runtime: Some(fake.clone()),
+            name: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -247,6 +249,7 @@ fn a_scene_the_project_does_not_have_is_refused_before_anything_is_copied() {
             seed: 0,
             out: Some(out.clone()),
             runtime: None,
+            name: None,
         },
     );
     assert!(result.is_err());

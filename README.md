@@ -107,6 +107,29 @@ runtime reads that manifest from beside itself, so the staged directory runs
 with no arguments. `dim` does not compile Rust — cargo does — so `--runtime`
 takes a `dim-play` built for the target you asked for.
 
+What the window calls itself goes in `project.toml`:
+
+```toml
+[game]
+name = "Confluence"
+icon = "icon.png"
+```
+
+The only section in that file that is **not** part of the replay contract: a
+title and an icon reach a window manager and nothing else, so renaming a game
+cannot change what a recorded run replays to. `dim build` writes both into the
+manifest, stages the icon, and warns with `DIM1201` if it is not a readable PNG
+— at build time, where the file is in front of whoever chose it. `--name`
+overrides the project file for a build that ships under a different name.
+Declaring neither gives what every game got before: "Dimetric" and the window
+manager's default icon.
+
+The icon reaches the window and the taskbar. It does **not** become the
+executable's own icon in Explorer on Windows: `dim build` is handed a
+`dim-play` somebody else linked, so putting an icon in its resource directory
+would mean editing a PE file the tool did not produce. See
+`docs/ENGINE-GAPS.md`.
+
 Add `--single` and the staged files are appended to a copy of the runtime, so the
 game is **one file** you can send somebody. It is a read path rather than a
 bundler: the files go in unmodified and uncompressed and the runtime reads them

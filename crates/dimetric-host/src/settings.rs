@@ -24,6 +24,31 @@ pub const SETTINGS_FILE: &str = "project.toml";
 /// Ticks per second when a project does not say.
 pub const DEFAULT_TICK_RATE: u32 = 60;
 
+/// What a game calls itself, and what it looks like in a taskbar.
+///
+/// A separate type, and not fields on [`Settings`] beside the tick rate,
+/// because everything else in this file is the replay contract and none of this
+/// is. A window's title and its icon are host presentation in the same sense
+/// audio is: they reach a window manager and nothing else. No part of the
+/// engine below the runtime reads them, the simulation never sees them, and
+/// renaming a game cannot change what a recorded run replays to.
+///
+/// They live in `project.toml` anyway because that is the file a project
+/// already has, and a second one holding two strings is a second one to
+/// forget.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Game {
+    /// What the window and the taskbar call it. `None` means the engine's own
+    /// name, which is what an unnamed project used to get with no way to say
+    /// otherwise.
+    pub name: Option<String>,
+    /// A PNG for the window and the taskbar, relative to the project root.
+    ///
+    /// Decoded where the window is created, from whatever the project is read
+    /// through — so a game folded into one file finds its icon inside itself.
+    pub icon: Option<String>,
+}
+
 /// What a project declares about how it runs.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Settings {
@@ -57,6 +82,8 @@ pub struct Settings {
     pub bindings: Vec<(String, Vec<String>)>,
     /// True when the project declared an `[input]` section at all.
     pub bindings_declared: bool,
+    /// The name and the icon. Presentation, not contract — see [`Game`].
+    pub game: Game,
 }
 
 impl Default for Settings {
@@ -67,6 +94,7 @@ impl Default for Settings {
             resolution: (480, 270),
             bindings: Vec::new(),
             bindings_declared: false,
+            game: Game::default(),
         }
     }
 }
@@ -179,6 +207,35 @@ impl Settings {
                         ),
                     )),
                 }
+            }
+        }
+
+        if let Some(game) = doc.get("game") {
+            // A name and an icon, each reported rather than ignored when it is
+            // the wrong shape: a game that silently shows "Dimetric" because
+            // `name` was given as a number is a bug nobody can see.
+            match game.get("name") {
+                None => {}
+                Some(item) => match item.as_str() {
+                    Some(name) if !name.trim().is_empty() => out.game.name = Some(name.to_string()),
+                    _ => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!("{origin}: game.name must be a non-empty string"),
+                    )),
+                },
+            }
+            match game.get("icon") {
+                None => {}
+                Some(item) => match item.as_str() {
+                    Some(icon) if !icon.trim().is_empty() => out.game.icon = Some(icon.to_string()),
+                    _ => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!(
+                            "{origin}: game.icon must be a path to a PNG, relative to the \
+                             project root"
+                        ),
+                    )),
+                },
             }
         }
 

@@ -5,6 +5,20 @@
 # playing the same game. That is why they are committed with the project
 # instead of living in a settings file on somebody's machine.
 
+# What the window and the taskbar call this game, and what they show for it.
+#
+# The only section here that is *not* part of the replay contract: a title and
+# an icon reach a window manager and nothing else, so renaming the game cannot
+# change what a recorded run replays to. They live here because this is the
+# file the project already has.
+[game]
+name = "Sorcerer"
+# Outside `assets/`, because an icon is not game art: anything under `assets/`
+# is imported and packed into the atlas, and a window decoration has no reason
+# to be in there. A path under `assets/` works too; `dim build` stages whichever
+# this names.
+icon = "icon.png"
+
 [sim]
 # Ticks per second. Changing it changes what every recorded run means.
 tick_rate = 60

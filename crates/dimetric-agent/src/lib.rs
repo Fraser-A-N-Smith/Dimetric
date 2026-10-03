@@ -1781,6 +1781,7 @@ fn build_command(
             seed: args.seed,
             out: args.out.as_ref().map(std::path::PathBuf::from),
             runtime: args.runtime.as_ref().map(std::path::PathBuf::from),
+            name: args.name.clone(),
         },
     )?;
 
@@ -1865,6 +1866,18 @@ fn inspect_command(args: &InspectArgs) -> Result<Output, Diagnostics> {
         false => None,
     };
 
+    // What the game calls itself, from the game manifest inside the payload
+    // rather than from the file index. The only way to check a packaged game's
+    // title without opening a window, which is the only way to check it on a
+    // machine that has no display.
+    let named = dimetric_host::archive::Archive::open(&path)
+        .ok()
+        .flatten()
+        .and_then(|archive| {
+            dimetric_core::source::read_to_string(&archive, dimetric_host::package::MANIFEST).ok()
+        })
+        .and_then(|text| dimetric_host::package::game_name(&text));
+
     let total: u64 = manifest.entries.iter().map(|e| e.len).sum();
     let mut text = format!(
         "{} files, {} bytes of game, payload at {}, {}",
@@ -1873,6 +1886,9 @@ fn inspect_command(args: &InspectArgs) -> Result<Output, Diagnostics> {
         manifest.payload_at,
         manifest.hash
     );
+    if let Some(name) = &named {
+        text.push_str(&format!("\ncalls itself {name:?}"));
+    }
     for entry in &manifest.entries {
         text.push_str(&format!("\n  {:>9}  {}", entry.len, entry.path));
     }
@@ -1890,6 +1906,7 @@ fn inspect_command(args: &InspectArgs) -> Result<Output, Diagnostics> {
     let mut out = Output::new(
         json!({
             "game": path.display().to_string(),
+            "name": named,
             "files": files,
             "bytes": total,
             "payload_at": manifest.payload_at,

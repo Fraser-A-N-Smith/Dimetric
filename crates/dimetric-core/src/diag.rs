@@ -175,6 +175,11 @@ codes! {
     // 11xx — audio
     AUDIO_UNAVAILABLE = "DIM1101", Warning, "The system audio device was asked for and not obtained";
     SOUND_NODE_REUSED = "DIM1102", Warning, "A playing voice's node id now belongs to a different node";
+
+    // 12xx — the window. Beside audio, and warnings for the same reason: a
+    // title and an icon reach a window manager and nothing else, so a game
+    // that cannot show its own is still the same game.
+    ICON_UNUSABLE     = "DIM1201", Warning, "The icon a project declared could not be read or decoded";
 }
 
 /// Look up a registered code.

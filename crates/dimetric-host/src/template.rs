@@ -50,6 +50,12 @@ pub fn create(root: impl AsRef<Path>, name: &str) -> Result<Created, Diagnostics
     // passes `dim scene fmt --check` on the day it is made and keeps doing so
     // when the canonical form changes.
     write(&root, "main.dim", &canonical(&scene(name))?, &mut created)?;
+    write(
+        &root,
+        crate::settings::SETTINGS_FILE,
+        &settings(name),
+        &mut created,
+    )?;
     write(&root, "scripts/player.lua", PLAYER_LUA, &mut created)?;
     write(&root, "README.md", &readme(name), &mut created)?;
     write(&root, ".gitignore", GITIGNORE, &mut created)?;
@@ -73,6 +79,32 @@ pub fn create(root: impl AsRef<Path>, name: &str) -> Result<Created, Diagnostics
     wav(&root, "assets/sfx/bump.wav", &mut created)?;
 
     Ok(created)
+}
+
+/// `project.toml` for a new project: the name it was given, and nothing else.
+///
+/// Only `[game]`, which is the one section here that is *not* part of the
+/// replay contract. The contract's settings are deliberately left out rather
+/// than written at their defaults: a file that spells out `tick_rate = 60`
+/// freezes a new project at whatever the default was the day it was made, and
+/// the whole point of a default is that it is one place. The comment says where
+/// to look.
+fn settings(name: &str) -> String {
+    format!(
+        "# What the window and the taskbar call this game.\n\
+         #\n\
+         # The only thing in this file that is not part of the replay contract:\n\
+         # a title and an icon reach a window manager and nothing else. Add\n\
+         # `icon = \"icon.png\"` for one, as a PNG anywhere inside the project.\n\
+         [game]\n\
+         name = {name:?}\n\
+         \n\
+         # Everything else a project can declare *is* the contract — the tick\n\
+         # rate, the UI canvas, the render resolution, the input bindings — so\n\
+         # two people running the same input log have to agree on it. Left out\n\
+         # here rather than written at today's defaults, which would freeze this\n\
+         # project at them. See `docs/API.md` and `examples/sorcerer`.\n"
+    )
 }
 
 /// The same scene, in canonical form.

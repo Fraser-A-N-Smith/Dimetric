@@ -431,6 +431,42 @@ example game uses in three places. A guard that refused it would have broken the
 slice. `DIM0507` names the file, the line, the variable and the spelling that
 works, which is better located than a runtime error anyway.
 
+## Asked for by the grid roguelike, and partly declined
+
+**An icon on the executable itself, so a Windows build looks right in
+Explorer.** Asked for alongside the window and taskbar icon, which is built —
+`[game] icon` in `project.toml`, staged by `dim build`, read by the runtime
+through whatever the project is read through, so a single-file game finds its
+icon inside itself.
+
+The executable's own icon is declined, and the reason is structural rather than
+a reluctance to depend on a resource compiler.
+
+`dim build` does not link anything. It is handed a `dim-play` that somebody
+else built — `--runtime` takes a binary, because `dim` does not compile Rust
+and says so — and it copies that binary. A resource compiler runs at *link*
+time, in the crate being linked, and that link happened on another machine, for
+another target, possibly for a different game. By the time `dim build` sees the
+runtime there is nothing to compile a resource into: there is only a finished PE
+file. Putting an icon in it would mean editing that file's resource directory in
+place — rewriting `.rsrc`, fixing the section headers, the data directory and
+every RVA that moved. That is a PE editor, and the engine would be maintaining
+one on three platforms to change a picture.
+
+`--single` makes it worse in a way worth naming: the payload is appended after
+the executable's own bytes and the footer carries a BLAKE3 of it, so any surgery
+would have to happen before the fold, on the copy, and `dim inspect --verify`
+would be verifying a binary that two separate steps had rewritten.
+
+The honest alternative is the other shipping model: build the runtime per game,
+with the icon embedded by a build script at link time. That is a real option for
+a project that wants it, and it is not something `dim build` can do for one,
+because a project that hands over a prebuilt runtime has already chosen not to.
+
+What is built is most of the value and all of the running game: the title bar
+and the taskbar both show the game's name and icon, on all three platforms. What
+is missing is the file's appearance in a file manager before it is launched.
+
 ## Still open, and known
 
 **An agent adding a spell changes the run.** The upgrade roll samples a list, so

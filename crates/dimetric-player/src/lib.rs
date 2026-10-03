@@ -21,7 +21,9 @@ pub mod bindings;
 pub mod clock;
 pub mod pad;
 pub mod session;
+pub mod window;
 
 pub use bindings::{key_effect, Action, Bindings, Held, KeyEffect, FREEZE_KEY};
 pub use clock::Clock;
 pub use session::{Session, SessionConfig};
+pub use window::{icon_path, title, DEFAULT_TITLE};

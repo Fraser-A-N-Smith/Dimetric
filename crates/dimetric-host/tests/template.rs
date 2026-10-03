@@ -118,3 +118,37 @@ fn writing_into_somebody_elses_directory_is_refused() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn a_new_project_names_its_own_window() {
+    // `dim new --name Confluence` should give a game that says "Confluence" in
+    // its title bar, not one that says "Dimetric" until somebody finds out
+    // where to change it.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("fresh");
+    let created = dimetric_host::template::create(&root, "Confluence").expect("the template");
+    assert!(
+        created
+            .files
+            .iter()
+            .any(|f| f == dimetric_host::settings::SETTINGS_FILE),
+        "{:?}",
+        created.files
+    );
+
+    let (settings, diagnostics) = dimetric_host::settings::Settings::load(&root);
+    assert!(!diagnostics.has_errors(), "{diagnostics}");
+    assert_eq!(settings.game.name.as_deref(), Some("Confluence"));
+
+    // And nothing else: the contract's settings stay at the engine's defaults
+    // rather than being frozen into a new project at today's values.
+    assert_eq!(
+        settings.tick_rate,
+        dimetric_host::settings::DEFAULT_TICK_RATE
+    );
+    assert_eq!(settings, {
+        let mut bare = dimetric_host::settings::Settings::default();
+        bare.game.name = Some("Confluence".to_string());
+        bare
+    });
+}

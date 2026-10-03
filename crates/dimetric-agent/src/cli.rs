@@ -539,6 +539,13 @@ pub struct BuildArgs {
     /// Seed the packaged game starts from.
     #[arg(long, default_value_t = 0)]
     pub seed: u64,
+    /// What the game calls itself, overriding `[game] name` in `project.toml`.
+    ///
+    /// For a build that ships under a different name from the one the project
+    /// is developed under. Without it the project decides, and a project that
+    /// does not decide gets its directory's name.
+    #[arg(long)]
+    pub name: Option<String>,
     /// Also fold the staged files into the runtime, so the game is one file.
     ///
     /// A read path rather than a bundler: the files are appended unmodified and

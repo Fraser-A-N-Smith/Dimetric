@@ -393,6 +393,7 @@ message. Codes are never reused for a different meaning.
 | `DIM1002` | error | A save was written by a different format or engine version |
 | `DIM1101` | warning | The system audio device was asked for and not obtained |
 | `DIM1102` | warning | A playing voice's node id now belongs to a different node |
+| `DIM1201` | warning | The icon a project declared could not be read or decoded |
 
 ## MCP tools
 
@@ -415,7 +416,7 @@ arguments column.
 | `asset_info` | `name`* | Describe one asset: its id, its hash, and what it imported to |
 | `asset_list` | `stale` | List the project's source assets and their import state |
 | `asset_reimport` | `all` | Import everything whose cache is behind its source |
-| `build` | `out`, `runtime`, `seed`, `single`, `target`* | Package the project for a platform |
+| `build` | `name`, `out`, `runtime`, `seed`, `single`, `target`* | Package the project for a platform |
 | `frame_capture` | `ambient`, `height`, `input`, `internal`, `no_integer_upscale`, `png`*, `seed`, `tick`, `width` | Render one frame to a PNG |
 | `inspect` | `game`*, `verify` | List what is inside a single-file game, and check its hash |
 | `new` | `name`, `path`* | Write a new project to start from |

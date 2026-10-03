@@ -158,6 +158,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => Project::open(&root, 0),
     };
     let project_settings = project.settings.clone();
+
+    // What the window calls itself, and what the taskbar shows.
+    //
+    // Read here and not in `resumed` because the project is open here and the
+    // window is created there — and because a problem with an icon belongs
+    // beside the other startup diagnostics rather than at the moment a window
+    // appears.
+    //
+    // The manifest wins over `project.toml` for a packaged game: `dim build
+    // --name` may have shipped it under a different name, and the project file
+    // is staged beside the manifest either way. A project run with
+    // `--project` has no manifest and uses its own settings, so a developer
+    // sees the real title too.
+    let title = dimetric_player::title(manifest.as_deref(), &project_settings.game);
+    let icon = match dimetric_player::icon_path(manifest.as_deref(), &project_settings.game) {
+        None => None,
+        Some(path) => match window_icon(project.source(), &path) {
+            Ok(icon) => Some(icon),
+            Err(d) => {
+                // The game runs with the default icon. A window decoration is
+                // not worth refusing to start over, and `dim build` already
+                // warned about an icon it could not read — this covers the one
+                // it could, from a project being developed.
+                eprintln!("{d}");
+                None
+            }
+        },
+    };
     // The world is drawn at the resolution the project declared. A packaged
     // game has no command line — `dim build` makes something a player
     // double-clicks — so a project that could only be drawn at the engine's
@@ -302,6 +330,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         pads: dimetric_player::pad::Pads::new(),
         project,
         window_size,
+        title,
+        icon,
         paused: false,
         quitting: false,
         stop_after: args.ticks,
@@ -349,6 +379,11 @@ struct App {
     /// and loading one needs the project's registry, prefabs and disk.
     project: Project,
     window_size: (u32, u32),
+    /// What the title bar and the taskbar say. Presentation: nothing below the
+    /// runtime reads it, and it cannot reach the state hash.
+    title: String,
+    /// The window and taskbar icon, when the project declared a usable one.
+    icon: Option<winit::window::Icon>,
     paused: bool,
     /// Set when a script called `app.quit()`. The event loop reads it after the
     /// frame that set it, so the tick which asked still gets drawn.
@@ -362,7 +397,8 @@ impl ApplicationHandler for App {
             return;
         }
         let attributes = Window::default_attributes()
-            .with_title("Dimetric")
+            .with_title(&self.title)
+            .with_window_icon(self.icon.clone())
             .with_inner_size(winit::dpi::PhysicalSize::new(
                 self.window_size.0,
                 self.window_size.1,
@@ -622,6 +658,32 @@ fn parse_size(text: &str) -> Result<(u32, u32), String> {
             .parse()
             .map_err(|_| format!("{text:?} is not WIDTHxHEIGHT"))?,
     ))
+}
+
+/// Decode a declared icon into one a window manager will take.
+///
+/// Read through the project's own `Source`, so a game folded into one file
+/// finds its icon inside itself rather than beside an executable that is the
+/// whole game.
+fn window_icon(
+    source: &dyn dimetric_core::Source,
+    path: &str,
+) -> Result<winit::window::Icon, dimetric_core::Diagnostic> {
+    let unusable = |why: String| {
+        dimetric_core::Diagnostic::new(
+            dimetric_core::Code::ICON_UNUSABLE,
+            format!(
+                "game.icon {path:?}: {}; running with the default icon",
+                why.trim_end_matches('.')
+            ),
+        )
+        .with_field("icon", path.to_string())
+    };
+    let bytes = source.read(path).map_err(|e| unusable(e.to_string()))?;
+    let image = dimetric_assets::image::decode_png_bytes(&bytes, std::path::Path::new(path))
+        .map_err(|e| unusable(e.to_string()))?;
+    winit::window::Icon::from_rgba(image.pixels, image.width, image.height)
+        .map_err(|e| unusable(e.to_string()))
 }
 
 /// Where a packaged game keeps its files: beside the executable.

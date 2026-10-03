@@ -14,6 +14,54 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a game names its own window and gives it an icon
+
+```toml
+# project.toml
+[game]
+name = "Confluence"
+icon = "icon.png"
+```
+
+The window is created before any of the project has been read and no script can
+reach it, so neither of these could come from the game at runtime; with
+`--single` the manifest is folded into the executable at build time, so no
+post-build step could edit it either. A game was called "Dimetric" and showed
+the window manager's default icon, and there was nothing it could do about it.
+
+- `dim build` writes both into the manifest and stages the icon. `--name`
+  overrides `[game] name` for a build that ships under a different name.
+- `dim-play` reads them when it creates the window — from the manifest beside it
+  or appended to it, or from `project.toml` when run against a project with
+  `--project`, so a developer sees the real title too. The icon is read through
+  whatever the project is read through, so a single-file game finds its icon
+  inside itself.
+- `dim inspect` prints what a packaged game calls itself, which is the only way
+  to check a title on a machine with no display.
+- `dim new --name Confluence` writes a `project.toml` that says so, instead of
+  leaving a new project to find out where the setting is.
+- An icon that is missing, is not a readable PNG, or is outside the project is a
+  new `DIM1201` **warning at build time**, where the file is in front of
+  whoever chose it. The game ships without an icon rather than failing to build.
+- Declaring neither gives exactly what every game got before: "Dimetric", and
+  the default icon.
+
+`Settings::game` is a separate type rather than two fields beside the tick rate,
+because everything else in `project.toml` is the replay contract and neither of
+these is. A title and an icon reach a window manager and nothing else; nothing
+below the runtime reads them, and a test asserts that declaring them changes no
+part of the simulation's configuration.
+
+**Does not move the state hash**, and structurally cannot: neither value is
+reachable from the simulation.
+
+**Declined: the executable's own icon in a Windows file manager.** `dim build`
+is handed a `dim-play` somebody else linked, so there is nothing left to compile
+a resource into — only a finished PE file, which would have to be edited in
+place. The reasoning is in `docs/ENGINE-GAPS.md`. The window and the taskbar
+both show the game's name and icon on all three platforms; what is missing is
+how the file looks before it is launched.
+
 ### Fixed: a script's write to a property the node never authored is typed
 
 `node:set` guards a write against the value the node already carries, because
