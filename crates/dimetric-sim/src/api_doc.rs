@@ -53,6 +53,11 @@ pub const GLOBALS: &[Global] = &[
                 runtime, **never** hashed",
     },
     Global {
+        name: "app",
+        about: "`quit()` — asks whatever is running the game to stop. Read by the \
+                host between ticks, **never** hashed; a headless run ignores it",
+    },
+    Global {
         name: "profile",
         about: "`get(key)`, `put(key, value)`, `clear(key)` — across runs, and \
                 **never** in the state hash",

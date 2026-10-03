@@ -117,6 +117,20 @@ pub trait ScriptHost {
         Vec::new()
     }
 
+    /// Whether a script asked the application to quit, clearing the request.
+    ///
+    /// Beside `take_events` and for the same reasons: it is a message to the
+    /// host, not simulation state. A run that quit and one that did not have to
+    /// hash identically, or a replay of a session where somebody chose Quit
+    /// would diverge from one where they closed the window — and a rollback
+    /// must not un-ask.
+    ///
+    /// A headless run and a replay ignore it. There is nothing for them to quit,
+    /// and honouring it would let a script cut a recorded run short.
+    fn take_quit(&mut self) -> bool {
+        false
+    }
+
     /// The profile store, for a host that loads it at startup and writes it
     /// back when it changes.
     ///
@@ -298,6 +312,14 @@ impl Sim {
     /// exactly-once deduplicates, which for an achievement costs nothing.
     pub fn take_events(&mut self) -> Vec<crate::event::GameEvent> {
         self.scripts.take_events()
+    }
+
+    /// Whether a script asked to quit, clearing the request.
+    ///
+    /// Read between ticks, like a scene load: the tick finishes over the state
+    /// it started with and the host acts afterwards (I8).
+    pub fn take_quit(&mut self) -> bool {
+        self.scripts.take_quit()
     }
 
     /// Take the diagnostics raised so far.

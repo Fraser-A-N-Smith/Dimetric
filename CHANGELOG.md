@@ -14,6 +14,39 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `app.quit()`, and the pause key reaches the game
+
+**Nothing a script could call ended the process.** A Quit row in a menu could
+not be built honestly — the game's said "Alt+F4". `app.quit()` asks whatever is
+running the game to stop, read **between ticks** like a scene load, so the tick
+finishes over the state it started with (I8).
+
+It is deliberately not simulation state. A run in which somebody chose Quit must
+hash the same as one where they closed the window, or a recorded session would
+replay differently depending on how it ended; and a rollback must not un-ask, so
+the flag is not snapshotted either. It lives beside the log lines, the sounds and
+the events — out of `SimState` entirely, not in a field the hasher skips. A
+headless run and a replay ignore it: there is nothing for them to quit, and
+honouring it would let a script cut a recorded run short.
+
+**`input.pressed("pause")` was never true.** The windowed runtime toggled its own
+freeze on the `pause` *action* and returned before the press reached `Held`. Even
+delivering it would not have helped: the freeze stops the ticks, so the script
+would never have run to see it.
+
+So the action belongs to the game and the freeze belongs to whoever is debugging.
+`pause` is now an ordinary action, and the runtime's freeze is on the keyboard's
+**Pause/Break** key, which is not in the bindings table and so cannot be taken by
+a project.
+
+While there: the key routing is one function both the window and a scripted
+`--capture` run call. The capture path resolved keys itself, under a comment
+claiming it went "through the same `press` the window uses" — it did not, which is
+exactly how `pause` came to photograph correctly and play wrongly.
+
+Does not move the state hash — there is a test asserting a run that quits hashes
+the same as one that does not.
+
 ### Added: `TextureRect`, a control that draws a texture
 
 The UI walk emitted two things — filled quads for `Panel` and `Button`, and

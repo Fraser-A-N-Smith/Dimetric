@@ -247,6 +247,22 @@ impl Session {
         self.sim.take_events()
     }
 
+    /// Whether a script asked the application to quit, clearing the request.
+    ///
+    /// Read between ticks, like a scene load: the tick finishes over the state
+    /// it started with and the host acts afterwards (I8). It is not simulation
+    /// state and is never hashed — a run in which somebody chose Quit must hash
+    /// the same as one where they closed the window, or a recorded session
+    /// would replay differently depending on how it ended.
+    ///
+    /// Whoever is driving decides what quitting means: the windowed runtime
+    /// leaves its event loop; a headless run and a replay do nothing, because
+    /// there is nothing to leave and honouring it would let a script cut a
+    /// recorded run short.
+    pub fn quit_requested(&mut self) -> bool {
+        self.sim.take_quit()
+    }
+
     /// How many voices are sounding.
     pub fn voices(&self) -> usize {
         self.speaker.playing()

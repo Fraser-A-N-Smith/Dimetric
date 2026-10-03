@@ -22,6 +22,6 @@ pub mod clock;
 pub mod pad;
 pub mod session;
 
-pub use bindings::{Action, Bindings, Held};
+pub use bindings::{key_effect, Action, Bindings, Held, KeyEffect, FREEZE_KEY};
 pub use clock::Clock;
 pub use session::{Session, SessionConfig};

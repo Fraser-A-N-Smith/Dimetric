@@ -322,3 +322,43 @@ impl Held {
         }
     }
 }
+
+/// The key the runtime freezes its own simulation on.
+///
+/// Not a bindable action, deliberately. Freezing is a debugging affordance of
+/// whatever is running the game, and `pause` is the key a *game* wants for a
+/// menu of its own — so the two cannot be the same thing. They were: the
+/// runtime toggled its freeze on the `pause` action and returned before the
+/// press reached the input frame, so `input.pressed("pause")` was never true in
+/// Lua and no game could build a pause screen. And a project cannot take this
+/// key away, because it is not in the bindings table.
+pub const FREEZE_KEY: &str = "Pause";
+
+/// What a key press means to the runtime.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeyEffect {
+    /// Delivered to the input frame, where a script can read it.
+    Action(Action),
+    /// The runtime's own freeze.
+    ToggleFreeze,
+    /// Bound to nothing. Worth saying out loud when it came from `--keys`.
+    Unbound,
+}
+
+/// Decide what a key press does, before anything is done about it.
+///
+/// Here rather than in the window's event handler so that every path which
+/// takes a key — the window, and a scripted `--capture` run — agrees on what a
+/// key means. The capture path used to resolve keys itself under a comment
+/// claiming it went "through the same `press` the window uses"; it did not, so
+/// a key the window handled differently would have photographed correctly and
+/// played wrongly, which is exactly what `pause` did.
+pub fn key_effect(bindings: &Bindings, key: &str) -> KeyEffect {
+    if key == FREEZE_KEY {
+        return KeyEffect::ToggleFreeze;
+    }
+    match bindings.action(key) {
+        Some(action) => KeyEffect::Action(action),
+        None => KeyEffect::Unbound,
+    }
+}

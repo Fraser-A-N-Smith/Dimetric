@@ -195,31 +195,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Unbound keys are worth saying out loud. A typo in `--keys` that
         // silently did nothing would look exactly like the bug being hunted.
         for (_, key) in &scripted {
-            if bindings.action(key).is_none() {
+            if dimetric_player::key_effect(&bindings, key) == dimetric_player::KeyEffect::Unbound {
                 eprintln!("no binding for key `{key}`");
             }
         }
 
         let mut held = Held::new();
         for tick in 0..ticks {
-            // Through the same `press` the window uses, so this exercises the
-            // binding table and `Held` rather than going around them.
-            for (at, key) in &scripted {
-                if *at == tick {
-                    if let Some(action) = bindings.action(key) {
-                        held.set(action, true);
+            // Through `key_effect`, which is what the window uses too, so a key
+            // cannot mean one thing in a photograph and another in play. The
+            // comment here used to claim it went through the window's own
+            // `press`; it did not, and that is how the `pause` key came to
+            // photograph correctly and play wrongly.
+            //
+            // The freeze key is ignored: a capture that froze itself would be a
+            // photograph of a stopped game, and nobody drives it from `--keys`.
+            let mut press_scripted = |tick: u64, down: bool, held: &mut Held| {
+                for (at, key) in &scripted {
+                    if *at != tick {
+                        continue;
+                    }
+                    if let dimetric_player::KeyEffect::Action(action) =
+                        dimetric_player::key_effect(&bindings, key)
+                    {
+                        held.set(action, down);
                     }
                 }
-            }
+            };
+            press_scripted(tick, true, &mut held);
             let input = held.player_input();
             session.step(&mut project, input);
-            for (at, key) in &scripted {
-                if *at == tick {
-                    if let Some(action) = bindings.action(key) {
-                        held.set(action, false);
-                    }
-                }
-            }
+            press_scripted(tick, false, &mut held);
             if session.take_atlas_change() {
                 renderer.set_atlas(session.atlas());
             }
@@ -263,6 +269,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         project,
         window_size,
         paused: false,
+        quitting: false,
         stop_after: args.ticks,
     };
     event_loop.run_app(&mut app)?;
@@ -309,6 +316,9 @@ struct App {
     project: Project,
     window_size: (u32, u32),
     paused: bool,
+    /// Set when a script called `app.quit()`. The event loop reads it after the
+    /// frame that set it, so the tick which asked still gets drawn.
+    quitting: bool,
     stop_after: Option<u64>,
 }
 
@@ -375,7 +385,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 self.frame();
-                if self.stop_after.is_some_and(|n| self.session.tick() >= n) {
+                if self.quitting || self.stop_after.is_some_and(|n| self.session.tick() >= n) {
                     event_loop.exit();
                 }
             }
@@ -429,18 +439,33 @@ impl App {
     }
 
     fn press(&mut self, key: &str, down: bool) {
-        let Some(action) = self.bindings.action(key) else {
-            return;
-        };
-        if action == Action::Pause && down {
-            self.paused = !self.paused;
-            self.held.release_all();
-            return;
+        // The runtime's own freeze, on the keyboard's Pause/Break key.
+        //
+        // It used to be on the `pause` *action*, and returned before reaching
+        // `self.held` — so `input.pressed("pause")` was never true in Lua and a
+        // game could not build its own pause menu, which is what almost every
+        // game wants that key for. Worse, the freeze stopped the ticks, so even
+        // delivering the press would not have helped: the script would never
+        // run to see it.
+        //
+        // So the action belongs to the game and the freeze belongs to whoever is
+        // debugging. A key outside the bindings table cannot be taken by a
+        // project, and nobody binds Pause/Break.
+        match dimetric_player::key_effect(&self.bindings, key) {
+            dimetric_player::KeyEffect::ToggleFreeze if down => {
+                self.paused = !self.paused;
+                self.held.release_all();
+            }
+            dimetric_player::KeyEffect::ToggleFreeze => {}
+            dimetric_player::KeyEffect::Action(action) => self.held.set(action, down),
+            dimetric_player::KeyEffect::Unbound => {}
         }
-        self.held.set(action, down);
     }
 
     /// One frame: spend the time that passed on ticks, then draw.
+    ///
+    /// Returns nothing; `quitting` is read by the caller, which owns the event
+    /// loop and is the only thing that can leave it.
     fn frame(&mut self) {
         let now = Instant::now();
         let elapsed = now - self.last;
@@ -465,6 +490,14 @@ impl App {
                 ));
                 let input = self.held.player_input();
                 self.session.step(&mut self.project, input);
+                // Between ticks, like a scene load: the tick finished over the
+                // state it started with and the host acts afterwards (I8). A
+                // Quit row in a menu could not be built honestly before this —
+                // the game's own said "Alt+F4".
+                if self.session.quit_requested() {
+                    self.quitting = true;
+                    break;
+                }
             }
             for d in self.session.take_diagnostics().iter() {
                 eprintln!("{d}");

@@ -482,6 +482,20 @@ fn render_markdown(
          a real technique and Aseprite tags may overlap too, so refusing would be\n\
          stricter than the tool this mirrors — but `0..3` then `3..7` when `4` was\n\
          meant is worth saying out loud.\n\n\
+         ### Quitting, and the pause key\n\n\
+         `app.quit()` asks whatever is running the game to stop. It is read **between\n\
+         ticks**, like a scene load: the tick finishes over the state it started with and\n\
+         the host acts afterwards (I8). It is not simulation state and is never hashed —\n\
+         a run in which somebody chose Quit has to hash the same as one where they closed\n\
+         the window, or a recorded session would replay differently depending on how it\n\
+         ended, and a rollback must not un-ask. A headless run and a replay ignore it:\n\
+         there is nothing for them to quit, and honouring it would let a script cut a\n\
+         recorded run short.\n\n\
+         `pause` is an action like any other, so `input.pressed(\"pause\")` is how a game\n\
+         opens a menu of its own. The windowed runtime\'s *own* freeze is on the\n\
+         keyboard\'s Pause/Break key, which is deliberately not bindable: freezing the\n\
+         simulation is a debugging affordance of whatever is running the game, and a\n\
+         frozen simulation cannot tick the menu that would unfreeze it.\n\n\
          ### Telling the host something\n\n\
          `event.emit(kind, payload)` appends to a list the runtime drains with\n\
          `Session::drain_events`. That is how a Steam achievement fires, how a volume\n\

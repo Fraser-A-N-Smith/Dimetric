@@ -351,3 +351,61 @@ texture = "asset:sprites/block"
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// -- the pause key, and the runtime's own freeze --------------------------
+
+#[test]
+fn the_pause_action_is_delivered_to_the_game() {
+    // The defect. The runtime toggled its own freeze on the `pause` action and
+    // returned before the press reached `Held`, so `input.pressed("pause")` was
+    // never true in Lua and no game could build a pause screen of its own.
+    let bindings = dimetric_player::Bindings::default();
+    assert_eq!(
+        dimetric_player::key_effect(&bindings, "Escape"),
+        dimetric_player::KeyEffect::Action(dimetric_player::Action::Pause),
+        "the default binding for Escape is the game's pause action"
+    );
+}
+
+#[test]
+fn the_runtimes_freeze_is_a_key_a_project_cannot_take() {
+    // Freezing is a debugging affordance of whatever runs the game; `pause` is
+    // what a game wants for a menu. They cannot be the same key, and a project
+    // must not be able to bind the one that is not its own.
+    let bindings = dimetric_player::Bindings::default();
+    assert_eq!(
+        dimetric_player::key_effect(&bindings, dimetric_player::FREEZE_KEY),
+        dimetric_player::KeyEffect::ToggleFreeze
+    );
+    assert!(
+        bindings.action(dimetric_player::FREEZE_KEY).is_none(),
+        "the freeze key is in the bindings table after all"
+    );
+}
+
+#[test]
+fn an_unbound_key_is_reported_rather_than_silently_nothing() {
+    let bindings = dimetric_player::Bindings::default();
+    assert_eq!(
+        dimetric_player::key_effect(&bindings, "KeyZ"),
+        dimetric_player::KeyEffect::Unbound
+    );
+}
+
+#[test]
+fn a_project_that_rebinds_pause_still_gets_it() {
+    let (bindings, problems) = dimetric_player::Bindings::from_declared(
+        &[("pause".to_string(), vec!["KeyP".to_string()])],
+        true,
+    );
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(
+        dimetric_player::key_effect(&bindings, "KeyP"),
+        dimetric_player::KeyEffect::Action(dimetric_player::Action::Pause)
+    );
+    // And the freeze is still where it was, because it is not an action.
+    assert_eq!(
+        dimetric_player::key_effect(&bindings, dimetric_player::FREEZE_KEY),
+        dimetric_player::KeyEffect::ToggleFreeze
+    );
+}

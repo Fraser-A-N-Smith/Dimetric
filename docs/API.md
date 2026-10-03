@@ -462,6 +462,7 @@ Scripts see exactly these globals and nothing else.
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`, `measure(font, text)` |
 | `event` | `emit(kind, payload)` — tells the host something. Drained by the runtime, **never** hashed |
+| `app` | `quit()` — asks whatever is running the game to stop. Read by the host between ticks, **never** hashed; a headless run ignores it |
 | `profile` | `get(key)`, `put(key, value)`, `clear(key)` — across runs, and **never** in the state hash |
 | `camera` | `to_world(canvas_point)`, `to_canvas(world_point)`, `center()` — the view's inverse, in fixed point |
 | `tick` | `count()`, `dt()`, `rate` |
@@ -626,6 +627,23 @@ Overlapping clips **warn** (`DIM0605`) rather than failing. Reusing frames is
 a real technique and Aseprite tags may overlap too, so refusing would be
 stricter than the tool this mirrors — but `0..3` then `3..7` when `4` was
 meant is worth saying out loud.
+
+### Quitting, and the pause key
+
+`app.quit()` asks whatever is running the game to stop. It is read **between
+ticks**, like a scene load: the tick finishes over the state it started with and
+the host acts afterwards (I8). It is not simulation state and is never hashed —
+a run in which somebody chose Quit has to hash the same as one where they closed
+the window, or a recorded session would replay differently depending on how it
+ended, and a rollback must not un-ask. A headless run and a replay ignore it:
+there is nothing for them to quit, and honouring it would let a script cut a
+recorded run short.
+
+`pause` is an action like any other, so `input.pressed("pause")` is how a game
+opens a menu of its own. The windowed runtime's *own* freeze is on the
+keyboard's Pause/Break key, which is deliberately not bindable: freezing the
+simulation is a debugging affordance of whatever is running the game, and a
+frozen simulation cannot tick the menu that would unfreeze it.
 
 ### Telling the host something
 

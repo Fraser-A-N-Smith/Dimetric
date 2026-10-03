@@ -834,6 +834,13 @@ pub struct LuaHost {
     /// table is not in the state either. What a script *derives* from them
     /// lands in a control's rectangle, which is hashed.
     fonts: Rc<RefCell<crate::text::Fonts>>,
+    /// Set when a script asked the application to quit.
+    ///
+    /// Beside the log lines, the sounds and the events, and out of `SimState`
+    /// for the same reason: a run that quit and one that did not must hash
+    /// identically, or a replay of a session where somebody chose Quit would
+    /// diverge from one where they closed the window.
+    quit: Rc<std::cell::Cell<bool>>,
     /// What the simulation has told the host this tick.
     ///
     /// Beside the log lines and deliberately not on `SimState`: a later change
@@ -847,6 +854,7 @@ impl LuaHost {
         let lua = Lua::new();
         Ok(LuaHost {
             events: Rc::new(RefCell::new(Vec::new())),
+            quit: Rc::new(std::cell::Cell::new(false)),
             profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
             fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
             lua,
@@ -948,6 +956,7 @@ impl LuaHost {
             profile: self.profile.clone(),
             fonts: self.fonts.clone(),
             events: self.events.clone(),
+            quit: self.quit.clone(),
         }
     }
 
@@ -995,6 +1004,7 @@ pub(crate) struct HostHandles {
     profile: Rc<RefCell<crate::profile::Profile>>,
     fonts: Rc<RefCell<crate::text::Fonts>>,
     events: Rc<RefCell<Vec<crate::event::GameEvent>>>,
+    quit: Rc<std::cell::Cell<bool>>,
 }
 
 fn build_environment(
@@ -1121,6 +1131,7 @@ pub fn sandbox_globals() -> Result<Vec<String>, Diagnostic> {
         profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
         fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
         events: Rc::new(RefCell::new(Vec::new())),
+        quit: Rc::new(std::cell::Cell::new(false)),
     };
     let env = build_environment(&lua, 60, &handles, "<introspection>")?;
     let mut names: Vec<String> = env
@@ -1201,6 +1212,25 @@ fn install_api(
         )
         .map_err(err)?;
     env.set("color", color).map_err(err)?;
+
+    // app: what a script can ask of the thing running it, which is one thing.
+    //
+    // Deliberately not an `event.emit("quit")` convention. A game cannot quit
+    // itself without the host's cooperation, and a channel whose payloads the
+    // host has to recognise by name is a channel where a typo is silence —
+    // which is the shape of defect this round is mostly made of.
+    let app = lua.create_table().map_err(err)?;
+    let wants_quit = shared_state.quit.clone();
+    app.set(
+        "quit",
+        lua.create_function(move |_, ()| {
+            wants_quit.set(true);
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    env.set("app", app).map_err(err)?;
 
     // fx: fixed-point construction and the trig the sandbox withholds.
     let fx = lua.create_table().map_err(err)?;
@@ -2503,6 +2533,10 @@ impl ScriptHost for LuaHost {
 
     fn take_events(&mut self) -> Vec<crate::event::GameEvent> {
         std::mem::take(&mut *self.events.borrow_mut())
+    }
+
+    fn take_quit(&mut self) -> bool {
+        self.quit.replace(false)
     }
 
     fn reload(&mut self, path: &str, source: &str) -> Result<(), Diagnostic> {
