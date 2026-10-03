@@ -45,6 +45,18 @@ pub struct DrawItem {
     pub shader: u16,
     /// World position of the sprite's centre.
     pub pos: Vec2Fx,
+    /// Pixels added to the centre *after* it is projected.
+    ///
+    /// The shader has always projected a sprite's centre and then added its
+    /// quad in screen space, which is what keeps isometric artwork upright
+    /// instead of shearing every character into a parallelogram. This is the
+    /// same exemption for a position: a glyph's advance along a line of text is
+    /// typography, not world geometry, and running it through the shear put
+    /// each letter one step down and to the right of the last.
+    ///
+    /// Zero for anything whose position is entirely world geometry, which is
+    /// every sprite and every tile.
+    pub screen_offset: Vec2Fx,
     /// Size in world units.
     pub size: Vec2Fx,
     /// Rotation about the centre.

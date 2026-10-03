@@ -17,14 +17,20 @@ struct Camera {
 
 struct Instance {
     @location(0) center: vec2<f32>,
-    @location(1) size: vec2<f32>,
+    // Pixels added to the centre after the projection, in the same units and
+    // through the same scale as the quad below. A glyph's advance along a line
+    // of text goes here: the label's anchor is world geometry and projects,
+    // where the next letter sits is typography and must not. Zero for a
+    // sprite, a tile and a panel, whose positions are entirely world geometry.
+    @location(1) screen_offset: vec2<f32>,
+    @location(2) size: vec2<f32>,
     // cos and sin of the sprite's rotation, computed on the CPU from the
     // engine's fixed-point tables so that what is drawn matches what the
     // simulation decided.
-    @location(2) rotation: vec2<f32>,
-    @location(3) uv_min: vec2<f32>,
-    @location(4) uv_max: vec2<f32>,
-    @location(5) color: vec4<f32>,
+    @location(3) rotation: vec2<f32>,
+    @location(4) uv_min: vec2<f32>,
+    @location(5) uv_max: vec2<f32>,
+    @location(6) color: vec4<f32>,
 };
 
 struct VertexOut {
@@ -51,7 +57,8 @@ fn vs_main(@builtin(vertex_index) vertex: u32, instance: Instance) -> VertexOut 
     // its position projected, which is what isometric artwork expects.
     var out: VertexOut;
     let center = camera.view_proj * vec4<f32>(instance.center, 0.0, 1.0);
-    out.clip_position = center + vec4<f32>(rotated * camera.pixel_scale.xy, 0.0, 0.0);
+    let screen = (rotated + instance.screen_offset) * camera.pixel_scale.xy;
+    out.clip_position = center + vec4<f32>(screen, 0.0, 0.0);
     out.uv = mix(instance.uv_min, instance.uv_max, corner);
     out.color = instance.color;
     return out;

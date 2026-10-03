@@ -64,6 +64,8 @@ struct CompositeUniform {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct SpriteInstance {
     center: [f32; 2],
+    /// Pixels added after the projection; see `DrawItem::screen_offset`.
+    screen_offset: [f32; 2],
     size: [f32; 2],
     rotation: [f32; 2],
     uv_min: [f32; 2],
@@ -979,6 +981,7 @@ fn sprite_instance(item: &crate::batch::DrawItem) -> SpriteInstance {
     let (sin, cos) = item.rotation.sin_cos();
     SpriteInstance {
         center: item.pos.to_f32_pair().into(),
+        screen_offset: item.screen_offset.to_f32_pair().into(),
         size: item.size.to_f32_pair().into(),
         rotation: [cos.to_f32(), sin.to_f32()],
         uv_min: [item.uv[0], item.uv[1]],
@@ -1040,7 +1043,8 @@ fn sprite_pipeline(
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![
                     0 => Float32x2, 1 => Float32x2, 2 => Float32x2,
-                    3 => Float32x2, 4 => Float32x2, 5 => Float32x4
+                    3 => Float32x2, 4 => Float32x2, 5 => Float32x2,
+                    6 => Float32x4
                 ],
             })],
             compilation_options: Default::default(),

@@ -1,0 +1,24 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Root"
+
+[[node]]
+id = "n_camera00"
+kind = "Camera2D"
+name = "Eye"
+parent = "n_root0000"          # /Root
+current = true
+
+[[node]]
+id = "n_label000"
+kind = "Label"
+name = "Damage"
+parent = "n_root0000"          # /Root
+text = "MMM160"

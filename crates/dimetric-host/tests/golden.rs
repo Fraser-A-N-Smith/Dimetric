@@ -82,6 +82,28 @@ fn fixtures() -> Vec<Fixture> {
             ambient: Color::WHITE,
             tick: 12,
         },
+        // A world-space label under each projection. The pair is the
+        // assertion: a label's anchor is world geometry and projects, its glyph
+        // advance is typography and does not — so these two references have to
+        // be the same picture. Running the advance through the 2:1 shear put
+        // every glyph one step down and to the right of the last, and "160"
+        // came out as three digits on a descending diagonal.
+        Fixture {
+            scene: "board-label",
+            reference: "board-label-isometric.png",
+            size: (128, 64),
+            internal: (128, 64),
+            ambient: Color::WHITE,
+            tick: 0,
+        },
+        Fixture {
+            scene: "board-label-topdown",
+            reference: "board-label-topdown.png",
+            size: (128, 64),
+            internal: (128, 64),
+            ambient: Color::WHITE,
+            tick: 0,
+        },
     ]
 }
 

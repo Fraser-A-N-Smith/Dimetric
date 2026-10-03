@@ -645,7 +645,12 @@ fn a_label_becomes_one_quad_per_inked_glyph_in_a_single_batch() {
     );
 
     // Five pixels apart: the advance, not the four-pixel bitmap width.
-    let dx = frame.sprites[1].pos.x - frame.sprites[0].pos.x;
+    //
+    // Read from `screen_offset` rather than `pos`, because the advance is added
+    // after the projection now: every glyph in a label shares one projected
+    // anchor, which is what keeps a line of text on one baseline under the
+    // isometric shear instead of descending diagonally.
+    let dx = frame.sprites[1].screen_offset.x - frame.sprites[0].screen_offset.x;
     assert_eq!(dx, dimetric_core::Fx::from_int(5));
 }
 
@@ -728,8 +733,8 @@ pos = [0.0, 0.0]
     // Half a texel out here and every sample lands on a boundary between two
     // columns of the font page, so nearest filtering serves up pieces of the
     // neighbouring letter and a line of text comes out as a jumble.
-    let left = quad.pos.x - quad.size.x / 2;
-    let top = quad.pos.y - quad.size.y / 2;
+    let left = quad.pos.x + quad.screen_offset.x - quad.size.x / 2;
+    let top = quad.pos.y + quad.screen_offset.y - quad.size.y / 2;
     assert_eq!(
         left,
         dimetric_core::Fx::from_int(0),
@@ -920,7 +925,10 @@ text = "AB"
         .iter()
         .find(|i| i.size.x == dimetric_core::Fx::from_int(4))
         .unwrap();
-    assert_eq!(first_glyph.pos.x, dimetric_core::Fx::from_int(22));
+    assert_eq!(
+        first_glyph.pos.x + first_glyph.screen_offset.x,
+        dimetric_core::Fx::from_int(22)
+    );
 }
 
 #[test]

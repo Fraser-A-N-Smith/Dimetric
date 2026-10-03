@@ -14,6 +14,38 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: under `Isometric`, a world-space `Label` laid its glyphs diagonally
+
+`Projection::Isometric` is `screen = (x - y, (x + y) / 2)`. A label put each
+glyph at `anchor + advance` as a **world** position, so the advance went through
+that shear and every glyph landed one step down and to the right of the last.
+`"160"` came out as three digits on a descending diagonal, and every number a
+game wants over an isometric board was unreadable.
+
+A label's anchor is world geometry and should project; its glyph advance is
+typography and should not. That is the split the engine already makes for a
+sprite — the shader projects a centre and adds the quad in screen space, which
+is why isometric artwork stays upright instead of shearing into parallelograms —
+and the comment in `sprite.wgsl` has said so all along. `DrawItem` now carries a
+`screen_offset` applied after the projection, and a glyph's advance goes there.
+Zero for a sprite, a tile and a panel, whose positions are entirely world
+geometry.
+
+Canvas-space labels are unaffected, and provably so: the canvas projection is a
+scale and a translate whose scale *is* `canvas_pixel_scale`, so adding the
+advance before or after it is the same arithmetic.
+
+Two golden references, `board-label-isometric.png` and
+`board-label-topdown.png`, are **byte-identical** — that is the assertion, not
+a coincidence. Typography does not depend on the camera.
+
+`Label.in_world` was offered with this and is declined; see
+`docs/ENGINE-GAPS.md`. What it would restore is upright glyphs on a sheared
+baseline, which is the defect with a property name on it rather than text lying
+on the ground.
+
+Does not move the state hash. Nothing here reaches the simulation.
+
 ### Fixed: `anim.play` did nothing on an `AnimatedSprite2D`, and a finished clip could not replay
 
 Two halves, both silent.

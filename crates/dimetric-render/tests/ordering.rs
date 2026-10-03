@@ -125,6 +125,7 @@ fn item(layer: i32, depth: i32, atlas: u16, blend: Blend, id: &str) -> DrawItem 
         blend,
         shader: 0,
         pos: Vec2Fx::ZERO,
+        screen_offset: Vec2Fx::ZERO,
         size: Vec2Fx::ONE,
         rotation: dimetric_core::Angle::ZERO,
         uv: [0.0, 0.0, 1.0, 1.0],

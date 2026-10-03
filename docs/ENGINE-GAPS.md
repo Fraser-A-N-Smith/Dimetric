@@ -370,6 +370,32 @@ and the scene has no stamp on it. What survives is
 `crates/dimetric-sim/tests/visibility.rs`, which pins the behaviour the cache
 would have broken, for whoever has this idea next.
 
+## Asked for by the tactical roguelike, and declined
+
+**`Label.in_world`, to put text on the ground plane.** Offered alongside the
+fix for glyphs running diagonally under `Isometric` — the thought being that
+somebody might want the old behaviour deliberately, for a number painted onto
+the floor.
+
+Declined, because what the flag would restore is not that. A label's glyph
+quads are drawn axis-aligned, like every other quad in the engine: the shader
+projects a centre and adds the quad in screen space, which is what keeps
+isometric artwork upright instead of shearing each character into a
+parallelogram. So `in_world = true` would give **upright glyphs on a sheared
+baseline** — which is not text lying on the ground, it is exactly the defect
+that was just fixed, with a property name on it.
+
+Real ground-plane text needs the glyph *quads* sheared too, and that is a
+different feature: a sprite whose quad goes through the projection. Nothing has
+asked for one, it would need its own answer for what happens to a rotated
+sprite, and the engine's position that quads are never sheared is load-bearing
+in the renderer and in the artwork pipeline both. A flag that half-did it would
+be worse than its absence, because it would look like the feature.
+
+If painted-floor text is ever wanted, the thing to build is the general case —
+an opt-in projected quad, available to any sprite — and to measure it against a
+decal drawn as artwork, which is how the genre has always done it.
+
 ## Still open, and known
 
 **An agent adding a spell changes the run.** The upgrade roll samples a list, so

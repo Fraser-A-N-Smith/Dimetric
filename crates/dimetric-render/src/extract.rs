@@ -284,6 +284,7 @@ fn panel(
         blend: Blend::Alpha,
         shader: 0,
         pos: rect.center(),
+        screen_offset: Vec2Fx::ZERO,
         size: rect.size,
         rotation: Angle::ZERO,
         uv: region.uv,
@@ -407,6 +408,7 @@ fn sprite(
         blend,
         shader: 0,
         pos: center,
+        screen_offset: Vec2Fx::ZERO,
         size,
         rotation,
         uv,
@@ -469,6 +471,20 @@ fn label(
 
     for placed in laid.glyphs {
         let g = placed.glyph;
+        // The anchor projects; the advance along the line does not.
+        //
+        // A label's position is world geometry and has to move with the board
+        // it labels. Where the next letter goes is typography. Adding the
+        // advance to the world position put both through the shear, so each
+        // glyph landed one step down and to the right of the last and "160"
+        // came out as three digits on a descending diagonal — every number a
+        // game wants over an isometric board, unreadable.
+        //
+        // This is the same split the shader already makes for a sprite's quad,
+        // and it is why a sprite stays upright under the shear rather than
+        // becoming a parallelogram. For the UI pass the two are equivalent:
+        // the canvas projection is a scale and a translate whose scale *is*
+        // `canvas_pixel_scale`, so adding before or after it is the same.
         // The quad is positioned by its centre, and the layout gives a corner.
         //
         // The half has to be a fixed-point half, not an integer one. The
@@ -479,11 +495,10 @@ fn label(
         // glyphs side by side -- meant columns of the neighbouring letter.
         // World-space text came out as a jumble of glyph fragments, and it
         // did so for every label drawn in the engine's own font.
-        let center = origin
-            + Vec2Fx::new(
-                Fx::from_int(placed.x) + Fx::from_int(g.width as i32) / 2,
-                Fx::from_int(placed.y) + Fx::from_int(g.height as i32) / 2,
-            );
+        let advance = Vec2Fx::new(
+            Fx::from_int(placed.x) + Fx::from_int(g.width as i32) / 2,
+            Fx::from_int(placed.y) + Fx::from_int(g.height as i32) / 2,
+        );
         out.push(DrawItem {
             key: SortKey::new(
                 node.layer,
@@ -495,7 +510,8 @@ fn label(
             atlas: 0,
             blend: Blend::Alpha,
             shader: 0,
-            pos: center,
+            pos: origin,
+            screen_offset: advance,
             size: Vec2Fx::from_ints(g.width as i32, g.height as i32),
             rotation: Angle::ZERO,
             uv: region.sub(g.x, g.y, g.width, g.height).uv,
@@ -600,6 +616,7 @@ fn tiles(
                 blend: Blend::Alpha,
                 shader: 0,
                 pos: center,
+                screen_offset: Vec2Fx::ZERO,
                 size,
                 rotation: Angle::ZERO,
                 uv,
