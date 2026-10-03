@@ -100,6 +100,23 @@ pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
             }
         }
 
+        if let Some(variable) = lost_table_write(&code) {
+            out.push(
+                Diagnostic::new(
+                    Code::SCRIPT_LOST_WRITE,
+                    format!(
+                        "`{variable}` is read back as a fresh copy of script state, so this \
+                         write lands in a temporary and is dropped. Read it into a local, \
+                         change that, and assign the local back: `local t = self.{variable}` \
+                         / `t.field = …` / `self.{variable} = t`."
+                    ),
+                )
+                .with_span(Span::at(path.to_string(), line as u32))
+                .with_field("hazard", "lost-table-write")
+                .with_field("variable", variable),
+            );
+        }
+
         if (code.contains("profile.get") || reads_tainted(&code, &tainted)) && writes_state(&code) {
             out.push(
                 Diagnostic::new(
@@ -282,6 +299,48 @@ fn writes_state(code: &str) -> bool {
     left.starts_with("self.")
         || left.contains(":set")
         || (left.contains('.') && !left.starts_with("local "))
+}
+
+/// The variable in `self.<name>.<field> = …`, which is a write that vanishes.
+///
+/// A script variable holding a map or a list is converted to a *fresh* Lua
+/// table on every read, so a field written through one lands in a temporary and
+/// is dropped. It used to be the only failure in the engine that carried nothing
+/// at all — no error, no warning, no lint — which is what I9 forbids.
+///
+/// It is caught here rather than at the write because neither runtime guard
+/// works, and both failures are recorded as tests in
+/// `tests/copied_table_facts.rs`. A metatable on the table sees only keys that
+/// are *absent*, so it would catch `self.bag.b = 2` and miss
+/// `self.run.pending.at = 2` where `at` is already there. An empty proxy would
+/// see every write, but the host's own table walk is `lua_next` and ignores
+/// `__pairs`, so assigning the proxy back would quietly empty the variable.
+///
+/// A text scan has no such hole, because the difference is syntactic: this
+/// matches a write *through* a chained access, and leaves alone the local that
+/// is assigned back, which is the pattern that works and that the engine's own
+/// example game uses.
+fn lost_table_write(code: &str) -> Option<String> {
+    let eq = find_assignment(code)?;
+    let left = code[..eq].trim();
+    // `local x.y = ...` is not Lua; a declaration cannot have a path in it.
+    let rest = left.strip_prefix("self.")?;
+    // Two or more levels of access past `self`: `self.a.b`, `self.a[i]`,
+    // `self.a.b.c`. One level — `self.a` — is the write that works.
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() || name.len() == rest.len() {
+        return None;
+    }
+    // Whatever follows the name has to be a field or an index, not a call or
+    // a comparison that happened to sit left of an `=`.
+    let next = rest[name.len()..].chars().next()?;
+    match next {
+        '.' | '[' => Some(name),
+        _ => None,
+    }
 }
 
 /// The index of a plain `=`, skipping `==`, `<=`, `>=`, `~=`.

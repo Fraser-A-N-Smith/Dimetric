@@ -396,6 +396,41 @@ If painted-floor text is ever wanted, the thing to build is the general case —
 an opt-in projected quad, available to any sprite — and to measure it against a
 decal drawn as artwork, which is how the genre has always done it.
 
+**A runtime guard on a table read back from script state.** Writing into one —
+`self.bag.b = 2` — lands in a temporary and is dropped, and used to do so with
+no error, no warning and no lint: the only failure in the engine that carried
+nothing at all. The proposal was a metatable whose `__newindex` raises a
+diagnostic naming the variable; a write-through was the second choice.
+
+The *defect* is real and is fixed. The **runtime** guard is declined, because
+neither shape works, and both reasons are pinned as tests in
+`crates/dimetric-sim/tests/copied_table_facts.rs`:
+
+- **A metatable on the table sees only keys that are absent.** This engine
+  already knows that — it is why `require`'s freeze is a proxy rather than a
+  metatable, and the note above says so. So a guard would catch `self.bag.b = 2`
+  and sail straight past `self.run.pending.at = 2`, where `at` is already in the
+  table. That second case is one of the two the report brought.
+- **An empty proxy would see every write, and would destroy the variable.** The
+  host converts a Lua table back to an engine value by walking it with
+  `lua_next`, which ignores `__pairs`. So `self.pending = pending`, where
+  `pending` is a proxy, converts to an empty map — a silent data loss far worse
+  than the silent no-op being fixed.
+
+A write-through has the first hole too, and a third problem besides: `to_lua`
+hands out copies from several stores — script variables, node properties, the
+profile, a signal payload — and only some of those have anywhere to write back
+to. Implementing it for one leaves the same silence in the rest.
+
+What makes a text scan the right tool here is that the difference is
+**syntactic**, which is the one thing the runtime cannot see. `self.bag.b = 2`
+writes through a chained access; `local p = self.pending` / `p[#p+1] = v` /
+`self.pending = p` does not — and the second is the pattern that works, the one
+the proposed diagnostic's own wording recommends, and the one the engine's own
+example game uses in three places. A guard that refused it would have broken the
+slice. `DIM0507` names the file, the line, the variable and the spelling that
+works, which is better located than a runtime error anyway.
+
 ## Still open, and known
 
 **An agent adding a spell changes the run.** The upgrade roll samples a list, so

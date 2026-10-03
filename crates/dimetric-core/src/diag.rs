@@ -144,6 +144,7 @@ codes! {
     STALE_HANDLE      = "DIM0504", Error,   "Script used a handle to a destroyed node";
     SCRIPT_BAD_ARGUMENT = "DIM0505", Error, "Script passed an argument the binding cannot accept";
     SCRIPT_NONDETERMINISM = "DIM0506", Warning, "Script does something that may not reproduce on another machine";
+    SCRIPT_LOST_WRITE = "DIM0507", Warning, "Script writes into a table that is a copy of state, so the write goes nowhere";
 
     // 06xx — assets
     ASSET_MISSING     = "DIM0601", Error,   "Referenced asset is not in the project";

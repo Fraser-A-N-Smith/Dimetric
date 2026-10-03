@@ -346,6 +346,7 @@ message. Codes are never reused for a different meaning.
 | `DIM0504` | error | Script used a handle to a destroyed node |
 | `DIM0505` | error | Script passed an argument the binding cannot accept |
 | `DIM0506` | warning | Script does something that may not reproduce on another machine |
+| `DIM0507` | warning | Script writes into a table that is a copy of state, so the write goes nowhere |
 | `DIM0601` | error | Referenced asset is not in the project |
 | `DIM0602` | error | Asset import failed |
 | `DIM0603` | error | Unsupported source format |
@@ -689,6 +690,29 @@ Focus is tracked, not driven. `ui.focus_next(step)` walks the focusable
 controls in tree order, and *which key* walks a menu is the game's decision —
 binding it here would mean the engine deciding that pressing Down in a menu
 can never also move the player.
+
+### A table read back from script state is a copy
+
+A script variable holding a table is converted to a *fresh* Lua table on every
+read. So this does nothing:
+
+```lua
+self.bag.b = 2        -- lands in a temporary and is dropped
+```
+
+and this is how to change one:
+
+```lua
+local bag = self.bag
+bag.b = 2
+self.bag = bag
+```
+
+The copy is what keeps the hashed state authoritative — a Lua table aliasing it
+could write past a snapshot. `dim script check --determinism` reports the first
+form as `DIM0507`, with the file, the line and the variable, because it cannot
+be caught at the write: a metatable on a table sees only keys that are absent,
+and `docs/ENGINE-GAPS.md` has the rest of the argument.
 
 ### Tweens and animation
 

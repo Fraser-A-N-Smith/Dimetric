@@ -199,3 +199,103 @@ end
         0
     );
 }
+
+// -- a write into a copied table ------------------------------------------
+
+/// `self.bag.b = 2` lands in a temporary and is dropped.
+///
+/// A script variable holding a map or a list is converted to a fresh Lua table
+/// on every read, so a field written through one goes nowhere. It used to be
+/// the only failure in the engine that carried nothing at all — no error, no
+/// warning, no lint — which is what I9 forbids, and it cost an afternoon every
+/// time somebody hit it.
+///
+/// Why it is a lint and not a runtime guard: see `tests/copied_table_facts.rs`,
+/// which pins both reasons as tests. In short, a metatable on the table sees
+/// only *absent* keys, and an empty proxy is invisible to the host's own table
+/// walk, so one guard misses half the cases and the other destroys the
+/// variable.
+fn lost_writes(source: &str) -> Vec<String> {
+    dimetric_sim::lint::check("s.lua", source)
+        .into_iter()
+        .filter(|d| d.code == dimetric_core::Code::SCRIPT_LOST_WRITE)
+        .map(|d| d.message)
+        .collect()
+}
+
+#[test]
+fn a_field_written_through_a_copied_table_is_named() {
+    let found = lost_writes("function on_tick(self)\n  self.bag.b = 2\nend\n");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("bag"), "{found:?}");
+}
+
+#[test]
+fn a_nested_field_is_named_by_the_variable_it_belongs_to() {
+    // The report's second real case, and the one a metatable guard would have
+    // missed entirely: `at` is already in the table, so `__newindex` would
+    // never fire.
+    let found = lost_writes("function on_tick(self)\n  self.run.pending.at = 2\nend\n");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("run"), "{found:?}");
+}
+
+#[test]
+fn an_indexed_slot_is_caught_too() {
+    let found = lost_writes("function on_tick(self)\n  self.order[1] = \"c\"\nend\n");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("order"), "{found:?}");
+}
+
+#[test]
+fn the_message_names_the_spelling_that_works() {
+    let found = lost_writes("function on_tick(self)\n  self.bag.b = 2\nend\n");
+    assert!(found[0].contains("local t = self.bag"), "{found:?}");
+}
+
+#[test]
+fn writing_the_variable_itself_is_not_a_lost_write() {
+    // `self.bag = …` is the write that works, and is how everything else in
+    // this engine's example scripts does it.
+    assert!(lost_writes("function on_tick(self)\n  self.bag = { a = 1 }\nend\n").is_empty());
+    assert!(lost_writes("function on_tick(self)\n  self.hp = self.hp - 1\nend\n").is_empty());
+}
+
+#[test]
+fn the_local_that_is_assigned_back_is_left_alone() {
+    // The pattern the engine's own example game uses in three places, and the
+    // one a runtime guard would have refused.
+    let source = "function on_tick(self)\n\
+                  \x20 local pending = self.pending or {}\n\
+                  \x20 pending[#pending + 1] = { id = 1 }\n\
+                  \x20 self.pending = pending\n\
+                  end\n";
+    assert!(lost_writes(source).is_empty(), "{:?}", lost_writes(source));
+}
+
+#[test]
+fn a_comparison_left_of_an_equals_is_not_an_assignment() {
+    assert!(lost_writes("if self.run.pending == nil then end\n").is_empty());
+    assert!(lost_writes("local n = self.bag.count\n").is_empty());
+}
+
+#[test]
+fn the_example_game_is_clean_under_this_lint() {
+    // A lint whose first run finds problems in the engine's own scripts is
+    // either right about them or wrong about the rule, and both are worth
+    // knowing before it ships.
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/sorcerer/scripts");
+    let mut complaints = Vec::new();
+    for entry in std::fs::read_dir(&dir).expect("scripts") {
+        let path = entry.expect("entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("lua") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("readable");
+        for message in lost_writes(&source) {
+            complaints.push(format!("{}: {message}", path.display()));
+        }
+    }
+    assert!(complaints.is_empty(), "{complaints:#?}");
+}

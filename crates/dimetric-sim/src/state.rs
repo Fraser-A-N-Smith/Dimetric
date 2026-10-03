@@ -173,6 +173,19 @@ pub struct SimState {
     pub autoplayed: Vec<NodeUid>,
 }
 
+/// One step into a script variable's nested tables.
+///
+/// A `Map` is addressed by key and a `List` by a zero-based slot, which is the
+/// Lua index minus one — the conversion happens where Lua's number arrives, so
+/// nothing below this carries a one-based index around.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VarStep {
+    /// A named field of a map.
+    Key(String),
+    /// A slot in a list, zero-based.
+    Index(usize),
+}
+
 impl SimState {
     /// A simulation over `scene`, seeded from `seed`.
     pub fn new(scene: Scene, seed: u64) -> SimState {
@@ -226,6 +239,23 @@ impl SimState {
     /// Write a script variable.
     pub fn set_var(&mut self, node: NodeUid, key: impl Into<String>, value: Value) {
         self.vars.entry(node).or_default().insert(key.into(), value);
+    }
+
+    /// Walk into a script variable's nested tables, for a write.
+    ///
+    /// `path` addresses a `Map` key or a `List` slot at each step. `None` means
+    /// the path does not describe anything that is there — a key that is absent,
+    /// an index past the end, or a step through a value that is not a table.
+    pub fn var_at_mut(&mut self, node: NodeUid, key: &str, path: &[VarStep]) -> Option<&mut Value> {
+        let mut here = self.vars.get_mut(&node)?.get_mut(key)?;
+        for step in path {
+            here = match (here, step) {
+                (Value::Map(map), VarStep::Key(k)) => map.get_mut(k)?,
+                (Value::List(items), VarStep::Index(i)) => items.get_mut(*i)?,
+                _ => return None,
+            };
+        }
+        Some(here)
     }
 
     /// Remove a script variable, as `self.key = nil` does in Lua.

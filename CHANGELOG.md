@@ -14,6 +14,40 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: `DIM0507`, for a write into a table that is a copy of script state
+
+`self.bag.b = 2` lands in a temporary and is dropped. A script variable holding
+a map or a list is converted to a fresh Lua table on every read, so a field
+written through one goes nowhere — and it did so with no error, no warning and
+no lint. It was the only failure in the engine that carried nothing at all,
+which is what I9 forbids, and it cost an afternoon every time it was hit.
+
+**The runtime guard that was asked for cannot work, and both reasons are now
+tests** (`crates/dimetric-sim/tests/copied_table_facts.rs`):
+
+- A metatable's `__newindex` fires only for a key that is **absent**. This
+  engine already knew that — it is why `require`'s freeze is a proxy rather than
+  a metatable. So a guard would catch `self.bag.b = 2` and miss
+  `self.run.pending.at = 2`, where `at` is already in the table. That is one of
+  the two cases reported.
+- An empty proxy *would* see every write, and would destroy the variable: the
+  host converts a Lua table back to an engine value with `lua_next`, which
+  ignores `__pairs`, so `self.pending = pending` would convert to an empty map.
+
+What makes a text scan right is that the difference is **syntactic**, which is
+the one thing the runtime cannot see. `self.bag.b = 2` writes through a chained
+access; `local p = self.pending` / `p[#p+1] = v` / `self.pending = p` does not —
+and that second form is the pattern that works, the one the proposed
+diagnostic's own wording recommends, and the one `examples/sorcerer` uses in
+three places. A guard would have refused the engine's own example game.
+
+`dim script check --determinism` now reports the lost write as a warning naming
+the file, the line, the variable and the spelling that works. A test asserts
+the example game is clean under it.
+
+Does not move the state hash. The write went nowhere before and goes nowhere
+now; what changed is that the engine says so.
+
 ### Fixed: under `Isometric`, a world-space `Label` laid its glyphs diagonally
 
 `Projection::Isometric` is `screen = (x - y, (x + y) / 2)`. A label put each

@@ -1157,7 +1157,7 @@
       "inputSchema": {
         "properties": {
           "determinism": {
-            "description": "Also scan for things that may not reproduce on another machine",
+            "description": "Also run the text scan: hazards that may not reproduce on another machine, and writes that go nowhere",
             "type": "boolean"
           },
           "id_seed": {

@@ -151,6 +151,11 @@
       "summary": "Script does something that may not reproduce on another machine"
     },
     {
+      "code": "DIM0507",
+      "severity": "warning",
+      "summary": "Script writes into a table that is a copy of state, so the write goes nowhere"
+    },
+    {
       "code": "DIM0601",
       "severity": "error",
       "summary": "Referenced asset is not in the project"

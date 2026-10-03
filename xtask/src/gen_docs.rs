@@ -558,6 +558,23 @@ fn render_markdown(
          controls in tree order, and *which key* walks a menu is the game\'s decision —\n\
          binding it here would mean the engine deciding that pressing Down in a menu\n\
          can never also move the player.\n\n\
+         ### A table read back from script state is a copy\n\n\
+         A script variable holding a table is converted to a *fresh* Lua table on every\n\
+         read. So this does nothing:\n\n\
+         ```lua\n\
+         self.bag.b = 2        -- lands in a temporary and is dropped\n\
+         ```\n\n\
+         and this is how to change one:\n\n\
+         ```lua\n\
+         local bag = self.bag\n\
+         bag.b = 2\n\
+         self.bag = bag\n\
+         ```\n\n\
+         The copy is what keeps the hashed state authoritative — a Lua table aliasing it\n\
+         could write past a snapshot. `dim script check --determinism` reports the first\n\
+         form as `DIM0507`, with the file, the line and the variable, because it cannot\n\
+         be caught at the write: a metatable on a table sees only keys that are absent,\n\
+         and `docs/ENGINE-GAPS.md` has the rest of the argument.\n\n\
          ### Tweens and animation\n\n\
          Tweens and animation are simulation state, not presentation. They advance on\n\
          ticks, they are snapshotted, and they are in the state hash — a tween outside\n\

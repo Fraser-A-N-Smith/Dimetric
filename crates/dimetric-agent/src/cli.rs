@@ -276,7 +276,8 @@ pub enum ScriptCmd {
     /// Check a script without writing it, or every script in the project when
     /// no path is given.
     Check {
-        /// Also scan for things that may not reproduce on another machine.
+        /// Also run the text scan: hazards that may not reproduce on another
+        /// machine, and writes that go nowhere.
         #[arg(long)]
         determinism: bool,
         /// Project-relative path. Absent means every script under `scripts/`.
