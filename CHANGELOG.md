@@ -14,6 +14,46 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: `scale` is drawn, and a rect can be written from a script
+
+**`scale` was never read by the renderer.** It is a key every node has,
+`tween.rs` writes it into the transform, and `extract.rs` built the quad from
+the texture region's size and nothing else. So a scale tween ran, was hashed,
+was snapshotted, and changed nothing on screen: a health bar could not shrink
+(the game shipped seven on/off segments instead), and nothing could squash on a
+hit.
+
+A `Sprite2D` and an `AnimatedSprite2D` now multiply the quad by their **world**
+scale, so scaling a parent scales its children. A negative component mirrors the
+quad — the shader builds it from `(corner - 0.5) * size` — which makes `flip_h`
+sugar for `scale = [-1, 1]`, and doing both cancels out.
+
+A `TileLayer` and a `Label` are deliberately left alone: a tile layer's sprite
+size and its cell step are different numbers and scaling one breaks the lattice,
+and a label's glyph advance is in screen pixels so scaling it would grow the
+letters without spreading them. Both want their own answer.
+
+**A rect could not be written.** `region` is the other way to draw part of a
+sprite and `extract` honours it, but it reaches a script as a *table* — not a
+string — so the round-four fix for colours, angles, references and enums did not
+reach it, and `node:set` refused the table `get` had just handed over. The type
+guard now takes the shape each type actually arrives in:
+
+```lua
+node:set("region", node:get("region"))     -- the table get returns
+node:set("region", "[0, 0, 8, 4]")         -- the form Display writes
+node:set("region", { 0, 0, 8, 4 })         -- the same, as an array
+```
+
+A refusal now distinguishes the right type spelled wrongly (the characters and
+the parser's complaint) from an actual type change (the renderer no longer
+reading it, and the save no longer round-tripping), which the single message it
+used to print could not.
+
+Does not move the state hash. The scale was already in it and already tweened;
+what changed is that it is drawn. Writing a rect was refused before, so no
+existing script's state can differ.
+
 ### Added: `DIM1101`, when the system audio device was asked for and not obtained
 
 `Device::open` fell back to the mock backend both when the device would not open

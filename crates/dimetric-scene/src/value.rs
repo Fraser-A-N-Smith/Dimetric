@@ -75,6 +75,42 @@ impl Color {
     }
 }
 
+/// Why a value could not be written over another.
+///
+/// The distinction decides what to say. A type change is a mistake about *what
+/// the property is*, and the message worth printing is the one about the
+/// renderer no longer reading the value and the save no longer round-tripping.
+/// Bad content is a mistake about the characters, and the message worth printing
+/// is the characters and the parser's complaint.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Mismatch {
+    /// Not this type at all, and not a spelling of it either.
+    Type,
+    /// The right type, spelled wrongly.
+    Content(String),
+}
+
+/// Read `[x, y, w, h]`, the form [`Value`]'s own `Display` writes.
+fn parse_rect(text: &str) -> Result<Rect, String> {
+    let body = text
+        .trim()
+        .strip_prefix('[')
+        .and_then(|t| t.strip_suffix(']'))
+        .ok_or("a rect is written `[x, y, w, h]`")?;
+    let parts: Vec<&str> = body.split(',').map(str::trim).collect();
+    if parts.len() != 4 {
+        return Err(format!(
+            "a rect is four numbers, `[x, y, w, h]`, and this has {}",
+            parts.len()
+        ));
+    }
+    let mut n = [Fx::ZERO; 4];
+    for (slot, text) in n.iter_mut().zip(&parts) {
+        *slot = Fx::parse_exact(text).map_err(|e| format!("{text:?}: {e}"))?;
+    }
+    Ok(Rect::new(Vec2Fx::new(n[0], n[1]), Vec2Fx::new(n[2], n[3])))
+}
+
 /// Why a colour literal was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ColorError {
@@ -244,8 +280,71 @@ impl Value {
             // changing a type rather than checking one. The variant is the
             // schema's business; the type is this function's.
             Value::Enum(_) => Ok(Value::Enum(text.to_string())),
+            // A rect is written `[x, y, w, h]`, which is also what `Display`
+            // produces — so a script that reads one back as text, or builds one
+            // out of four numbers, is spelling it the way the rest of the
+            // engine does.
+            Value::Rect(_) => parse_rect(text).map(Value::Rect),
             _ => return None,
         })
+    }
+
+    /// Make `incoming` into this value's own type, or say why it cannot be.
+    ///
+    /// The type guard on `node:set` exists so a script cannot change a
+    /// property's type, because a value the renderer reads back with the wrong
+    /// accessor stops drawing and a save of one does not round-trip. What this
+    /// adds is the cases where a script is writing *the same type*, spelled the
+    /// way the engine handed it over:
+    ///
+    /// - A colour, an angle, a reference and an enum arrive as **strings**,
+    ///   because a string is how they are written. [`Value::reparse`] re-reads
+    ///   them with the parser the scene format uses.
+    /// - A rect arrives as a **table** of `pos` and `size`, because that is
+    ///   what `to_lua` makes of one. So the table has to come back, or
+    ///   `node:set(k, node:get(k))` is a type change on a rect and nothing else.
+    ///
+    /// Everything else is still a type change and still refused.
+    pub fn reshape(&self, incoming: Value) -> Result<Value, Mismatch> {
+        if self.type_name() == incoming.type_name() {
+            return Ok(incoming);
+        }
+        if let Some(text) = incoming.as_str() {
+            if let Some(parsed) = self.reparse(text) {
+                return parsed.map_err(Mismatch::Content);
+            }
+        }
+        match (self, &incoming) {
+            // `{ pos = vec2(x, y), size = vec2(w, h) }` — what `get` returns.
+            (Value::Rect(_), Value::Map(map)) => {
+                let pair = |key: &str| match map.get(key) {
+                    Some(Value::Vec2(v)) => Ok(*v),
+                    Some(other) => Err(Mismatch::Content(format!(
+                        "{key} is a {}",
+                        other.type_name()
+                    ))),
+                    None => Err(Mismatch::Content(format!("it has no {key}"))),
+                };
+                Ok(Value::Rect(Rect::new(pair("pos")?, pair("size")?)))
+            }
+            // `{ x, y, w, h }` — the written form, as a Lua array.
+            (Value::Rect(_), Value::List(items)) if items.len() == 4 => {
+                let at = |i: usize| {
+                    items[i].as_scalar().ok_or_else(|| {
+                        Mismatch::Content(format!("element {} is not a number", i + 1))
+                    })
+                };
+                Ok(Value::Rect(Rect::new(
+                    Vec2Fx::new(at(0)?, at(1)?),
+                    Vec2Fx::new(at(2)?, at(3)?),
+                )))
+            }
+            (Value::Rect(_), Value::List(items)) => Err(Mismatch::Content(format!(
+                "a rect is four numbers and this is {}",
+                items.len()
+            ))),
+            _ => Err(Mismatch::Type),
+        }
     }
 
     /// The schema type name, for error messages.

@@ -43,4 +43,4 @@ pub use parse::{
 };
 pub use schema::{KindRegistry, NodeKindSchema, PropertySchema, PropertyType, RESERVED_KEYS};
 pub use tree::Scene;
-pub use value::{Color, Reference, Value};
+pub use value::{Color, Mismatch, Reference, Value};

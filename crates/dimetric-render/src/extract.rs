@@ -135,7 +135,7 @@ pub fn extract_with_canvas(
 
         match node.base.as_str() {
             "Sprite2D" | "AnimatedSprite2D" => {
-                if let Some(item) = sprite(node, pos, world.rot, camera, atlas) {
+                if let Some(item) = sprite(node, pos, world.rot, world.scale, camera, atlas) {
                     sprites.push(item);
                 }
             }
@@ -331,6 +331,7 @@ fn sprite(
     node: &dimetric_scene::Node,
     pos: Vec2Fx,
     rotation: Angle,
+    scale: Vec2Fx,
     camera: &Camera,
     atlas: &Atlas,
 ) -> Option<DrawItem> {
@@ -385,7 +386,23 @@ fn sprite(
         .and_then(Value::as_vec2)
         .unwrap_or(Vec2Fx::ZERO);
     let center = pos + offset;
-    let size = Vec2Fx::from_ints(region.size.0 as i32, region.size.1 as i32);
+    // `scale` is a key every node has, `tween.rs` writes it into the transform,
+    // and nothing drew it: a scale tween ran, was hashed and snapshotted, and
+    // changed nothing on screen. A health bar could not shrink and a hit could
+    // not squash.
+    //
+    // The world scale, so a scaled parent scales its children, which is what
+    // makes it worth being on the transform rather than on the sprite. A
+    // negative component mirrors the quad, since the shader builds it from
+    // `(corner - 0.5) * size` — so `scale = [-1, 1]` and `flip_h = true` are two
+    // ways to mirror, and doing both cancels out, which is the only consistent
+    // answer.
+    //
+    // Sprites only. A scaled `TileLayer` would grow its tiles without moving the
+    // step between them and break the lattice; a scaled `Label` would grow its
+    // glyphs without spreading them, because the advance is in screen pixels.
+    // Both want a deliberate answer rather than this one.
+    let size = Vec2Fx::from_ints(region.size.0 as i32, region.size.1 as i32).mul_components(scale);
     let blend = node
         .get("blend")
         .and_then(Value::as_str)

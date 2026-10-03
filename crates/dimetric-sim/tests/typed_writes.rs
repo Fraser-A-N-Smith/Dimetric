@@ -35,7 +35,7 @@ fn scene() -> Scene {
          script = \"script:main.lua\"\n\n\
          [[node]]\nid = \"n_hero0000\"\nkind = \"Sprite2D\"\nname = \"Hero\"\n\
          parent = \"n_root0000\"\ntexture = \"asset:sprites/hero\"\n\
-         modulate = \"#ffffffff\"\n";
+         modulate = \"#ffffffff\"\nregion = [0.0, 0.0, 16.0, 16.0]\n";
     let out = dimetric_scene::parse(text, "f.dim", &KindRegistry::with_builtins());
     assert!(!out.diagnostics.has_errors(), "{}", out.diagnostics);
     out.doc.unwrap().scene
@@ -260,4 +260,82 @@ fn text_that_is_not_a_reference_is_refused_with_the_reason() {
          end\n");
     assert!(out.contains("reference"), "{out}");
     assert!(out.contains("sprites/other"), "{out}");
+}
+
+#[test]
+fn a_rect_can_be_written_back_as_the_table_it_was_read_as() {
+    // A rect reaches a script as `{ pos = vec2, size = vec2 }`, because that is
+    // what `to_lua` makes of one — so unlike a colour it is not a string, and
+    // the fix for the string types did not cover it. `node:set(k, node:get(k))`
+    // has to work on every type or the rule has an exception in it.
+    let (sim, out) = step(
+        "function on_tick(self)\n\
+         \x20 local hero = scene.find(\"/World/Hero\")\n\
+         \x20 hero:set(\"region\", { pos = vec2(0, 0), size = vec2(8, 4) })\n\
+         \x20 hero:set(\"region\", hero:get(\"region\"))\n\
+         end\n",
+    );
+    assert_eq!(out, "", "{out}");
+    let state = sim.state();
+    let id = state.scene.resolve_path("/World/Hero").expect("hero");
+    let region = state.scene.get(id).expect("hero").get("region").cloned();
+    assert!(
+        matches!(region, Some(dimetric_scene::Value::Rect(_))),
+        "landed as {region:?}, not a rect"
+    );
+}
+
+#[test]
+fn a_rect_can_be_written_as_the_text_the_engine_writes() {
+    // `[x, y, w, h]` is what `Display` produces for a rect everywhere else in
+    // the engine, so a script building one out of four numbers should be able
+    // to spell it that way rather than making two vectors.
+    let (sim, out) = step(
+        "function on_tick(self)\n\
+         \x20 scene.find(\"/World/Hero\"):set(\"region\", \"[0, 0, 8, 4]\")\n\
+         end\n",
+    );
+    assert_eq!(out, "", "{out}");
+    let state = sim.state();
+    let id = state.scene.resolve_path("/World/Hero").expect("hero");
+    let Some(dimetric_scene::Value::Rect(r)) = state.scene.get(id).expect("hero").get("region")
+    else {
+        panic!("not a rect");
+    };
+    assert_eq!(r.size, dimetric_core::Vec2Fx::from_ints(8, 4));
+}
+
+#[test]
+fn a_rect_can_be_written_as_an_array_of_four() {
+    let (sim, out) = step(
+        "function on_tick(self)\n\
+         \x20 scene.find(\"/World/Hero\"):set(\"region\", { 0, 0, 8, 4 })\n\
+         end\n",
+    );
+    assert_eq!(out, "", "{out}");
+    let state = sim.state();
+    let id = state.scene.resolve_path("/World/Hero").expect("hero");
+    let Some(dimetric_scene::Value::Rect(r)) = state.scene.get(id).expect("hero").get("region")
+    else {
+        panic!("not a rect");
+    };
+    assert_eq!(r.size, dimetric_core::Vec2Fx::from_ints(8, 4));
+}
+
+#[test]
+fn a_table_that_is_not_a_rect_is_refused_with_the_reason() {
+    let out = run("function on_tick(self)\n\
+         \x20 scene.find(\"/World/Hero\"):set(\"region\", { pos = vec2(0, 0) })\n\
+         end\n");
+    assert!(out.contains("rect"), "{out}");
+    assert!(out.contains("no size"), "{out}");
+}
+
+#[test]
+fn text_that_is_not_a_rect_is_refused_with_the_reason() {
+    let out = run("function on_tick(self)\n\
+         \x20 scene.find(\"/World/Hero\"):set(\"region\", \"[0, 0, 8]\")\n\
+         end\n");
+    assert!(out.contains("rect"), "{out}");
+    assert!(out.contains("four numbers"), "{out}");
 }

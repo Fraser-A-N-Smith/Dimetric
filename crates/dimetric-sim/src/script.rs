@@ -373,20 +373,32 @@ impl UserData for NodeHandle {
                         // Everything else is still a type change and still
                         // refused: this widens what counts as writing the same
                         // type, not what counts as a type.
-                        let text = value.as_str().unwrap_or_default().to_string();
-                        match value.as_str().and_then(|t| existing.reparse(t)) {
-                            Some(Ok(parsed)) => value = parsed,
-                            Some(Err(why)) => {
+                        // A colour, an angle, a reference and an enum reach a
+                        // script as a string, and a rect as a table, because
+                        // that is how each is written and how `get` hands it
+                        // back. Writing one of those back is the same type
+                        // spelled the way it arrived, not a type change — and
+                        // without this `node:set(k, node:get(k))` was refused on
+                        // every one of them.
+                        //
+                        // What comes back is re-read rather than trusted, so
+                        // what lands in state is what the scene parser would
+                        // have made of the same characters. Everything else is
+                        // still a type change and still refused.
+                        match existing.reshape(value.clone()) {
+                            Ok(reshaped) => value = reshaped,
+                            Err(dimetric_scene::Mismatch::Content(why)) => {
                                 return Err(mlua::Error::external(Diagnostic::new(
                                     Code::SCRIPT_BAD_ARGUMENT,
                                     format!(
-                                        "{key:?} on this node is a {}, and {text:?} is not \
-                                         one: {why}",
-                                        existing.type_name()
+                                        "{key:?} on this node is a {}, and {} is not one: \
+                                         {why}",
+                                        existing.type_name(),
+                                        quoted(&value),
                                     ),
                                 )))
                             }
-                            None => {
+                            Err(dimetric_scene::Mismatch::Type) => {
                                 return Err(mlua::Error::external(Diagnostic::new(
                                     Code::SCRIPT_BAD_ARGUMENT,
                                     format!(
@@ -2204,6 +2216,14 @@ fn install_api(
     env.set("require", require).map_err(err)?;
 
     Ok(())
+}
+
+/// A value as it should appear in a diagnostic: text quoted, anything else not.
+fn quoted(value: &Value) -> String {
+    match value.as_str() {
+        Some(text) => format!("{text:?}"),
+        None => format!("a {}", value.type_name()),
+    }
 }
 
 /// Put the clip a script asked for onto the node's own `animation` property.

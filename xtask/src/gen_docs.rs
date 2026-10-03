@@ -360,10 +360,16 @@ fn render_markdown(
          the type of record, because it came through the parser, which had the schema.\n\n\
          Four types reach a script as a string, because a string is how they are\n\
          written: a colour is `#rrggbbaa`, an angle is degrees, a reference is\n\
-         `asset:sprites/bogling`, an enum is its variant. Writing one of those back is\n\
-         *not* a type change — the text is re-read by the same parser the scene format\n\
-         uses, so `node:set(k, node:get(k))` round-trips on every type, and text that\n\
-         does not parse is refused with the reason rather than stored.\n\n\
+         `asset:sprites/bogling`, an enum is its variant. A rect reaches it as a table,\n\
+         `{ pos = vec2, size = vec2 }`. Writing any of those back is *not* a type change\n\
+         — what arrives is re-read by the same parser the scene format uses, so\n\
+         `node:set(k, node:get(k))` round-trips on every type, and something that does\n\
+         not parse is refused with the reason rather than stored.\n\n\
+         A rect also takes the form the engine writes everywhere else, so a script\n\
+         building one out of numbers need not make two vectors:\n\n\
+         ```lua\n\
+         node:set(\"region\", \"[0, 0, 8, 4]\")   -- or { 0, 0, 8, 4 }\n\
+         ```\n\n\
          ### Colours\n\n\
          ```lua\n\
          bar:set(\"modulate\", color.rgba(255, 143, 74, 255))\n\
@@ -375,6 +381,19 @@ fn render_markdown(
          arithmetic that produced it. Alpha is explicit, here as in a `.dim` file —\n\
          `#ff8f4a` is not a colour in this engine, and `color.rgb` is how to mean\n\
          opaque. A colour is a node property, so it is hashed and replays like `pos`.\n\n\
+         ### Scale\n\n\
+         `scale` is one of the keys every node has, and it is drawn: a `Sprite2D` or an\n\
+         `AnimatedSprite2D` multiplies its quad by its **world** scale, so scaling a\n\
+         parent scales its children. A negative component mirrors the quad, which makes\n\
+         `flip_h` sugar for `scale = [-1, 1]` — and doing both cancels out, because they\n\
+         are two ways to say the same thing.\n\n\
+         `scale` can be tweened like any other vector, which is what a health bar that\n\
+         shrinks and a sprite that squashes on a hit are made of.\n\n\
+         A `TileLayer` and a `Label` are deliberately **not** scaled by it. A tile\n\
+         layer\'s sprite size and the step between its cells are different numbers, and\n\
+         scaling one without the other breaks the lattice; a label\'s glyph advance is in\n\
+         screen pixels, so scaling it would grow the letters without spreading them.\n\
+         Both want an answer of their own rather than this one.\n\n\
          ### Spawning\n\n\
          `scene.spawn` returns the id the node *will* have and creates nothing yet.\n\
          A node inserted mid-tick would be going into a tree another script may be\n\
