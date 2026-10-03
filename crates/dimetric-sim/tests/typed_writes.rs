@@ -218,15 +218,23 @@ fn the_reserved_keys_are_still_writable_where_they_live() {
 }
 
 #[test]
-fn a_property_the_scene_never_authored_is_left_alone() {
-    // Nothing to compare against, so nothing is refused. The check uses the
-    // authored value as the type of record and has no opinion where there is
-    // none — it is a guard against *changing* a type, not a schema.
+fn a_key_the_kind_does_not_declare_is_refused() {
+    // This test used to assert the opposite, on the grounds that the guard
+    // used the authored value as its type of record and so had no opinion
+    // where there was none — "a guard against *changing* a type, not a
+    // schema". That was true and it was the hole: the write was stored, the
+    // save wrote it out, and the loader then refused the whole file as
+    // `DIM0301`, unknown property. A save that cannot be opened is worse than
+    // one that hashes differently, and the kind's schema is right here.
+    //
+    // It is also the `raduis = 72.0` typo, which is the entire reason an
+    // unknown property is a hard error at load.
     let out = run("function on_tick(self)\n\
          \x20 local hero = scene.find(\"/World/Hero\")\n\
          \x20 hero:set(\"something_unauthored\", \"anything\")\n\
          end\n");
-    assert_eq!(out, "", "{out}");
+    assert!(out.contains("DIM0301"), "{out}");
+    assert!(out.contains("Sprite2D declares no"), "{out}");
 }
 
 #[test]

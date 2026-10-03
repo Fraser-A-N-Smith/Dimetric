@@ -1,0 +1,27 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Stage"
+script = "script:scripts/frame.lua"
+
+[[node]]
+id = "n_view0000"
+kind = "Camera2D"
+name = "View"
+parent = "n_root0000"          # /Stage
+current = true
+
+[[node]]
+id = "n_lamp0000"
+kind = "Light2D"
+name = "Lamp"
+parent = "n_root0000"          # /Stage
+color = "#ff8f4aff"
+radius = 96.0
+shape = "Cone"

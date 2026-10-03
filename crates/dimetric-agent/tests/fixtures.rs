@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use dimetric_host::replay::{parse_probes, HashLog};
 use dimetric_host::{Project, Replay};
-use dimetric_sim::{InputLog, LuaHost, SimConfig};
+use dimetric_sim::{InputLog, SimConfig};
 
 fn fixtures_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -57,8 +57,11 @@ fn replay(dir: &Path) -> dimetric_host::ReplayReport {
         .runtime_scene()
         .unwrap_or_else(|d| panic!("{}: {d}", dir.display()));
     diags.extend(project.load_scripts());
-    let mut host = LuaHost::new(60).expect("lua host");
-    host.set_fonts(project.fonts());
+    // The project's own host — fonts and node kinds included. A fixture
+    // replayed on a host that does not know the project's kinds cannot cover a
+    // write to a property the node carries no value for, which is exactly what
+    // one of them is for.
+    let mut host = project.script_host().expect("lua host");
     let script_diags = host.load_all(
         project
             .scripts
@@ -184,8 +187,11 @@ fn the_example_project_replays_as_the_readme_says_it_does() {
 
     let (scene, mut diags) = project.runtime_scene().unwrap_or_else(|d| panic!("{d}"));
     diags.extend(project.load_scripts());
-    let mut host = LuaHost::new(60).expect("lua host");
-    host.set_fonts(project.fonts());
+    // The project's own host — fonts and node kinds included. A fixture
+    // replayed on a host that does not know the project's kinds cannot cover a
+    // write to a property the node carries no value for, which is exactly what
+    // one of them is for.
+    let mut host = project.script_host().expect("lua host");
     let script_diags = host.load_all(
         project
             .scripts

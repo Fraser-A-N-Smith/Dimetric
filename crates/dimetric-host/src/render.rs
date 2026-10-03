@@ -20,7 +20,7 @@ use dimetric_render::{
     Renderer,
 };
 use dimetric_scene::{Color, Scene, Value};
-use dimetric_sim::{InputLog, LuaHost, Sim, SimState};
+use dimetric_sim::{InputLog, Sim, SimState};
 
 use crate::project::Project;
 
@@ -250,8 +250,7 @@ pub fn capture(
     let config = project.sim_config();
     diagnostics.extend(project.settings_diagnostics.clone());
 
-    let mut host = LuaHost::new(config.tick_rate).map_err(one)?;
-    host.set_fonts(project.fonts());
+    let mut host = project.script_host().map_err(one)?;
     for d in host.load_all(
         project
             .scripts

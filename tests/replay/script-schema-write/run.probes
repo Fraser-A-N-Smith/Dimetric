@@ -1,0 +1,11 @@
+# A rect written as a Lua list of integers is a rect in state, not a list — so
+# it renders in the written form a save round-trips through.
+tick 40 /Stage/View limits == [0.0, 0.0, 24.0, 3.0]
+
+# And an angle written as text is an angle, not the string.
+tick 40 /Stage/Lamp cone_angle == 20.50048828125
+
+# The script's own view of what it wrote, so a change to either type shows up
+# here as well as in the hash.
+tick 41 /Stage var:limits == 48.0
+tick 42 /Stage var:cone == 22.5

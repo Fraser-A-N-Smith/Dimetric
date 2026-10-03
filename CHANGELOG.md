@@ -14,6 +14,70 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: a script's write to a property the node never authored is typed
+
+`node:set` guards a write against the value the node already carries, because
+that value came through the parser and the parser had the schema. The guard was
+therefore a guard against *changing* a type, not a schema check — and said so.
+The hole that left:
+
+```lua
+-- A Sprite2D authored without a `region`, because the whole texture is wanted.
+hero:set("region", { 0, 0, 24, 3 })
+```
+
+`region` has **no default**, so a sprite that did not author one carries no
+value for it, so there was nothing to check the write against. The list of
+integers went into state exactly as the scripting boundary made it. The
+renderer coped, so nothing on screen said so. The save wrote
+`region = [0, 0, 24, 3]` — integers, where an authored rect is
+`[0.0, 0.0, 24.0, 3.0]` — the loader typed it from the schema, and the reloaded
+state hashed **differently from the live state it came from**. Written as the
+string `"[0, 0, 24, 3]"` instead, the save did not load at all.
+
+Now the kind's declared type is the type of record when the node has no value,
+and the write is reshaped to it or refused with the same `DIM0505`. The
+properties this covers are the ones with no default and not required: `region`
+on a sprite, `limits` on a camera, `cone_angle` on a light, `tile_size` on a
+tile layer, and any such property of a project-declared kind.
+
+Two things only the schema knows are checked along with the type, because both
+produce a save that will not *load* rather than one that merely hashes
+differently: an enum takes only its own variants, and a reference property only
+its own prefix. And a key the kind does not declare at all is now refused with
+`DIM0301` — the same code the loader raises for it — rather than stored to
+become a file nothing can open. That last one is a **behaviour change**: a
+script that wrote a misspelled property used to be allowed to.
+
+`PropertyType::reshape` is `Value::reshape` handed a witness value of the
+declared type, so there is one set of rules and the two routes to it cannot
+drift. The registry reaches the write path as Lua app data on the script host,
+beside the fonts and the module cache — **not** in `SimState`: a registry is
+unchanging project data the run does not own, and a field in the state is a
+field a later change starts hashing by accident.
+
+**Moves the state hash:** only for a run in which a script wrote a property its
+node did not carry, which is exactly the state that was wrong. Every replay
+fixture in the repository reproduces its recorded hashes unchanged.
+
+### Fixed: `dim replay` and the editor's preview built the wrong script host
+
+Found while giving the registry one door to come through. `Project::script_host`
+now builds the host for every caller that has a project, and three things it
+supplies had each been forgotten somewhere:
+
+- **`dim replay` used a hardcoded 60Hz** while stepping the simulation at the
+  project's own rate, so `tick.dt` inside a script disagreed with the tick it
+  was in. A project that is not 60Hz did not replay the run it recorded.
+- **`dim replay` and the editor's playback had no fonts**, so `ui.measure`
+  answered from nothing. A control sized from a measured string is hashed, so
+  this is the same class of defect.
+- **Nobody had the node kinds**, which is what the entry above needed.
+
+**Moves the state hash:** for a replay or a preview of a project that is not
+60Hz, or whose scripts measure text — in both cases towards the run that was
+actually recorded. The example project is 60Hz and its fixtures are unchanged.
+
 ### Added: `dim build --single`, a game that is one file
 
 `package.rs` argues for staging files beside the runtime and the argument is

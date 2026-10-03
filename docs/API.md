@@ -502,6 +502,28 @@ which reaches the node.
 A write may not change a property's type (`DIM0505`). The authored value is
 the type of record, because it came through the parser, which had the schema.
 
+When the node carries no value for the key, the **kind's declared type** is
+the record instead. That is not the same as nothing being checked. Canonical
+form omits a property equal to its default and the loader fills those back
+in, so the keys absent from a node are the ones with **no default and not
+required** — `region` on a sprite, `limits` on a camera, `cone_angle` on a
+light, `tile_size` on a tile layer, and any such property of a kind the
+project declares. A write to one of those is reshaped to the declared type,
+or refused with the same `DIM0505`. It is what keeps
+`node:set("region", { 0, 0, 24, 3 })` from storing a list of integers on a
+sprite that never authored a region — which drew correctly, and then did not
+survive a save.
+
+Two things only the schema knows are checked along with the type: an enum takes
+only its own variants, and a reference property only its own prefix — a
+`scene:` reference written into an `asset:` property is refused rather than
+stored, because stored it would be a save that will not open.
+
+A key the kind does not declare at all is refused with `DIM0301`, the same code
+the loader raises for it. There is nowhere for such a property to go: a save
+would carry it out and then fail to load back in, so the spelling is worth
+reporting at the line that wrote it.
+
 Four types reach a script as a string, because a string is how they are
 written: a colour is `#rrggbbaa`, an angle is degrees, a reference is
 `asset:sprites/bogling`, an enum is its variant. A rect reaches it as a table,

@@ -18,7 +18,7 @@
 
 use dimetric_core::Diagnostics;
 use dimetric_host::Project;
-use dimetric_sim::{InputFrame, InputLog, LuaHost, Sim, SimState};
+use dimetric_sim::{InputFrame, InputLog, Sim, SimState};
 
 /// How often a snapshot is kept while playing.
 ///
@@ -97,7 +97,7 @@ impl Playback {
         // tick rate or canvas it does not use is previewing a different game.
         let config = project.sim_config();
         diagnostics.extend(project.settings_diagnostics.clone());
-        let mut host = LuaHost::new(config.tick_rate).map_err(|d| Diagnostics(vec![d]))?;
+        let mut host = project.script_host().map_err(|d| Diagnostics(vec![d]))?;
         for d in host.load_all(
             project
                 .scripts

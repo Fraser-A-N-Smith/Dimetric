@@ -358,6 +358,25 @@ fn render_markdown(
          which reaches the node.\n\n\
          A write may not change a property's type (`DIM0505`). The authored value is\n\
          the type of record, because it came through the parser, which had the schema.\n\n\
+         When the node carries no value for the key, the **kind's declared type** is\n\
+         the record instead. That is not the same as nothing being checked. Canonical\n\
+         form omits a property equal to its default and the loader fills those back\n\
+         in, so the keys absent from a node are the ones with **no default and not\n\
+         required** — `region` on a sprite, `limits` on a camera, `cone_angle` on a\n\
+         light, `tile_size` on a tile layer, and any such property of a kind the\n\
+         project declares. A write to one of those is reshaped to the declared type,\n\
+         or refused with the same `DIM0505`. It is what keeps\n\
+         `node:set(\"region\", { 0, 0, 24, 3 })` from storing a list of integers on a\n\
+         sprite that never authored a region — which drew correctly, and then did not\n\
+         survive a save.\n\n\
+         Two things only the schema knows are checked along with the type: an enum takes\n\
+         only its own variants, and a reference property only its own prefix — a\n\
+         `scene:` reference written into an `asset:` property is refused rather than\n\
+         stored, because stored it would be a save that will not open.\n\n\
+         A key the kind does not declare at all is refused with `DIM0301`, the same code\n\
+         the loader raises for it. There is nowhere for such a property to go: a save\n\
+         would carry it out and then fail to load back in, so the spelling is worth\n\
+         reporting at the line that wrote it.\n\n\
          Four types reach a script as a string, because a string is how they are\n\
          written: a colour is `#rrggbbaa`, an angle is degrees, a reference is\n\
          `asset:sprites/bogling`, an enum is its variant. A rect reaches it as a table,\n\

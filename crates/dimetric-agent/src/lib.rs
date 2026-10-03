@@ -671,10 +671,16 @@ fn script_sources(
 
 /// A host with the project's whole script set in its module registry, and
 /// nothing loaded yet.
-fn script_host(
+///
+/// Built from the project rather than from the engine's defaults, so a check
+/// runs against the same tick rate, fonts and node kinds the game does — see
+/// [`Project::script_host`]. Nothing here ticks, but a check that differs from
+/// the runtime in any respect is a check of a different program.
+fn registered_host(
+    project: &Project,
     sources: &std::collections::BTreeMap<String, String>,
 ) -> Result<dimetric_sim::LuaHost, Diagnostics> {
-    let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
+    let mut host = project.script_host().map_err(one)?;
     for (path, source) in sources {
         host.register(path, source);
     }
@@ -698,7 +704,7 @@ fn script_command(project: &mut Project, cmd: ScriptCmd) -> Result<Output, Diagn
             // other scripts go into the registry first, so a file that requires
             // one of them can still be written.
             let sources = script_sources(project, Some((&path, &text)));
-            let mut host = script_host(&sources)?;
+            let mut host = registered_host(project, &sources)?;
             host.load(&path, &text).map_err(one)?;
             project.apply(Command::WriteScript {
                 path: path.clone(),
@@ -739,7 +745,7 @@ fn script_command(project: &mut Project, cmd: ScriptCmd) -> Result<Output, Diagn
                 None => sources.keys().cloned().collect(),
             };
 
-            let mut host = script_host(&sources)?;
+            let mut host = registered_host(project, &sources)?;
             let mut failures: Vec<Diagnostic> = Vec::new();
             let mut hazards: Vec<Diagnostic> = Vec::new();
             let mut files: Vec<serde_json::Value> = Vec::new();
@@ -1192,10 +1198,8 @@ fn build_sim(project: &mut Project, seed: u64) -> Result<BuiltSim, Diagnostics> 
     // The project's own settings, not the defaults: the tick rate and the
     // canvas are both part of what a recorded run means, so a run started from
     // the CLI has to use the same ones the game will.
-    let settings = project.settings.clone();
     diags.extend(project.settings_diagnostics.clone());
-    let mut host = dimetric_sim::LuaHost::new(settings.tick_rate).map_err(one)?;
-    host.set_fonts(project.fonts());
+    let mut host = project.script_host().map_err(one)?;
     diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
     let config = project.sim_config();
     let profile = host.profile_handle();
@@ -1678,7 +1682,10 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     let (scene, mut diags) = project.runtime_scene()?;
     diags.extend(template_diags);
     diags.extend(project.load_scripts());
-    let mut host = dimetric_sim::LuaHost::new(60).map_err(one)?;
+    // The project's own host, not a 60Hz one with no fonts: `tick.dt` and
+    // `ui.measure` both reach the state hash, so a replay built on the engine's
+    // defaults is not a replay of the run that was recorded.
+    let mut host = project.script_host().map_err(one)?;
     diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
 
     let replay = dimetric_host::Replay {

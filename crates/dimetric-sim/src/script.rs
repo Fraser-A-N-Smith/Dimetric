@@ -32,7 +32,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use dimetric_core::{Angle, Code, Diagnostic, Fx, NodeUid, Vec2Fx};
-use dimetric_scene::Value;
+use dimetric_scene::{schema::PropertyType, Value};
 use indexmap::IndexMap;
 use mlua::{Lua, MultiValue, Table, UserData, UserDataMethods, Variadic};
 
@@ -41,6 +41,27 @@ use crate::tick::{Hook, ScriptHost};
 
 /// Shared handle to the state a hook is running against.
 type Shared = Rc<RefCell<SimState>>;
+
+/// The project's node kinds, as the write path sees them.
+///
+/// Beside the log lines, the profile and the fonts, and deliberately *not* in
+/// [`SimState`]: a registry is unchanging project data the run does not own,
+/// exactly like a module's source or a font's metrics. A script's write is
+/// already a function of the project's code; which properties a kind declares
+/// is the same sort of input, and putting it in the state would put a thing
+/// every snapshot copies and every hash walks where nothing needs it.
+///
+/// Held as an `Rc` because it is read-only once the host has it, and installed
+/// as Lua app data rather than carried through [`HostHandles`] because the
+/// reader is `node:set` — a `UserData` method, which is handed a `&Lua` and
+/// nothing else. Unlike the state handle it is not taken back after a
+/// dispatch: the state must not outlive one call, and this is not state.
+type Kinds = Rc<dimetric_scene::KindRegistry>;
+
+/// The project's kinds, if this Lua has been told them.
+fn kinds(lua: &Lua) -> Option<Kinds> {
+    lua.app_data_ref::<Kinds>().map(|r| r.clone())
+}
 
 /// What `require` can reach, shared with every environment that has one.
 ///
@@ -339,82 +360,83 @@ impl UserData for NodeHandle {
                     ),
                 )));
             }
-            if let Some(node) = state.scene.node_mut_no_transform(id) {
-                // A write may not change a property's *type*.
-                //
-                // `from_lua` has no schema to consult, so a Lua string becomes
-                // a `Value::Str` whatever the property is declared as. Writing
-                // one into a colour used to succeed, and then:
-                //
-                //   * the renderer read it back with `as_color`, got nothing,
-                //     and silently stopped drawing that node;
-                //   * the save wrote the string, the loader typed it correctly
-                //     from the schema, and the restored state hashed
-                //     *differently from the live state it came from* — a save
-                //     that did not round-trip, with nothing saying so.
-                //
-                // The authored value is the type of record. It came through
-                // the parser, which did have the schema. Refusing a write that
-                // disagrees with it turns both of those silences into a
-                // diagnostic at the line that caused them.
-                let mut value = value;
-                if let Some(existing) = node.get(&key) {
-                    if existing.type_name() != value.type_name() {
-                        // A colour, an angle, a reference and an enum all reach
-                        // a script as a string, because a string is what they
-                        // are written as. So `node:set(k, node:get(k))` used to
-                        // be refused — `get` and `set` were not symmetric — and
-                        // with no constructor for a colour either, `modulate`
-                        // could be read and could not be written at all.
-                        //
-                        // The text is re-read as the property's own type rather
-                        // than trusted, so what lands in state is what the
-                        // scene parser would have made of the same characters.
-                        // Everything else is still a type change and still
-                        // refused: this widens what counts as writing the same
-                        // type, not what counts as a type.
-                        // A colour, an angle, a reference and an enum reach a
-                        // script as a string, and a rect as a table, because
-                        // that is how each is written and how `get` hands it
-                        // back. Writing one of those back is the same type
-                        // spelled the way it arrived, not a type change — and
-                        // without this `node:set(k, node:get(k))` was refused on
-                        // every one of them.
-                        //
-                        // What comes back is re-read rather than trusted, so
-                        // what lands in state is what the scene parser would
-                        // have made of the same characters. Everything else is
-                        // still a type change and still refused.
-                        match existing.reshape(value.clone()) {
-                            Ok(reshaped) => value = reshaped,
-                            Err(dimetric_scene::Mismatch::Content(why)) => {
-                                return Err(mlua::Error::external(Diagnostic::new(
-                                    Code::SCRIPT_BAD_ARGUMENT,
-                                    format!(
-                                        "{key:?} on this node is a {}, and {} is not one: \
-                                         {why}",
-                                        existing.type_name(),
-                                        quoted(&value),
-                                    ),
-                                )))
-                            }
-                            Err(dimetric_scene::Mismatch::Type) => {
-                                return Err(mlua::Error::external(Diagnostic::new(
-                                    Code::SCRIPT_BAD_ARGUMENT,
-                                    format!(
-                                        "{:?} on this node is a {}, and this writes a {}. A \
-                                         script cannot change a property's type: the value \
-                                         would not be read back, and a save would not \
-                                         round-trip.",
-                                        key,
-                                        existing.type_name(),
-                                        value.type_name()
-                                    ),
-                                )))
-                            }
-                        }
-                    }
+            // A write may not change a property's *type*.
+            //
+            // `from_lua` has no schema to consult, so a Lua string becomes a
+            // `Value::Str` whatever the property is declared as. Writing one
+            // into a colour used to succeed, and then:
+            //
+            //   * the renderer read it back with `as_color`, got nothing, and
+            //     silently stopped drawing that node;
+            //   * the save wrote the string, the loader typed it correctly
+            //     from the schema, and the restored state hashed *differently
+            //     from the live state it came from* — a save that did not
+            //     round-trip, with nothing saying so.
+            //
+            // Refusing a write that disagrees with the property's type turns
+            // both of those silences into a diagnostic at the line that caused
+            // them. What the type *is* comes from one of two places, and
+            // [`Typed`] says which.
+            let value = match typed(&state, kinds(lua).as_deref(), id, &key) {
+                // The authored value, which came through the parser — and the
+                // parser had the schema.
+                Typed::Authored(existing) if existing.type_name() != value.type_name() => {
+                    // A colour, an angle, a reference and an enum reach a
+                    // script as a string, and a rect as a table, because that
+                    // is how each is written and how `get` hands it back.
+                    // Writing one of those back is the same type spelled the
+                    // way it arrived, not a type change — and without this
+                    // `node:set(k, node:get(k))` was refused on every one of
+                    // them.
+                    //
+                    // What comes back is re-read rather than trusted, so what
+                    // lands in state is what the scene parser would have made
+                    // of the same characters. Everything else is still a type
+                    // change and still refused.
+                    existing
+                        .reshape(value.clone())
+                        .map_err(|m| mismatch(&key, existing.type_name(), &value, m))?
                 }
+                // Already the property's own type, spelled as the property is.
+                Typed::Authored(_) => value,
+                // Nothing authored, so the kind's declaration is the only
+                // record of what the property is. A property with no default
+                // is absent from a node that did not author one — `region` on
+                // a sprite that wants its whole texture, `limits` on an
+                // unbounded camera — and a write to one of those used to land
+                // in state exactly as the scripting boundary made it. The
+                // renderer coped, so nothing on screen said so; only a save
+                // did, later, by not round-tripping.
+                Typed::Declared(ty) => ty
+                    .reshape(value.clone())
+                    .map_err(|m| mismatch(&key, &ty.name(), &value, m))?,
+                // The kind has no such property. Stored, this reaches the save
+                // and the save then fails to *load* — `DIM0301`, unknown
+                // property — so the write is worse than a type change and the
+                // same answer is worth giving at the same place. It is also
+                // the `raduis = 72.0` typo, which is the whole reason unknown
+                // properties are a hard error in the first place.
+                Typed::Undeclared { kind } => {
+                    return Err(mlua::Error::external(
+                        Diagnostic::new(
+                            Code::UNKNOWN_PROPERTY,
+                            format!(
+                                "{kind} declares no {key:?}, so writing it would store a \
+                                 property the loader refuses: a save of this state would \
+                                 not open. Check the spelling against the kind's schema."
+                            ),
+                        )
+                        .with_field("kind", kind.clone())
+                        .with_field("property", key.clone()),
+                    ))
+                }
+                // The kind is not registered with this host, so there is
+                // nothing to check against and guessing would be worse than
+                // the gap. `Project::script_host` is what makes this not
+                // happen for a real project.
+                Typed::Unknown => value,
+            };
+            if let Some(node) = state.scene.node_mut_no_transform(id) {
                 node.set(key, value);
             }
             Ok(())
@@ -852,6 +874,11 @@ impl LuaHost {
     /// Create a host with the sandbox installed.
     pub fn new(tick_rate: u32) -> Result<LuaHost, Diagnostic> {
         let lua = Lua::new();
+        // The built-in kinds by default, so a host nobody told about a
+        // project still types a write to `region` or `limits` correctly.
+        // `set_kinds` replaces them with the project's own registry, which is
+        // the only way a project-declared kind's properties get typed.
+        lua.set_app_data::<Kinds>(Rc::new(dimetric_scene::KindRegistry::with_builtins()));
         Ok(LuaHost {
             events: Rc::new(RefCell::new(Vec::new())),
             quit: Rc::new(std::cell::Cell::new(false)),
@@ -941,6 +968,23 @@ impl LuaHost {
     /// that could, and layout is hashed.
     pub fn set_fonts(&mut self, fonts: crate::text::Fonts) {
         *self.fonts.borrow_mut() = fonts;
+    }
+
+    /// Supply the project's node kinds, so a write can be typed by the schema.
+    ///
+    /// `node:set` guards a write against the value the node already carries,
+    /// because that value came through the parser and the parser had the
+    /// schema. A property with no default is absent from a node that did not
+    /// author one, so there is no such value, and the registry is the only
+    /// other place the property's type exists.
+    ///
+    /// Defaults to the built-in kinds, which is enough for every built-in
+    /// property. A project that declares kinds of its own has to hand them in
+    /// or writes to *their* no-default properties go untyped — which is why
+    /// `Project::script_host` exists rather than six call sites each
+    /// remembering to do this.
+    pub fn set_kinds(&mut self, kinds: dimetric_scene::KindRegistry) {
+        self.lua.set_app_data::<Kinds>(Rc::new(kinds));
     }
 
     /// The profile store this host hands to scripts.
@@ -2254,6 +2298,82 @@ fn quoted(value: &Value) -> String {
         Some(text) => format!("{text:?}"),
         None => format!("a {}", value.type_name()),
     }
+}
+
+/// What a property's type is, and where that is recorded.
+///
+/// A write to a node property has to be checked against something, or a value
+/// the renderer cannot read back lands in state and only a save says so. Two
+/// places know what a property is, and they are not interchangeable.
+enum Typed {
+    /// The value the node already carries. Preferred when there is one: it
+    /// came through the parser, so it is the schema's answer *and* the
+    /// author's, and a write that passes against it passed before any of this
+    /// existed.
+    Authored(Value),
+    /// The kind's declared type, for a key the node carries no value for.
+    ///
+    /// Canonical form omits a property equal to its default and the parser
+    /// fills those back in, so an absent key means a property with **no
+    /// default and not required** — `region`, `limits`, `cone_angle`,
+    /// `tile_size`, and any such property of a project-declared kind.
+    Declared(PropertyType),
+    /// The kind is registered and declares no such property.
+    Undeclared {
+        /// The node's kind, for the diagnostic.
+        kind: String,
+    },
+    /// The kind is not registered with this host, so nothing here knows.
+    Unknown,
+}
+
+/// Find the type of record for a write of `key` to `id`.
+fn typed(
+    state: &SimState,
+    kinds: Option<&dimetric_scene::KindRegistry>,
+    id: dimetric_core::NodeId,
+    key: &str,
+) -> Typed {
+    let Some(node) = state.scene.get(id) else {
+        return Typed::Unknown;
+    };
+    if let Some(existing) = node.get(key) {
+        return Typed::Authored(existing.clone());
+    }
+    let Some(schema) = kinds.and_then(|r| r.get(&node.kind)) else {
+        return Typed::Unknown;
+    };
+    match schema.property(key) {
+        Some(prop) => Typed::Declared(prop.ty.clone()),
+        None => Typed::Undeclared {
+            kind: node.kind.clone(),
+        },
+    }
+}
+
+/// The diagnostic for a write the property's type will not take.
+///
+/// One function for both routes to it, so the authored value and the declared
+/// type give the same two messages — a type change is a mistake about what the
+/// property *is*, bad content a mistake about the characters.
+fn mismatch(key: &str, want: &str, value: &Value, why: dimetric_scene::Mismatch) -> mlua::Error {
+    let message = match why {
+        dimetric_scene::Mismatch::Content(detail) => format!(
+            "{key:?} on this node is a {want}, and {} is not one: {detail}",
+            quoted(value),
+        ),
+        dimetric_scene::Mismatch::Type => format!(
+            "{key:?} on this node is a {want}, and this writes a {}. A script cannot \
+             change a property's type: the value would not be read back, and a save \
+             would not round-trip.",
+            value.type_name()
+        ),
+    };
+    mlua::Error::external(
+        Diagnostic::new(Code::SCRIPT_BAD_ARGUMENT, message)
+            .with_field("property", key.to_string())
+            .with_field("expected", want.to_string()),
+    )
 }
 
 /// Put the clip a script asked for onto the node's own `animation` property.

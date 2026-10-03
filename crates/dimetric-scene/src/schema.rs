@@ -117,6 +117,93 @@ pub enum PropertyType {
 }
 
 impl PropertyType {
+    /// A value of this type, standing in for one a node does not carry.
+    ///
+    /// [`Value::reshape`] decides what a write may become by comparing it
+    /// against the value already in the node, because that value came through
+    /// the parser and the parser had the schema. A property with no default is
+    /// absent from a node that did not author one, so there is no such value —
+    /// and a write to it used to land in state exactly as the scripting
+    /// boundary made it, a list or a string where a rect belonged. The save
+    /// then wrote that shape out, the loader typed it from the schema, and the
+    /// two hashed differently.
+    ///
+    /// This supplies a value purely to *be* a type. Nothing reads what is in
+    /// it and nothing stores it; it exists so the schema can answer the same
+    /// question the authored value answers, with the same code.
+    pub fn witness(&self) -> Value {
+        match self {
+            PropertyType::Scalar => Value::Scalar(Fx::ZERO),
+            PropertyType::Int => Value::Int(0),
+            PropertyType::Bool => Value::Bool(false),
+            PropertyType::Str => Value::Str(String::new()),
+            PropertyType::Vec2 => Value::Vec2(dimetric_core::Vec2Fx::ZERO),
+            PropertyType::Vec2i => Value::Vec2i([0, 0]),
+            PropertyType::Rect => Value::Rect(dimetric_core::Rect::ZERO),
+            PropertyType::Angle => Value::Angle(dimetric_core::Angle::ZERO),
+            PropertyType::Color => Value::Color(crate::value::Color::TRANSPARENT),
+            PropertyType::Enum(_) => Value::Enum(String::new()),
+            PropertyType::AssetRef => Value::Ref(crate::value::Reference::Asset(String::new())),
+            PropertyType::SceneRef => Value::Ref(crate::value::Reference::Scene(String::new())),
+            PropertyType::NodeRef => Value::Ref(crate::value::Reference::Node(String::new())),
+            PropertyType::ScriptRef => Value::Ref(crate::value::Reference::Script(String::new())),
+            PropertyType::List(_) => Value::List(Vec::new()),
+            PropertyType::Map(_) => Value::Map(Default::default()),
+        }
+    }
+
+    /// The prefix a reference property requires, if this is one.
+    ///
+    /// The four reference types share one [`Value`] variant, so the variant
+    /// cannot tell them apart and the schema has to.
+    pub fn reference_prefix(&self) -> Option<&'static str> {
+        match self {
+            PropertyType::AssetRef => Some("asset:"),
+            PropertyType::SceneRef => Some("scene:"),
+            PropertyType::NodeRef => Some("node:"),
+            PropertyType::ScriptRef => Some("script:"),
+            _ => None,
+        }
+    }
+
+    /// Make `incoming` into this declared type, or say why it cannot be.
+    ///
+    /// The same decision [`Value::reshape`] makes, taken against a declared
+    /// type instead of an authored value — so a write accepted over a value of
+    /// type `T` is accepted over an absent property declared `T`, and refused
+    /// where the other would refuse it. `witness` is what keeps the two from
+    /// drifting: there is one set of rules, and this hands it a stand-in.
+    ///
+    /// Two things only the schema knows are checked on top, and both of them
+    /// stop a save from *loading* rather than merely changing its hash: which
+    /// variants an enum has, and which prefix a reference property wants. The
+    /// value-driven path cannot check either, which is why its own
+    /// documentation says a variant is the schema's business.
+    pub fn reshape(&self, incoming: Value) -> Result<Value, crate::value::Mismatch> {
+        use crate::value::Mismatch;
+        let value = self.witness().reshape(incoming)?;
+        match (self, &value) {
+            (PropertyType::Enum(names), Value::Enum(name)) => {
+                if names.iter().any(|n| n == name) {
+                    Ok(value)
+                } else {
+                    Err(Mismatch::Content(format!(
+                        "it is not one of {}",
+                        names.join(", ")
+                    )))
+                }
+            }
+            (_, Value::Ref(r)) => match self.reference_prefix() {
+                Some(want) if r.prefix() != want => Err(Mismatch::Content(format!(
+                    "a {want} reference is expected and this is a {}",
+                    r.prefix()
+                ))),
+                _ => Ok(value),
+            },
+            _ => Ok(value),
+        }
+    }
+
     /// The name used in diagnostics and generated schemas.
     pub fn name(&self) -> String {
         match self {

@@ -466,6 +466,34 @@ impl Project {
         }
     }
 
+    /// A script host wired to this project: tick rate, fonts and node kinds.
+    ///
+    /// One door, because the three inputs here are all things a run diverges
+    /// on if they are wrong, and each of them had been forgotten at a call
+    /// site at least once:
+    ///
+    ///   * **tick rate** is `tick.dt`, and `dim replay` built its host with a
+    ///     hardcoded 60 while stepping the simulation at the project's rate —
+    ///     so replaying a project that is not 60Hz ran the scripts on a
+    ///     different `dt` from the run it was replaying;
+    ///   * **fonts** are what `ui.measure` answers from, and a control's
+    ///     rectangle is hashed, so a host with no fonts lays an interface out
+    ///     differently. The editor's preview and `dim replay` both had none;
+    ///   * **node kinds** are what types a write to a property the node
+    ///     carries no value for. Without them `node:set("region", …)` on a
+    ///     sprite that never authored one stores the raw Lua shape, and the
+    ///     save does not round-trip.
+    ///
+    /// Scripts are deliberately not loaded here: `dim script check` wants a
+    /// host with the module registry seeded and nothing run, and the caller
+    /// knows whether it is loading one script or all of them.
+    pub fn script_host(&self) -> Result<dimetric_sim::LuaHost, Diagnostic> {
+        let mut host = dimetric_sim::LuaHost::new(self.settings.tick_rate)?;
+        host.set_fonts(self.fonts());
+        host.set_kinds(self.registry.clone());
+        Ok(host)
+    }
+
     /// The internal resolution to render at, and what an override costs.
     ///
     /// `[render] resolution` is documented as the resolution the world is
