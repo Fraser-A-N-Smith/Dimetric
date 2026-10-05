@@ -39,6 +39,14 @@ pub fn run(cli: Cli) -> Result<Output, Diagnostics> {
         return inspect_command(args);
     }
 
+    // Asking what is in a suspended-run slot is a question about a directory.
+    // A packaged game's slot sits beside its executable with no project to
+    // point at, and that is the case worth being able to check: it is how a
+    // title screen's Continue row is verified on a machine with no display.
+    if let Top::State(cli::StateCmd::Suspended { root: Some(root) }) = &cli.command {
+        return Ok(suspended_slot(std::path::Path::new(root)));
+    }
+
     // The server opens whatever project each call names, so it must not need
     // one to start — an agent connects first and decides what to work on after.
     if let Top::Mcp = &cli.command {
@@ -1524,6 +1532,16 @@ fn state_command(project: &mut Project, cmd: StateCmd) -> Result<Output, Diagnos
                 ),
             ))
         }
+        StateCmd::Suspended { root } => {
+            // An explicit root is handled before a project is opened; this is
+            // the form that defaults to the project, which is where a game
+            // being developed keeps its `profile.toml`.
+            let dir = match &root {
+                Some(path) => std::path::PathBuf::from(path),
+                None => project.root.clone(),
+            };
+            Ok(suspended_slot(&dir))
+        }
         StateCmd::Hash { tick, seed } => {
             let (mut sim, _profile, _) = build_sim(project, seed)?;
             let log = dimetric_sim::InputLog::new(seed, env!("CARGO_PKG_VERSION"), 1);
@@ -1688,6 +1706,34 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     let mut host = project.script_host().map_err(one)?;
     diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
 
+    // The suspended run the recorded session continued, if it continued one.
+    // Loaded with the project's registry for the same reason a save is written
+    // with it: a game that declares its own kinds has a scene in there that the
+    // built-ins would reject.
+    //
+    // Without the flag, a log that says it resumed looks beside itself:
+    // `--record` keeps the save it continued at `<log>.save`, because the slot
+    // it came out of is emptied by the resume and a recording that names a run
+    // nobody has any more is a recording of nothing. The hash in the log is
+    // what makes looking safe — the wrong save is refused, not replayed.
+    let from_save = match (&args.from_save, log.resumed) {
+        (Some(path), _) => Some(resolve(project, path)),
+        (None, None) => None,
+        (None, Some(_)) => {
+            let beside = dimetric_host::suspend::sidecar_save(&resolve(project, &args.input));
+            beside.is_dir().then_some(beside)
+        }
+    };
+    let resume = match &from_save {
+        None => None,
+        Some(dir) => {
+            let (state, save_diags) =
+                dimetric_host::savefile::load(dir, &project.registry).map_err(one)?;
+            diags.extend(save_diags);
+            Some(state)
+        }
+    };
+
     let replay = dimetric_host::Replay {
         log: &log,
         ticks: args.ticks,
@@ -1695,7 +1741,17 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
         probes: &probes,
         clips,
         templates,
+        resume,
     };
+    // Before anything runs. A log replayed against the wrong save, or against
+    // none, does not diverge — it reproduces a different run, and the two look
+    // identical from the outside.
+    if let Some(d) = replay.resume_mismatch() {
+        let mut failures = Diagnostics::new();
+        failures.push(d);
+        failures.extend(diags);
+        return Err(failures);
+    }
     // Same settings the run used: replaying a log under a different tick rate
     // or canvas is not replaying it.
     // Read before the project is borrowed for the run itself.
@@ -2197,4 +2253,54 @@ fn sample_commands() -> Vec<Command> {
         },
         Command::SaveScene { path: None },
     ]
+}
+
+/// A path as given, resolved against the project when it points inside one.
+fn resolve(project: &Project, path: &str) -> std::path::PathBuf {
+    let under = project.path_of(path);
+    match under.exists() {
+        true => under,
+        false => std::path::PathBuf::from(path),
+    }
+}
+
+/// What is in a suspended-run slot, as `dim state suspended` reports it.
+fn suspended_slot(dir: &std::path::Path) -> Output {
+    let slot = dimetric_host::suspend::suspended_dir(dir);
+    let (body, text) = match dimetric_host::suspend::probe(dir) {
+        dimetric_host::suspend::Slot::Empty => (
+            json!({ "suspended": false, "root": dir.display().to_string() }),
+            format!("no suspended run under {}", dir.display()),
+        ),
+        // Reported as unusable rather than absent. Something is there, and a
+        // player whose run will not load is owed the reason.
+        dimetric_host::suspend::Slot::Stale(d) => (
+            json!({
+                "suspended": false,
+                "stale": true,
+                "root": dir.display().to_string(),
+                "reason": d.message.clone(),
+            }),
+            format!(
+                "{} holds a run this build cannot continue: {}",
+                slot.display(),
+                d.message
+            ),
+        ),
+        dimetric_host::suspend::Slot::Ready { scene, tick, seed } => (
+            json!({
+                "suspended": true,
+                "root": dir.display().to_string(),
+                "path": slot.display().to_string(),
+                "scene": scene,
+                "tick": tick,
+                "seed": seed,
+            }),
+            format!(
+                "a suspended run at tick {tick} on {scene} (seed {seed}), in {}",
+                slot.display()
+            ),
+        ),
+    };
+    Output::new(body, text)
 }

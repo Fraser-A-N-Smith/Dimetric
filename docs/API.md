@@ -375,6 +375,7 @@ message. Codes are never reused for a different meaning.
 | `DIM0505` | error | Script passed an argument the binding cannot accept |
 | `DIM0506` | warning | Script does something that may not reproduce on another machine |
 | `DIM0507` | warning | Script writes into a table that is a copy of state, so the write goes nowhere |
+| `DIM0508` | warning | Script keeps something in a Lua local across ticks, which a resume, a reload or a rollback does not restore |
 | `DIM0601` | error | Referenced asset is not in the project |
 | `DIM0602` | error | Asset import failed |
 | `DIM0603` | error | Unsupported source format |
@@ -391,6 +392,7 @@ message. Codes are never reused for a different meaning.
 | `DIM0904` | warning | A flag overrode a project setting the simulation also depends on |
 | `DIM1001` | error | A save file could not be read or written |
 | `DIM1002` | error | A save was written by a different format or engine version |
+| `DIM1003` | warning | A script asked to suspend or resume a run and the runtime could not |
 | `DIM1101` | warning | The system audio device was asked for and not obtained |
 | `DIM1102` | warning | A playing voice's node id now belongs to a different node |
 | `DIM1201` | warning | The icon a project declared could not be read or decoded |
@@ -431,7 +433,7 @@ arguments column.
 | `override_list` | `instance`* | List the overrides on an instance |
 | `override_set` | `instance`*, `key`*, `target`*, `value`* | Set one override |
 | `prefab_instance` | `id`, `name`*, `parent`*, `pos`, `source`* | Add an instance of another scene |
-| `replay` | `assert`, `hashes`, `input`*, `ticks` | Replay a recorded run and check it |
+| `replay` | `assert`, `from_save`, `hashes`, `input`*, `ticks` | Replay a recorded run and check it |
 | `run` | `headless`, `input`, `profile`, `record`, `seed`, `ticks`, `watch` | Run the simulation headlessly |
 | `scene_check` | — | Report the scene's validation diagnostics |
 | `scene_fmt` | `check` | Rewrite the scene in canonical form |
@@ -448,6 +450,7 @@ arguments column.
 | `state_hash` | `seed`, `tick` | Print the state hash at a tick |
 | `state_load` | `from`* | Read a save back and report what is in it |
 | `state_save` | `input`, `out`*, `seed`, `tick` | Run to a tick and write the state out as a resumable save |
+| `state_suspended` | `root` | Report the one suspended run, if a game has written one |
 | `tile_fill` | `layer`*, `rect`*, `tile`* | Fill a rectangle |
 | `tile_get` | `at`*, `layer`* | Read one tile |
 | `tile_import_ldtk` | `dry_run`, `into`, `level`, `path`*, `tileset` | Import an LDtk level, baking it to native chunks |
@@ -466,7 +469,7 @@ Scripts see exactly these globals and nothing else.
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`, `measure(font, text)` |
 | `event` | `emit(kind, payload)` — tells the host something. Drained by the runtime, **never** hashed |
-| `app` | `quit()` — asks whatever is running the game to stop. Read by the host between ticks, **never** hashed; a headless run ignores it |
+| `app` | `quit()`, `suspend()`, `resume()`, `discard_suspended()`, `suspended()` — asks whatever is running the game to stop, to write the run out and stop, to continue the written one, or to throw it away. Read by the host between ticks, **never** hashed; a headless run and a replay ignore the requests and answer `suspended()` false |
 | `profile` | `get(key)`, `put(key, value)`, `clear(key)` — across runs, and **never** in the state hash |
 | `camera` | `to_world(canvas_point)`, `to_canvas(world_point)`, `center()` — the view's inverse, in fixed point |
 | `tick` | `count()`, `dt()`, `rate` |
@@ -670,6 +673,69 @@ opens a menu of its own. The windowed runtime's *own* freeze is on the
 keyboard's Pause/Break key, which is deliberately not bindable: freezing the
 simulation is a debugging affordance of whatever is running the game, and a
 frozen simulation cannot tick the menu that would unfreeze it.
+
+### Suspending a run, and continuing it
+
+One run can be set aside and picked up later, which is the Continue row every
+roguelike has. Four calls, all read **between ticks** for the same reason
+`app.quit()` is:
+
+| Call | What it does |
+|---|---|
+| `app.suspend()` | Writes the run out and stops. Carries the quit with it |
+| `app.suspended()` | Whether a run this build can continue is waiting |
+| `app.resume()` | Replaces the run with the suspended one, and consumes it |
+| `app.discard_suspended()` | Throws it away, for a player starting a new run |
+
+```lua
+function on_ready(self)
+  -- A Continue row, only when there is something to continue.
+  scene.find("/Menu/Continue").visible = app.suspended()
+end
+
+function on_tick(self)
+  if ui.clicked(scene.find("/Menu/Continue")) then app.resume() end
+  if ui.clicked(scene.find("/Menu/Quit")) then app.suspend() end
+  if ui.clicked(scene.find("/Menu/Start")) then app.discard_suspended() end
+end
+```
+
+**One run, consumed once.** Suspending writes it, resuming takes it. There is no
+version left for a player to fall back to after playing on and losing, and
+`app.suspend()` quits rather than letting a run continue past its own save —
+which is why it is one call and not two.
+
+**Where it lives.** A directory beside the game's `profile.toml`, holding the
+canonical `scene.dim` and the `state.toml` `dim state save` writes. Text, and
+readable, for the reason every other file in this engine is. Never inside a
+single-file build: there is nowhere in an executable to put one.
+
+**A stale save reads as no save.** One written by a different engine or format
+version is refused — a save does not survive a rules change — and
+`app.suspended()` then answers false, so a game never offers a Continue that
+fails when pressed. The reason is reported as `DIM1002` at startup.
+
+**A replay and a headless run do none of it.** Both drop the requests and answer
+`app.suspended()` false, because a recorded run that depended on a file beside
+it would reproduce only on the machine that made one — and a run that was
+suspended must hash identically to one whose window was closed. A script that
+asks anyway is told so, as `DIM1003`.
+
+**What does not come back: anything a script left in Lua.** `on_ready` does not
+fire again — the nodes are already readied, and re-firing it would re-run a
+run's initialisation — so a handle cached in a file-scope local is nil after a
+resume and the next use of it raises. Keep it in `self`, or look it up in the
+hook that needs it. `dim script check` names the pattern as `DIM0508`, and the
+same hazard already applies to a hot reload and to a rollback.
+
+**Recording across a resume.** A session recorded with `--record` that continued
+a suspended run writes a log that says so: a `resumed` line naming the state
+hash the save restores to, and a `from_tick` line, so its tick numbers are the
+run's. The frames before the resume are dropped, because they belong to a
+different state lineage. The save is kept beside the log as `<log>.save`, since
+the slot it came out of is emptied by the resume, and `dim replay` looks there
+when a log says it resumed. Such a log is **refused** rather than replayed
+without that save, or against a save whose hash does not match.
 
 ### Telling the host something
 

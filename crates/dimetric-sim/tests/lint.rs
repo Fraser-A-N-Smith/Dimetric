@@ -279,6 +279,100 @@ fn a_comparison_left_of_an_equals_is_not_an_assignment() {
     assert!(lost_writes("local n = self.bag.count\n").is_empty());
 }
 
+// -- state kept in Lua --------------------------------------------------
+
+fn lua_state(source: &str) -> Vec<String> {
+    dimetric_sim::lint::check("s.lua", source)
+        .into_iter()
+        .filter(|d| d.code == dimetric_core::Code::SCRIPT_LUA_STATE)
+        .map(|d| d.message)
+        .collect()
+}
+
+#[test]
+fn a_handle_cached_in_a_file_scope_local_is_named() {
+    // The idiom three of this repository's own replay fixtures used, and the
+    // one shape that does not survive a resume: `on_ready` does not fire again,
+    // so the local is nil and the next use of it raises.
+    let found = lua_state(
+        "local mark\n\
+         function on_ready(self)\n\
+         \x20 mark = scene.find(\"/World/Mark\")\n\
+         end\n",
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].contains("`mark`"), "{}", found[0]);
+}
+
+#[test]
+fn a_file_scope_local_assigned_where_it_is_declared_is_fine() {
+    // Re-established every time the script loads, which is what makes it safe.
+    // A constant, a required module and a table of data all live here.
+    assert!(lua_state("local MAX = 10\nlocal helper = require(\"scripts/h.lua\")\n").is_empty());
+    assert!(lua_state("local SPELLS = { \"fire\", \"frost\" }\n").is_empty());
+}
+
+#[test]
+fn a_local_inside_a_function_is_not_one_of_these() {
+    // Declared and used within the call, so there is nothing to restore.
+    assert!(lua_state(
+        "function on_tick(self)\n\
+         \x20 local mark = scene.find(\"/World/Mark\")\n\
+         \x20 mark.pos = mark.pos + vec2(1, 0)\n\
+         end\n"
+    )
+    .is_empty());
+}
+
+#[test]
+fn a_local_function_is_left_alone() {
+    // Rebinding one is pathological rather than a cache, and naming it would be
+    // noise in every script that defines a helper.
+    assert!(lua_state(
+        "local function step(n)\n\
+         \x20 return n + 1\n\
+         end\n\
+         function on_tick(self)\n\
+         \x20 self.n = step(self.n or 0)\n\
+         end\n"
+    )
+    .is_empty());
+}
+
+#[test]
+fn every_name_in_one_declaration_is_covered() {
+    let found = lua_state(
+        "local a, b\n\
+         function on_ready(self)\n\
+         \x20 a = 1\n\
+         \x20 b = 2\n\
+         end\n",
+    );
+    assert_eq!(found.len(), 2, "{found:#?}");
+}
+
+#[test]
+fn an_author_who_has_checked_can_say_so() {
+    assert!(lua_state(
+        "local cursor\n\
+         function on_tick(self)\n\
+         \x20 cursor = ui.pointer() -- @transient\n\
+         end\n"
+    )
+    .is_empty());
+}
+
+#[test]
+fn comparing_a_file_local_is_not_assigning_to_it() {
+    assert!(lua_state(
+        "local mark\n\
+         function on_tick(self)\n\
+         \x20 if mark == nil then log.info(\"none\") end\n\
+         end\n"
+    )
+    .is_empty());
+}
+
 #[test]
 fn the_example_game_is_clean_under_this_lint() {
     // A lint whose first run finds problems in the engine's own scripts is

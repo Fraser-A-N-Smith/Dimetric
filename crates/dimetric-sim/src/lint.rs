@@ -21,6 +21,12 @@
 //! does nothing about a script branching on it. Two players with different
 //! unlocks then run different simulations.
 //!
+//! **A file-scope `local` written inside a hook.** Script state lives in Rust
+//! so that `self.hp` survives a snapshot; a Lua local does not, and a host that
+//! starts running over a state it did not create has never run `on_ready` for
+//! those nodes. Suspending and resuming a run makes that reachable from a
+//! game, and a rollback and a hot reload already did.
+//!
 //! # What this is not
 //!
 //! It is a text scan, not a type system. It reads a script line by line and
@@ -36,6 +42,8 @@ use dimetric_core::{Code, Diagnostic, Span};
 pub const ORDERED_MARK: &str = "@ordered";
 /// The comment that says a float literal never reaches state.
 pub const PRESENTATION_MARK: &str = "@presentation";
+/// The comment that says a Lua local is rebuilt rather than restored.
+pub const TRANSIENT_MARK: &str = "@transient";
 
 /// Scan one script for determinism hazards.
 ///
@@ -57,6 +65,10 @@ pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
     // rest of this lint: it would rather name a safe write than miss an
     // unsafe one.
     let mut tainted: std::collections::BTreeSet<String> = Default::default();
+    // Names the file declares at its own scope. Whatever a hook assigns to one
+    // of these is gone the moment a host starts over a state it did not build,
+    // so the set has to be known before the hooks are read.
+    let file_locals = file_scope_locals(source);
     for (index, raw) in source.lines().enumerate() {
         let line = index + 1;
         let code = blank_strings(&strip_comment(raw));
@@ -97,6 +109,28 @@ pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
         if code.contains("profile.get") {
             if let Some(name) = assigned_local(&code) {
                 tainted.insert(name);
+            }
+        }
+
+        if let Some(name) = rebound_file_local(&code, &file_locals) {
+            if !acknowledged(TRANSIENT_MARK) {
+                out.push(
+                    Diagnostic::new(
+                        Code::SCRIPT_LUA_STATE,
+                        format!(
+                            "`{name}` is a local at the file's own scope, so what this \
+                             writes to it lives in Lua rather than in the state. A host \
+                             that restores a run it did not play — a resume, a rollback, \
+                             a hot reload — has not run `on_ready` for these nodes, so \
+                             the value is nil and the next use of it raises. Keep it in \
+                             `self`, or look it up again in the hook that needs it, or \
+                             write `-- @transient` if it is rebuilt every tick."
+                        ),
+                    )
+                    .with_span(Span::at(path.to_string(), line as u32))
+                    .with_field("hazard", "lua-state")
+                    .with_field("variable", name),
+                );
             }
         }
 
@@ -344,6 +378,65 @@ fn lost_table_write(code: &str) -> Option<String> {
 }
 
 /// The index of a plain `=`, skipping `==`, `<=`, `>=`, `~=`.
+/// Names declared `local` at the file's own scope.
+///
+/// Column zero is the test, which is what a text scan can see: Lua's scoping is
+/// lexical and a `local` inside a function is indented by every style anybody
+/// writes, including this repository's own scripts. A `local function` is left
+/// out — rebinding one is pathological rather than a cache, and naming it would
+/// be noise.
+fn file_scope_locals(source: &str) -> std::collections::BTreeSet<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for raw in source.lines() {
+        if raw.starts_with(char::is_whitespace) {
+            continue;
+        }
+        let code = blank_strings(&strip_comment(raw));
+        let Some(rest) = code.strip_prefix("local ") else {
+            continue;
+        };
+        if rest.trim_start().starts_with("function") {
+            continue;
+        }
+        // `local a, b = …` declares both, and the names stop at the `=`.
+        let declared = match find_assignment(rest) {
+            Some(eq) => &rest[..eq],
+            None => rest,
+        };
+        for name in declared.split(',') {
+            let name = name.trim();
+            if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                names.insert(name.to_string());
+            }
+        }
+    }
+    names
+}
+
+/// The name in `    thing = …`, where `thing` is a file-scope local.
+///
+/// Indented, so this is inside a function or a block rather than the file's own
+/// body: a file-scope local assigned where it is declared is re-established
+/// every time the script is loaded, which is exactly what makes it safe. Only a
+/// direct rebinding is matched. A field written through one — `M.count = 1` —
+/// is lost in the same way and is deliberately left alone, because `local M =
+/// {}` with functions hung off it is the module shape `require` returns and
+/// naming every one of those would bury the case worth reading.
+fn rebound_file_local(
+    code: &str,
+    file_locals: &std::collections::BTreeSet<String>,
+) -> Option<String> {
+    if !code.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let eq = find_assignment(code)?;
+    let target = code[..eq].trim();
+    if target.starts_with("local ") {
+        return None;
+    }
+    file_locals.contains(target).then(|| target.to_string())
+}
+
 fn find_assignment(code: &str) -> Option<usize> {
     let bytes = code.as_bytes();
     for (i, b) in bytes.iter().enumerate() {

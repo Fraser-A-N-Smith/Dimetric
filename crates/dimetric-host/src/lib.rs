@@ -24,6 +24,7 @@ pub mod savefile;
 pub mod scene_swap;
 pub mod settings;
 pub mod speaker;
+pub mod suspend;
 pub mod template;
 
 pub use bus::CommandBus;

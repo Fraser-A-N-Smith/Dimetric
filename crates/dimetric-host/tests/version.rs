@@ -42,6 +42,7 @@ fn replay_recorded_by(engine: &str) -> dimetric_host::ReplayReport {
         probes: &[],
         clips: Default::default(),
         templates: Default::default(),
+        resume: None,
     }
     .run(scene(), Box::new(NoScripts), SimConfig::default())
 }

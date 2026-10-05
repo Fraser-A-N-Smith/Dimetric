@@ -435,9 +435,64 @@ pub struct Replay<'a> {
     /// Prefabs a script may spawn. A replay of a game that spawns has to carry
     /// them: what gets created is simulation state.
     pub templates: dimetric_sim::spawn::Templates,
+    /// The suspended run this log continues, when it continues one.
+    ///
+    /// A log carrying `resumed` is the second half of a run, and replaying its
+    /// frames against a fresh scene would reproduce something nobody played.
+    /// So the state the save restores to is installed before the first tick,
+    /// and the run begins at [`InputLog::from_tick`] rather than at zero.
+    ///
+    /// `None` for every log that does not say it resumed. A caller that hands
+    /// a resumed log no state gets a refusal rather than a wrong run — see
+    /// [`Replay::resume_mismatch`].
+    pub resume: Option<dimetric_sim::SimState>,
 }
 
 impl Replay<'_> {
+    /// Why this log and this save do not go together, if they do not.
+    ///
+    /// Checked before a tick runs rather than reported as a divergence after
+    /// one, because the two failures look identical from the outside and only
+    /// one of them is a bug in the engine. A log that resumed and was given no
+    /// save, or given a save that has been replaced since, is not a replay that
+    /// diverged — it is a replay of the wrong thing.
+    pub fn resume_mismatch(&self) -> Option<Diagnostic> {
+        match (self.log.resumed, &self.resume) {
+            (None, None) => None,
+            (None, Some(_)) => Some(Diagnostic::new(
+                Code::LOG_MISMATCH,
+                "this log did not resume a suspended run, so there is nothing for a \
+                 save to be checked against",
+            )),
+            (Some(want), None) => Some(
+                Diagnostic::new(
+                    Code::LOG_MISMATCH,
+                    format!(
+                        "this log continues a suspended run whose state hashes to {want}; \
+                         replaying it without that save would reproduce a run nobody \
+                         played. Pass the save it came from."
+                    ),
+                )
+                .with_field("resumed", want.to_hex()),
+            ),
+            (Some(want), Some(state)) => {
+                let found = state.hash();
+                (found != want).then(|| {
+                    Diagnostic::new(
+                        Code::LOG_MISMATCH,
+                        format!(
+                            "this log continues a run whose state hashes to {want}, and \
+                             the save given hashes to {found}; it is a different run or \
+                             a different engine"
+                        ),
+                    )
+                    .with_field("expected", want.to_hex())
+                    .with_field("found", found.to_hex())
+                })
+            }
+        }
+    }
+
     /// Run it, with no project, so a script's scene-load request cannot be
     /// honoured.
     ///
@@ -468,13 +523,29 @@ impl Replay<'_> {
         let mut sim = Sim::new(scene, self.log.seed, scripts, config)
             .with_clips(self.clips.clone())
             .with_templates(self.templates.clone());
+        let mut diagnostics = dimetric_core::Diagnostics::new();
+
+        // The suspended run this log continues, installed before anything
+        // steps. The scene the caller passed is replaced by the save's own,
+        // which is the tree the recorded frames were played against.
+        if let Some(state) = &self.resume {
+            sim.restore(state.clone());
+        }
+        if let Some(d) = self.resume_mismatch() {
+            diagnostics.push(d);
+        }
+
+        // Tick numbers are the run's, not the file's. For a log that started
+        // from a seed the two are the same; for one that continued a suspended
+        // run they differ by the tick it stopped at, and a probe that said
+        // `tick 40` has to mean tick 40 of the run.
+        let first = self.log.from_tick;
         let ticks = self.ticks.unwrap_or(self.log.frames.len() as u64);
         let mut hashes = Vec::with_capacity(ticks as usize);
         let mut divergence = None;
         let mut probes: Vec<ProbeResult> = Vec::new();
 
-        let mut diagnostics = dimetric_core::Diagnostics::new();
-        for tick in 0..ticks {
+        for tick in first..first + ticks {
             sim.step(self.log.frame(tick));
             // Between ticks, before the hash: the swap is part of what the
             // next tick starts from, so hashing before it would record a state
@@ -487,7 +558,10 @@ impl Replay<'_> {
 
             if let Some(expected) = self.expected {
                 if divergence.is_none() {
-                    if let Some(want) = expected.get(tick as usize) {
+                    // By position in the hash log, which is one line per tick
+                    // *of this replay*. A resumed log's hashes start where it
+                    // does, the way its frames do.
+                    if let Some(want) = expected.get((tick - first) as usize) {
                         if *want != hash {
                             // Stop comparing after the first mismatch. Every
                             // later tick is downstream of this one, and listing
@@ -525,13 +599,21 @@ impl Replay<'_> {
             }
         }
 
-        // Probes aimed past the end of the run never ran, which is a failure
-        // rather than a silent pass.
-        for probe in self.probes.iter().filter(|p| p.tick >= ticks) {
+        // Probes aimed outside the run never ran, which is a failure rather
+        // than a silent pass.
+        let end = first + ticks;
+        for probe in self
+            .probes
+            .iter()
+            .filter(|p| p.tick >= end || p.tick < first)
+        {
             probes.push(ProbeResult {
                 probe: probe.clone(),
                 passed: false,
-                found: format!("<run ended at tick {ticks}>"),
+                found: match probe.tick < first {
+                    true => format!("<run began at tick {first}>"),
+                    false => format!("<run ended at tick {end}>"),
+                },
             });
         }
 

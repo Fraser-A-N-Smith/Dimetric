@@ -10,15 +10,10 @@
 -- So these ticks are the state that was wrong. The hashes beside them are the
 -- schema's types, not Lua's shapes.
 
-local view
-local lamp
-
-function on_ready(self)
-  view = scene.find("/Stage/View")
-  lamp = scene.find("/Stage/Lamp")
-end
-
+-- Looked up per tick rather than cached in a file-scope local: see `DIM0508`.
 function on_tick(self)
+  local view = scene.find("/Stage/View")
+  local lamp = scene.find("/Stage/Lamp")
   local t = tick.count() % 4
 
   -- All three spellings of a rect, in turn, onto a property with no default.

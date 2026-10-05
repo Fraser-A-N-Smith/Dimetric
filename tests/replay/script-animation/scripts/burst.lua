@@ -6,13 +6,12 @@
 -- finished non-looping clip had no way back to its first frame, so a pooled
 -- effect sprite showed its last frame for the life of the node.
 
-local fx
-
-function on_ready(self)
-  fx = scene.find("/Stage/Fx")
-end
-
+-- Looked up where it is used rather than cached in a file-scope local: see
+-- `DIM0508`. A local is Lua's, not the state's, and a resumed run has one that
+-- nobody set.
 function on_tick(self)
+  local fx = scene.find("/Stage/Fx")
+
   -- Switched once, from a script, and it has to stay switched.
   if tick.count() == 2 then anim.play(fx, "burst") end
 

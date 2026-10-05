@@ -1148,6 +1148,7 @@ dependencies = [
  "dimetric-sim",
  "gilrs",
  "pollster",
+ "tempfile",
  "wgpu 30.0.1",
  "winit",
 ]

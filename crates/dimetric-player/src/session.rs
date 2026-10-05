@@ -13,6 +13,7 @@ use dimetric_host::speaker::Speaker;
 use dimetric_host::Project;
 use dimetric_render::{Atlas, Camera, Frame, Interpolation, RenderSettings};
 use dimetric_sim::profile::Profile;
+use dimetric_sim::suspend::SuspendRequest;
 use dimetric_sim::{InputFrame, InputLog, PlayerInput, Sim, SimState};
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -39,6 +40,23 @@ pub struct SessionConfig {
     /// somebody's unlocks would reproduce a recording only on the machine
     /// that made it, and a replay that wrote them could spend their Crowns.
     pub profile: Option<PathBuf>,
+    /// The root to keep the one suspended run under, if this session may
+    /// suspend and resume.
+    ///
+    /// `None` means `app.suspend()` and `app.resume()` do nothing and
+    /// `app.suspended()` answers false. That is what a test wants and what a
+    /// **replay** must have: a recorded session that read a real save would
+    /// reproduce only on a machine that happened to have one, and a run that
+    /// could write one could have the file it is being compared against
+    /// replaced underneath it.
+    ///
+    /// Separate from [`SessionConfig::profile`] although the windowed runtime
+    /// passes the same directory for both. A run and a profile are different
+    /// kinds of thing — one is simulation state and one must never be — and
+    /// `savefile` and `profile_store` are deliberately separate files on disk
+    /// and in the source for that reason. One field covering both would be the
+    /// first place that stopped being true.
+    pub suspend: Option<PathBuf>,
 }
 
 /// A running game.
@@ -62,6 +80,17 @@ pub struct Session {
     /// together so `finish` cannot write one project's profile into another's
     /// directory.
     profile: Option<(PathBuf, Rc<RefCell<Profile>>)>,
+    /// Where the one suspended run lives, when this session may write one.
+    suspend_root: Option<PathBuf>,
+    /// The project-relative scene the run is on now.
+    ///
+    /// Tracked rather than derived, because a save names the scene it was
+    /// taken on and a script may have moved the run to a different floor since
+    /// the session opened. A save that named the entry scene would restore the
+    /// right tree — the tree is written out in full — and then report the
+    /// wrong floor to anything that read the header, which is what decides
+    /// whether a build can continue it.
+    scene: String,
     tick: u64,
     /// Everything that went wrong so far and did not stop the session.
     pub diagnostics: Diagnostics,
@@ -124,6 +153,20 @@ impl Session {
             Diagnostics::new(),
         ));
 
+        // Whether there is a run to continue, before the first tick, so a
+        // title screen's `on_ready` can already know. A save this build cannot
+        // use reads as no save at all — a Continue row that fails when pressed
+        // is worse than one that was never shown — and the reason is reported
+        // rather than swallowed.
+        let mut sim = sim;
+        if let Some(root) = &config.suspend {
+            let slot = dimetric_host::suspend::probe(root);
+            if let dimetric_host::suspend::Slot::Stale(d) = &slot {
+                diagnostics.push(d.clone());
+            }
+            sim.set_suspended(slot.ready());
+        }
+
         Ok(Session {
             sim,
             previous: None,
@@ -135,6 +178,8 @@ impl Session {
             recording: config.record.is_some(),
             record_to: config.record,
             profile,
+            suspend_root: config.suspend,
+            scene: config.scene,
             tick: 0,
             diagnostics,
         })
@@ -213,22 +258,194 @@ impl Session {
         // Between ticks, never inside one (I8). A new floor brings its own
         // art, so the atlas is rebuilt — the old one holds the last floor's
         // tileset and nothing else would draw.
-        if dimetric_host::scene_swap::apply_pending_load(
+        if let Some(loaded) = dimetric_host::scene_swap::apply_pending_load(
             project,
             &mut self.sim,
             &mut self.diagnostics,
-        )
-        .is_some()
-        {
-            let (atlas, diags) = build_atlas(project, &self.sim.state().scene);
-            self.atlas = atlas;
-            self.atlas_changed = true;
-            self.diagnostics.extend(diags);
-            // The interpolation source is a tree that no longer exists, so a
-            // frame drawn against it would try to tween the old floor's nodes
-            // into the new floor's.
-            self.previous = None;
+        ) {
+            self.scene = loaded;
+            self.rebuild_for_new_tree(project);
         }
+
+        // After the swap, so a run that changed floor and asked to be
+        // suspended in the same tick writes the floor it ended on.
+        self.apply_suspend_request(project);
+    }
+
+    /// Rebuild everything that was derived from the tree that just went away.
+    fn rebuild_for_new_tree(&mut self, project: &mut Project) {
+        let (atlas, diags) = build_atlas(project, &self.sim.state().scene);
+        self.atlas = atlas;
+        self.atlas_changed = true;
+        self.diagnostics.extend(diags);
+        // The interpolation source is a tree that no longer exists, so a frame
+        // drawn against it would try to tween the old floor's nodes into the
+        // new floor's.
+        self.previous = None;
+    }
+
+    /// Honour whatever a script asked of the suspended-run slot.
+    ///
+    /// Between ticks, like a scene load and for the same reason: a tick that
+    /// wrote its own state to disk, or replaced it with somebody else's, would
+    /// stop being a pure function of the state it started from (I8).
+    ///
+    /// A session with no save root does nothing at all. That is the replay's
+    /// behaviour and a test's, and it is why a recorded run cannot depend on a
+    /// file beside it.
+    fn apply_suspend_request(&mut self, project: &mut Project) {
+        let Some(request) = self.sim.take_suspend_request() else {
+            return;
+        };
+        let Some(root) = self.suspend_root.clone() else {
+            // Asked for by a script in a session that has nowhere to put one.
+            // A warning rather than silence: `quit` has nothing to report when
+            // a headless run ignores it, and this does — the game asked for
+            // something and did not get it.
+            self.diagnostics.push(Diagnostic::new(
+                Code::SUSPEND_REFUSED,
+                format!(
+                    "a script asked to {} a run and this session keeps no suspended                      run; a replay and a headless run deliberately do not",
+                    verb(request)
+                ),
+            ));
+            return;
+        };
+
+        match request {
+            SuspendRequest::Suspend => self.suspend_to(&root, project),
+            SuspendRequest::Resume => self.resume_from(&root, project),
+            SuspendRequest::Discard => {
+                if let Err(d) = dimetric_host::suspend::discard(&root) {
+                    self.diagnostics.push(d);
+                }
+                self.sim.set_suspended(false);
+            }
+        }
+    }
+
+    /// Write the run out. The quit `app.suspend()` carried with it is already
+    /// set, so the runtime leaves its event loop after the frame that asked.
+    fn suspend_to(&mut self, root: &std::path::Path, project: &mut Project) {
+        let scene = self.scene.clone();
+        let written =
+            dimetric_host::suspend::write(root, &self.sim.state(), &scene, &project.registry);
+        match written {
+            Ok(_) => {
+                self.sim.set_suspended(true);
+                // The profile too, and in this order: a player who chose "save
+                // and quit" means both, and the profile is the file they cannot
+                // rebuild. Written here rather than left to the runtime's exit
+                // path so the two land together even if the process is killed
+                // between this tick and the next frame.
+                if let Err(d) = self.save_profile() {
+                    self.diagnostics.push(d);
+                }
+            }
+            Err(d) => {
+                // The game asked to stop and could not be saved. The quit
+                // still stands — refusing to exit would trap the player — but
+                // the reason is reported rather than lost.
+                self.diagnostics.push(d);
+                self.sim
+                    .set_suspended(dimetric_host::suspend::probe(root).ready());
+            }
+        }
+    }
+
+    /// Replace the run with the suspended one, and consume it.
+    ///
+    /// The save is deleted only once the state is actually installed: a resume
+    /// that failed half way should leave the run where it was rather than lose
+    /// it. That is what makes this "exactly once per save" rather than "at most
+    /// once, and nothing if anything goes wrong".
+    fn resume_from(&mut self, root: &std::path::Path, project: &mut Project) {
+        let (state, header, diags) = match dimetric_host::suspend::read(root, &project.registry) {
+            Ok(triple) => triple,
+            Err(d) => {
+                self.diagnostics.push(d);
+                // Whatever is there is not usable, so the game should stop
+                // offering it.
+                self.sim
+                    .set_suspended(dimetric_host::suspend::probe(root).ready());
+                return;
+            }
+        };
+        self.diagnostics.extend(diags);
+
+        // The project's notion of which scene is open, so a later save names
+        // the floor the run is actually on and a `scene.request_load` resolves
+        // against the same project state a fresh run would. The tree itself
+        // comes out of the save in full, so a project whose scene file has
+        // moved on still resumes — it is reported, not fatal.
+        if let Err(d) = project.load_scene(&header.scene) {
+            self.diagnostics.extend(d);
+            self.diagnostics.push(Diagnostic::new(
+                Code::SUSPEND_REFUSED,
+                format!(
+                    "resumed anyway: {:?} is no longer a scene in this project, so the                      run is the one in the save and not the one on disk",
+                    header.scene
+                ),
+            ));
+        }
+        // Scripts, for the same reason a scene swap reloads them: the resumed
+        // floor may reference scripts the scene this session opened on never
+        // mentioned, and `require`'s cache is dropped on any reload.
+        self.diagnostics.extend(project.load_scripts());
+
+        let hash = state.hash();
+        let tick = state.tick.0;
+        let seed = state.rng.seed();
+        self.sim.restore(state);
+        self.scene = header.scene.clone();
+        self.tick = tick;
+        self.rebuild_for_new_tree(project);
+
+        // A recording of this session is a recording of the resumed run, not
+        // of the menu that preceded it. The frames before the resume belong to
+        // a different state lineage and replaying them would reproduce
+        // something nobody played, so they go — and the log names the save it
+        // continued, by the hash that save restores to, which is what lets a
+        // replay check it was given the right one.
+        //
+        // The save itself is kept beside the log, because the slot is about to
+        // be emptied and a recording that names a run nobody has any more is a
+        // recording of nothing. Written from the state rather than copied, so
+        // the sidecar is a canonical save of exactly what was restored.
+        if self.recording {
+            self.log.frames.clear();
+            self.log.resumed_from(hash, tick, seed);
+            if let Some(log_path) = &self.record_to {
+                let beside = dimetric_host::suspend::sidecar_save(log_path);
+                if let Err(d) = dimetric_host::savefile::save(
+                    &beside,
+                    &self.sim.state(),
+                    &header.scene,
+                    &project.registry,
+                ) {
+                    self.diagnostics.push(d);
+                }
+            }
+        }
+
+        // Consumed. One run per save is the design: suspend writes it, resume
+        // takes it, and there is no version left for a player to fall back to
+        // after playing on and losing.
+        if let Err(d) = dimetric_host::suspend::discard(root) {
+            self.diagnostics.push(d);
+        }
+        self.sim.set_suspended(false);
+    }
+
+    /// Whether a run this build can continue is waiting.
+    ///
+    /// Presentation, like a profile value: the runtime may want to say so, and
+    /// nothing in the simulation is allowed to depend on it except through
+    /// `app.suspended()`, which is an input the host supplies.
+    pub fn suspended(&self) -> bool {
+        self.suspend_root
+            .as_deref()
+            .is_some_and(|root| dimetric_host::suspend::probe(root).ready())
     }
 
     /// Take everything the game told the host since the last call.
@@ -352,5 +569,14 @@ impl Session {
             )
         })?;
         Ok(Some(path.clone()))
+    }
+}
+
+/// What a request would have done, for the diagnostic that says it did not.
+fn verb(request: SuspendRequest) -> &'static str {
+    match request {
+        SuspendRequest::Suspend => "suspend",
+        SuspendRequest::Resume => "resume",
+        SuspendRequest::Discard => "discard",
     }
 }

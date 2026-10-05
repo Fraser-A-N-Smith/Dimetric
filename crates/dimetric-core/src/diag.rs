@@ -145,6 +145,7 @@ codes! {
     SCRIPT_BAD_ARGUMENT = "DIM0505", Error, "Script passed an argument the binding cannot accept";
     SCRIPT_NONDETERMINISM = "DIM0506", Warning, "Script does something that may not reproduce on another machine";
     SCRIPT_LOST_WRITE = "DIM0507", Warning, "Script writes into a table that is a copy of state, so the write goes nowhere";
+    SCRIPT_LUA_STATE  = "DIM0508", Warning, "Script keeps something in a Lua local across ticks, which a resume, a reload or a rollback does not restore";
 
     // 06xx — assets
     ASSET_MISSING     = "DIM0601", Error,   "Referenced asset is not in the project";
@@ -171,6 +172,7 @@ codes! {
     // 10xx — saved state
     SAVE_UNREADABLE   = "DIM1001", Error,   "A save file could not be read or written";
     SAVE_VERSION      = "DIM1002", Error,   "A save was written by a different format or engine version";
+    SUSPEND_REFUSED   = "DIM1003", Warning, "A script asked to suspend or resume a run and the runtime could not";
 
     // 11xx — audio
     AUDIO_UNAVAILABLE = "DIM1101", Warning, "The system audio device was asked for and not obtained";

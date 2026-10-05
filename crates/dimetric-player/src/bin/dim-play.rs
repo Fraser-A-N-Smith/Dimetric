@@ -213,6 +213,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // A person playing is the one session that is real, so this is
             // the one that owns the profile.
             profile: Some(root.clone()),
+            // And the one suspended run, under the same root — beside
+            // `profile.toml`, never inside the game. For a single-file build
+            // `root` is the directory the executable sits in, which is a place
+            // the runtime can write; the archive it reads its project from is
+            // not, and `Project::writable()` says so.
+            suspend: Some(root.clone()),
         },
     )
     .map_err(|d| d.to_string())?;

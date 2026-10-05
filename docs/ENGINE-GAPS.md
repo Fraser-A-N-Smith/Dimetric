@@ -467,6 +467,49 @@ What is built is most of the value and all of the running game: the title bar
 and the taskbar both show the game's name and icon, on all three platforms. What
 is missing is the file's appearance in a file manager before it is launched.
 
+## Asked for by the grid roguelike, and answered with a smaller thing
+
+**A hook that fires after a run is resumed, so a script can rebuild its Lua
+caches.** Not asked for directly — it is what the obvious idiom needs once
+suspending exists:
+
+```lua
+local mark                     -- a handle, kept for the life of the script
+function on_ready(self) mark = scene.find("/World/Mark") end
+```
+
+`on_ready` does not fire again after a resume. `readied` says those nodes are
+ready, which is correct and must stay correct: re-firing initialisation would
+re-roll a run's starting loadout, and a resumed run that handed out a second
+sword is worse than one that raises. So the local is nil, and the first use of
+it raises `DIM0502` naming the file and the line.
+
+An `on_resumed` hook would fix the idiom and cannot be built safely, for one
+reason: it fires **only** on the resumed run. Anything it writes to simulation
+state is a difference between a run that was suspended and one that was not,
+which is exactly the divergence the whole shape exists to avoid — and nothing
+can stop a hook writing state, because that is what hooks do. A hook whose only
+safe use is "touch nothing hashed" is a hook whose misuse is undetectable and
+whose failure is a replay that diverges at tick 4,117.
+
+The symmetric answer is the engine's existing one, and it is already written
+down three times in `crates/dimetric-sim/src/script.rs`: script state lives in
+Rust, because a Lua table cannot be snapshotted. A file-scope `local` written
+inside a hook is state in Lua. So instead of a hook:
+
+- **`DIM0508`** names the pattern in `dim script check`, with the two spellings
+  that work — keep it in `self`, or look it up in the hook that needs it — and
+  `-- @transient` for a local that is rebuilt every tick anyway.
+- Three of this repository's own replay fixtures used the hazardous idiom and
+  now do not, because an engine that ships a lint its own examples trip is an
+  engine arguing with itself.
+- `crates/dimetric-sim/tests/restore_into_fresh_host.rs` pins both halves: a
+  script that keeps nothing in Lua carries on identically, and one that does
+  diverges **and reports it**.
+
+The same hazard already applied to a hot reload and to a rollback, and had gone
+unnamed in both. Suspending is what made it reachable from a game.
+
 ## Still open, and known
 
 **An agent adding a spell changes the run.** The upgrade roll samples a list, so

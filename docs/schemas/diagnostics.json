@@ -156,6 +156,11 @@
       "summary": "Script writes into a table that is a copy of state, so the write goes nowhere"
     },
     {
+      "code": "DIM0508",
+      "severity": "warning",
+      "summary": "Script keeps something in a Lua local across ticks, which a resume, a reload or a rollback does not restore"
+    },
+    {
       "code": "DIM0601",
       "severity": "error",
       "summary": "Referenced asset is not in the project"
@@ -234,6 +239,11 @@
       "code": "DIM1002",
       "severity": "error",
       "summary": "A save was written by a different format or engine version"
+    },
+    {
+      "code": "DIM1003",
+      "severity": "warning",
+      "summary": "A script asked to suspend or resume a run and the runtime could not"
     },
     {
       "code": "DIM1101",

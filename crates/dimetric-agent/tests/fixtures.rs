@@ -83,6 +83,10 @@ fn replay(dir: &Path) -> dimetric_host::ReplayReport {
         probes: &probes,
         clips: project.clips(),
         templates: project.templates().0,
+        // No fixture resumes a suspended run: a recorded run must not depend
+        // on a file beside it, which is the whole reason a replay answers
+        // `app.suspended()` false.
+        resume: None,
     }
     // With the project, so a fixture whose script asks for a different scene
     // replays the load rather than staying on the first floor and diverging.
@@ -208,6 +212,10 @@ fn the_example_project_replays_as_the_readme_says_it_does() {
         probes: &probes,
         clips: project.clips(),
         templates: project.templates().0,
+        // No fixture resumes a suspended run: a recorded run must not depend
+        // on a file beside it, which is the whole reason a replay answers
+        // `app.suspended()` false.
+        resume: None,
     }
     .run_in(
         Some(&mut project),

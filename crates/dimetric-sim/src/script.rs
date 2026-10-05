@@ -863,6 +863,18 @@ pub struct LuaHost {
     /// identically, or a replay of a session where somebody chose Quit would
     /// diverge from one where they closed the window.
     quit: Rc<std::cell::Cell<bool>>,
+    /// What a script asked the runtime to do with the suspended-run slot.
+    ///
+    /// Beside the quit flag, out of `SimState`, and for the same reason: a run
+    /// that was suspended has to hash identically to one whose window was
+    /// closed. See [`crate::suspend`].
+    suspend: Rc<std::cell::Cell<Option<crate::suspend::SuspendRequest>>>,
+    /// Whether a suspended run is waiting, as the host last reported it.
+    ///
+    /// An input the host supplies, like the profile and the fonts — not
+    /// something the simulation knows. A replay and a headless run are told
+    /// `false`, because a recorded session must not depend on files beside it.
+    suspended: Rc<std::cell::Cell<bool>>,
     /// What the simulation has told the host this tick.
     ///
     /// Beside the log lines and deliberately not on `SimState`: a later change
@@ -882,6 +894,8 @@ impl LuaHost {
         Ok(LuaHost {
             events: Rc::new(RefCell::new(Vec::new())),
             quit: Rc::new(std::cell::Cell::new(false)),
+            suspend: Rc::new(std::cell::Cell::new(None)),
+            suspended: Rc::new(std::cell::Cell::new(false)),
             profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
             fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
             lua,
@@ -970,6 +984,16 @@ impl LuaHost {
         *self.fonts.borrow_mut() = fonts;
     }
 
+    /// Tell the sandbox whether a suspended run is waiting.
+    ///
+    /// Supplied by the host before the first tick and again whenever it acts on
+    /// a request, so `app.suspended()` answers what is actually on disk. A host
+    /// that never calls this — a replay, a headless run, a test — leaves it
+    /// false, which is the answer those must give.
+    pub fn set_suspended(&mut self, waiting: bool) {
+        self.suspended.set(waiting);
+    }
+
     /// Supply the project's node kinds, so a write can be typed by the schema.
     ///
     /// `node:set` guards a write against the value the node already carries,
@@ -1001,6 +1025,8 @@ impl LuaHost {
             fonts: self.fonts.clone(),
             events: self.events.clone(),
             quit: self.quit.clone(),
+            suspend: self.suspend.clone(),
+            suspended: self.suspended.clone(),
         }
     }
 
@@ -1049,6 +1075,8 @@ pub(crate) struct HostHandles {
     fonts: Rc<RefCell<crate::text::Fonts>>,
     events: Rc<RefCell<Vec<crate::event::GameEvent>>>,
     quit: Rc<std::cell::Cell<bool>>,
+    suspend: Rc<std::cell::Cell<Option<crate::suspend::SuspendRequest>>>,
+    suspended: Rc<std::cell::Cell<bool>>,
 }
 
 fn build_environment(
@@ -1176,6 +1204,8 @@ pub fn sandbox_globals() -> Result<Vec<String>, Diagnostic> {
         fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
         events: Rc::new(RefCell::new(Vec::new())),
         quit: Rc::new(std::cell::Cell::new(false)),
+        suspend: Rc::new(std::cell::Cell::new(None)),
+        suspended: Rc::new(std::cell::Cell::new(false)),
     };
     let env = build_environment(&lua, 60, &handles, "<introspection>")?;
     let mut names: Vec<String> = env
@@ -1257,12 +1287,19 @@ fn install_api(
         .map_err(err)?;
     env.set("color", color).map_err(err)?;
 
-    // app: what a script can ask of the thing running it, which is one thing.
+    // app: what a script can ask of the thing running it.
     //
     // Deliberately not an `event.emit("quit")` convention. A game cannot quit
     // itself without the host's cooperation, and a channel whose payloads the
     // host has to recognise by name is a channel where a typo is silence —
-    // which is the shape of defect this round is mostly made of.
+    // which is the shape of defect the round that added `quit` was mostly made
+    // of.
+    //
+    // Every call here is a *request* read between ticks, and `suspended` is an
+    // answer the host supplied before the tick began. Nothing in this table is
+    // simulation state, so none of it is hashed: how a session ended, and
+    // whether a save happened to be sitting beside it, must not change what a
+    // recorded run replays to. See [`crate::suspend`].
     let app = lua.create_table().map_err(err)?;
     let wants_quit = shared_state.quit.clone();
     app.set(
@@ -1272,6 +1309,52 @@ fn install_api(
             Ok(())
         })
         .map_err(err)?,
+    )
+    .map_err(err)?;
+
+    // Suspending carries the quit with it. A run that wrote its save and kept
+    // playing would let somebody suspend, play on, die, and resume the save —
+    // so the two are one call rather than a convention the game has to follow.
+    let asked = shared_state.suspend.clone();
+    let also_quit = shared_state.quit.clone();
+    app.set(
+        "suspend",
+        lua.create_function(move |_, ()| {
+            asked.set(Some(crate::suspend::SuspendRequest::Suspend));
+            also_quit.set(true);
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+
+    let asked = shared_state.suspend.clone();
+    app.set(
+        "resume",
+        lua.create_function(move |_, ()| {
+            asked.set(Some(crate::suspend::SuspendRequest::Resume));
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+
+    let asked = shared_state.suspend.clone();
+    app.set(
+        "discard_suspended",
+        lua.create_function(move |_, ()| {
+            asked.set(Some(crate::suspend::SuspendRequest::Discard));
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+
+    let waiting = shared_state.suspended.clone();
+    app.set(
+        "suspended",
+        lua.create_function(move |_, ()| Ok(waiting.get()))
+            .map_err(err)?,
     )
     .map_err(err)?;
     env.set("app", app).map_err(err)?;
@@ -2657,6 +2740,14 @@ impl ScriptHost for LuaHost {
 
     fn take_quit(&mut self) -> bool {
         self.quit.replace(false)
+    }
+
+    fn take_suspend_request(&mut self) -> Option<crate::suspend::SuspendRequest> {
+        self.suspend.replace(None)
+    }
+
+    fn set_suspended(&mut self, waiting: bool) {
+        self.suspended.set(waiting);
     }
 
     fn reload(&mut self, path: &str, source: &str) -> Result<(), Diagnostic> {

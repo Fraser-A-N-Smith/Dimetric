@@ -14,6 +14,105 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a run can be suspended and continued
+
+```lua
+if ui.clicked(continue_row) then app.resume() end
+if ui.clicked(quit_row)     then app.suspend() end
+```
+
+`savefile.rs` already wrote a run as a canonical `scene.dim` plus a
+`state.toml`, versioned, and loading it back gave an identical state hash. Only
+the CLI could reach it. `dim-play` never called it, `Session` had no way to
+replace its state, and no script could ask — so a shipped game had no Continue
+row, and the two things a game could do instead were both refused when this was
+first filed: the profile cannot restore the RNG streams, and replaying the log
+from tick zero costs time proportional to the run and breaks every save on a
+balance change.
+
+Four calls, each acted on **between ticks**, like `scene.request_load` and
+`app.quit()`:
+
+| Call | What it does |
+|---|---|
+| `app.suspend()` | Writes the run out and stops. Carries the quit with it |
+| `app.suspended()` | Whether a run this build can continue is waiting |
+| `app.resume()` | Replaces the run with the suspended one, and consumes it |
+| `app.discard_suspended()` | Throws it away, for a player starting a new run |
+
+- **Where it lives:** `suspended/` beside the game's `profile.toml` — for a
+  packaged game, the directory the executable sits in. Never inside a
+  single-file build; `Project::writable()` is false for an archive and this does
+  not try.
+- **Written in two renames**, through a scratch directory. A run is two files,
+  so writing them in place means a crash between them leaves the new tree beside
+  the old numbers — a state that never existed and would load without complaint.
+  The previous save is moved aside rather than deleted, so the window in which
+  neither exists is one syscall wide and recoverable: the set-aside copy is the
+  previous run, and that is what is continued.
+- **Consumed on resume**, and only once the state is installed. A resume that
+  failed half way leaves the run where it was.
+- **A stale save reads as no save.** `app.suspended()` is false for one written
+  by a different engine or format version, so a game never offers a Continue that
+  fails when pressed, and the reason is reported as `DIM1002` at startup.
+- **A replay and a headless run do none of it** and answer `app.suspended()`
+  false. A recorded run that depended on a file beside it would reproduce only
+  on the machine that made one. A script that asks anyway is told so, as the new
+  `DIM1003`.
+- **`dim state suspended`** reports the slot without opening a window, which is
+  the only way to check a title-screen Continue on a machine with no display.
+
+**Does not move the state hash** for any run that never suspends, and
+structurally cannot: the requests and the answer live beside the quit flag on
+the script host, out of `SimState` entirely, so there is no field for a later
+change to start hashing. A test asserts that a run calling all four hashes
+identically to one that calls none, and every replay fixture reproduces its
+recorded hashes unchanged.
+
+### Added: a recorded session that resumed says what it resumed from
+
+A recording made across `app.resume()` is the second half of a run, and
+replaying its frames against a fresh scene would reproduce something nobody
+played — silently, which is the one outcome this engine exists to prevent. So an
+input log gained two optional header lines:
+
+```
+resumed 7f3c…      the state hash the save restores to
+from_tick 21       the tick the first recorded frame belongs to
+```
+
+Tick numbers in such a log are the **run's**, so a probe that says `tick 40`
+means tick 40 of the run. The frames before the resume are dropped. The save is
+kept beside the log as `<log>.save`, because the slot it came out of is emptied
+by the resume, and `dim replay --from-save` — or nothing at all, which looks
+beside the log — replays it. A log that says it resumed is **refused** rather
+than replayed without that save, or against one whose hash disagrees.
+
+A log that did not resume is byte-for-byte what it always was.
+
+### Added: `DIM0508`, for state a script keeps in Lua
+
+`on_ready` does not fire again after a resume — those nodes are already readied,
+and re-firing initialisation would re-roll a run's starting loadout — so a node
+handle cached in a file-scope `local` is nil afterwards and the next use of it
+raises. The same was already true of a hot reload and of a rollback, and had
+gone unnamed in both.
+
+`dim script check` now names it, with the two spellings that work and
+`-- @transient` for a local that is rebuilt every tick anyway. Three of this
+repository's own replay fixtures used the hazardous idiom and now do not; their
+hashes are unchanged, because looking a node up per tick produces the same
+state. An `on_resumed` hook was considered and declined — it fires only on the
+resumed run, so anything it wrote to state would be the divergence it was meant
+to prevent. The reasoning is in `docs/ENGINE-GAPS.md`.
+
+### Fixed: the save-format checks are reachable without parsing a scene
+
+`SaveFile::usable` is the three checks `restore` already made — format, format
+version, engine version — split out so a caller can ask whether a save is worth
+offering before parsing its tree, and `savefile::read_header` reads the header
+alone. No behaviour changed; `restore` calls `usable`.
+
 ### Added: a game names its own window and gives it an icon
 
 ```toml

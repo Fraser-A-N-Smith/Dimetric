@@ -966,6 +966,10 @@
             "description": "Probe file to evaluate",
             "type": "string"
           },
+          "from_save": {
+            "description": "The suspended run a recorded session continued, if it continued one",
+            "type": "string"
+          },
           "hashes": {
             "description": "Recorded hashes to compare against",
             "type": "string"
@@ -1559,6 +1563,36 @@
         "type": "object"
       },
       "name": "state_save"
+    },
+    {
+      "description": "Report the one suspended run, if a game has written one",
+      "inputSchema": {
+        "properties": {
+          "id_seed": {
+            "description": "Seed for generated node ids, so a scripted session is reproducible",
+            "type": "string"
+          },
+          "json": {
+            "description": "Emit JSON instead of text",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "Project directory. Defaults to the working directory",
+            "type": "string"
+          },
+          "root": {
+            "description": "The root the run was suspended under. Defaults to the project, which is where a game being developed keeps its `profile.toml`",
+            "type": "string"
+          },
+          "scene": {
+            "description": "Scene to operate on, relative to the project root",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "state_suspended"
     },
     {
       "description": "Fill a rectangle",

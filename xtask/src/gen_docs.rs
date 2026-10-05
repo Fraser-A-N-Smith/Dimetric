@@ -515,6 +515,58 @@ fn render_markdown(
          keyboard\'s Pause/Break key, which is deliberately not bindable: freezing the\n\
          simulation is a debugging affordance of whatever is running the game, and a\n\
          frozen simulation cannot tick the menu that would unfreeze it.\n\n\
+         ### Suspending a run, and continuing it\n\n\
+         One run can be set aside and picked up later, which is the Continue row every\n\
+         roguelike has. Four calls, all read **between ticks** for the same reason\n\
+         `app.quit()` is:\n\n\
+         | Call | What it does |\n\
+         |---|---|\n\
+         | `app.suspend()` | Writes the run out and stops. Carries the quit with it |\n\
+         | `app.suspended()` | Whether a run this build can continue is waiting |\n\
+         | `app.resume()` | Replaces the run with the suspended one, and consumes it |\n\
+         | `app.discard_suspended()` | Throws it away, for a player starting a new run |\n\n\
+         ```lua\n\
+         function on_ready(self)\n\
+         \x20 -- A Continue row, only when there is something to continue.\n\
+         \x20 scene.find(\"/Menu/Continue\").visible = app.suspended()\n\
+         end\n\n\
+         function on_tick(self)\n\
+         \x20 if ui.clicked(scene.find(\"/Menu/Continue\")) then app.resume() end\n\
+         \x20 if ui.clicked(scene.find(\"/Menu/Quit\")) then app.suspend() end\n\
+         \x20 if ui.clicked(scene.find(\"/Menu/Start\")) then app.discard_suspended() end\n\
+         end\n\
+         ```\n\n\
+         **One run, consumed once.** Suspending writes it, resuming takes it. There is no\n\
+         version left for a player to fall back to after playing on and losing, and\n\
+         `app.suspend()` quits rather than letting a run continue past its own save —\n\
+         which is why it is one call and not two.\n\n\
+         **Where it lives.** A directory beside the game's `profile.toml`, holding the\n\
+         canonical `scene.dim` and the `state.toml` `dim state save` writes. Text, and\n\
+         readable, for the reason every other file in this engine is. Never inside a\n\
+         single-file build: there is nowhere in an executable to put one.\n\n\
+         **A stale save reads as no save.** One written by a different engine or format\n\
+         version is refused — a save does not survive a rules change — and\n\
+         `app.suspended()` then answers false, so a game never offers a Continue that\n\
+         fails when pressed. The reason is reported as `DIM1002` at startup.\n\n\
+         **A replay and a headless run do none of it.** Both drop the requests and answer\n\
+         `app.suspended()` false, because a recorded run that depended on a file beside\n\
+         it would reproduce only on the machine that made one — and a run that was\n\
+         suspended must hash identically to one whose window was closed. A script that\n\
+         asks anyway is told so, as `DIM1003`.\n\n\
+         **What does not come back: anything a script left in Lua.** `on_ready` does not\n\
+         fire again — the nodes are already readied, and re-firing it would re-run a\n\
+         run's initialisation — so a handle cached in a file-scope local is nil after a\n\
+         resume and the next use of it raises. Keep it in `self`, or look it up in the\n\
+         hook that needs it. `dim script check` names the pattern as `DIM0508`, and the\n\
+         same hazard already applies to a hot reload and to a rollback.\n\n\
+         **Recording across a resume.** A session recorded with `--record` that continued\n\
+         a suspended run writes a log that says so: a `resumed` line naming the state\n\
+         hash the save restores to, and a `from_tick` line, so its tick numbers are the\n\
+         run's. The frames before the resume are dropped, because they belong to a\n\
+         different state lineage. The save is kept beside the log as `<log>.save`, since\n\
+         the slot it came out of is emptied by the resume, and `dim replay` looks there\n\
+         when a log says it resumed. Such a log is **refused** rather than replayed\n\
+         without that save, or against a save whose hash does not match.\n\n\
          ### Telling the host something\n\n\
          `event.emit(kind, payload)` appends to a list the runtime drains with\n\
          `Session::drain_events`. That is how a Steam achievement fires, how a volume\n\

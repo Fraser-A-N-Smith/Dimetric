@@ -5,15 +5,12 @@
 -- again, which used to be refused as a type change and is the reason a script
 -- could not tint anything at all.
 
-local lamp
-local panel
-
-function on_ready(self)
-  lamp = scene.find("/Stage/Lamp")
-  panel = scene.find("/Stage/Backdrop")
-end
-
+-- Looked up in the hook that needs them rather than cached in a file-scope
+-- local, which is what `DIM0508` is about: a local lives in Lua, and a host
+-- that restores a run it did not play has not run `on_ready` for these nodes.
 function on_tick(self)
+  local lamp = scene.find("/Stage/Lamp")
+  local panel = scene.find("/Stage/Backdrop")
   local t = tick.count() % 256
 
   -- Constructed, from bytes. No float goes near this.

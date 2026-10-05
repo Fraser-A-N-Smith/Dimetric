@@ -54,8 +54,12 @@ pub const GLOBALS: &[Global] = &[
     },
     Global {
         name: "app",
-        about: "`quit()` — asks whatever is running the game to stop. Read by the \
-                host between ticks, **never** hashed; a headless run ignores it",
+        about: "`quit()`, `suspend()`, `resume()`, `discard_suspended()`, \
+                `suspended()` — asks whatever is running the game to stop, to \
+                write the run out and stop, to continue the written one, or to \
+                throw it away. Read by the host between ticks, **never** \
+                hashed; a headless run and a replay ignore the requests and \
+                answer `suspended()` false",
     },
     Global {
         name: "profile",

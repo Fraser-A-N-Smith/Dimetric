@@ -1,0 +1,17 @@
+format = "dimetric"
+version = 1
+
+[scene]
+root = "n_root0000"
+
+[[node]]
+id = "n_root0000"
+kind = "Node2D"
+name = "Stage"
+script = "script:scripts/menu.lua"
+
+[[node]]
+id = "n_mark0000"
+kind = "Node2D"
+name = "Mark"
+parent = "n_root0000"          # /Stage

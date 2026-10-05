@@ -171,6 +171,7 @@ fn a_session_that_was_played_replays() {
             settings: dimetric_render::RenderSettings::default(),
             device: dimetric_audio::Device::Silent,
             profile: None,
+            suspend: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -199,6 +200,7 @@ fn a_session_that_was_played_replays() {
             settings: dimetric_render::RenderSettings::default(),
             device: dimetric_audio::Device::Silent,
             profile: None,
+            suspend: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -231,6 +233,7 @@ fn a_frame_comes_out_of_a_session_without_a_gpu() {
             settings: dimetric_render::RenderSettings::default(),
             device: dimetric_audio::Device::Silent,
             profile: None,
+            suspend: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -323,6 +326,7 @@ texture = "asset:sprites/block"
             settings: dimetric_render::RenderSettings::default(),
             device: dimetric_audio::Device::Silent,
             profile: None,
+            suspend: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));

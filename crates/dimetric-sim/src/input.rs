@@ -111,7 +111,25 @@ pub struct InputLog {
     pub scene_hash: Option<StateHash>,
     /// Players in the run.
     pub player_count: usize,
-    /// One frame per tick, from tick zero.
+    /// The hash of the suspended run this session was resumed from.
+    ///
+    /// `None` for a session that started a run from its seed, which is every
+    /// log recorded before suspending existed and every log recorded since by
+    /// a session that did not resume.
+    ///
+    /// A resumed session's frames are not a run — they are the second half of
+    /// one, and replaying them from a fresh scene would reproduce something
+    /// nobody played. So the log names the save, by the state hash the save
+    /// restores to, and a replay of such a log is refused unless it is given
+    /// that save and the hashes agree.
+    pub resumed: Option<StateHash>,
+    /// The tick the first recorded frame belongs to.
+    ///
+    /// Zero for a run that started from its seed. For a resumed one it is the
+    /// tick the save stopped at, so a tick number in this file means the same
+    /// thing a tick number in a probe or a divergence report means.
+    pub from_tick: u64,
+    /// One frame per tick, from [`InputLog::from_tick`].
     pub frames: Vec<InputFrame>,
 }
 
@@ -127,6 +145,8 @@ impl InputLog {
             seed,
             engine: engine.into(),
             scene_hash: None,
+            resumed: None,
+            from_tick: 0,
             player_count,
             frames: Vec::new(),
         }
@@ -137,15 +157,35 @@ impl InputLog {
         self.frames.push(frame);
     }
 
-    /// The frame for a tick, or idle input past the end of the log.
+    /// The frame for a tick, or idle input outside the log.
     ///
     /// Running past the end is normal: a replay may be asked for more ticks
-    /// than were recorded, and idle input is the honest answer.
+    /// than were recorded, and idle input is the honest answer. A tick before
+    /// [`InputLog::from_tick`] gets the same answer, which only arises if a
+    /// caller replays a resumed log from the wrong place — and idle input that
+    /// diverges immediately is better than silently reusing the first frame.
     pub fn frame(&self, tick: u64) -> InputFrame {
-        self.frames
-            .get(tick as usize)
+        tick.checked_sub(self.from_tick)
+            .and_then(|i| self.frames.get(i as usize))
             .cloned()
             .unwrap_or_else(|| InputFrame::idle(self.player_count))
+    }
+
+    /// The tick one past the last recorded frame.
+    pub fn end_tick(&self) -> u64 {
+        self.from_tick + self.frames.len() as u64
+    }
+
+    /// Record that this session continued a suspended run.
+    ///
+    /// The hash is the state the save restores to, which is what makes the log
+    /// checkable against it: a save that has been replaced since gives a
+    /// different hash, and the replay refuses rather than reproducing a run
+    /// nobody played.
+    pub fn resumed_from(&mut self, state: StateHash, tick: u64, seed: u64) {
+        self.resumed = Some(state);
+        self.from_tick = tick;
+        self.seed = seed;
     }
 
     /// Render as text.
@@ -157,12 +197,19 @@ impl InputLog {
         if let Some(h) = self.scene_hash {
             let _ = writeln!(out, "scene {h}");
         }
+        // Written only when there is one, so a log from a session that started
+        // its own run is byte-for-byte what it always was.
+        if let Some(h) = self.resumed {
+            let _ = writeln!(out, "resumed {h}");
+            let _ = writeln!(out, "from_tick {}", self.from_tick);
+        }
         let _ = writeln!(out, "players {}", self.player_count);
         let _ = writeln!(
             out,
             "# tick  then buttons move_x move_y aim pointer_x pointer_y, per player"
         );
-        for (tick, frame) in self.frames.iter().enumerate() {
+        for (offset, frame) in self.frames.iter().enumerate() {
+            let tick = self.from_tick + offset as u64;
             let _ = write!(out, "{tick}");
             for i in 0..self.player_count {
                 let p = frame.player(i);
@@ -187,6 +234,8 @@ impl InputLog {
         let mut seed = None;
         let mut engine = String::new();
         let mut scene_hash = None;
+        let mut resumed = None;
+        let mut from_tick = 0u64;
         let mut player_count = 1usize;
         let mut frames = Vec::new();
         let mut saw_tag = false;
@@ -211,6 +260,15 @@ impl InputLog {
                 "scene" => {
                     scene_hash = parts.next().and_then(StateHash::from_hex);
                 }
+                "resumed" => {
+                    resumed = Some(
+                        parts
+                            .next()
+                            .and_then(StateHash::from_hex)
+                            .ok_or_else(|| LogError::Malformed(number + 1, raw.to_string()))?,
+                    );
+                }
+                "from_tick" => from_tick = parse_field(parts.next(), number)?,
                 "players" => player_count = parse_field(parts.next(), number)?,
                 _ => {
                     // A tick line. The tick number is positional and checked,
@@ -219,10 +277,11 @@ impl InputLog {
                     let tick: usize = head
                         .parse()
                         .map_err(|_| LogError::Malformed(number + 1, raw.to_string()))?;
-                    if tick != frames.len() {
+                    let expected = from_tick as usize + frames.len();
+                    if tick != expected {
                         return Err(LogError::OutOfOrder {
                             line: number + 1,
-                            expected: frames.len(),
+                            expected,
                             found: tick,
                         });
                     }
@@ -269,6 +328,8 @@ impl InputLog {
             seed: seed.ok_or(LogError::MissingSeed)?,
             engine,
             scene_hash,
+            resumed,
+            from_tick,
             player_count,
             frames,
         })

@@ -131,6 +131,26 @@ pub trait ScriptHost {
         false
     }
 
+    /// What a script asked the runtime to do with the suspended-run slot,
+    /// clearing the request.
+    ///
+    /// Beside `take_quit` and for the same reasons: a message to the host, not
+    /// simulation state. A run that was suspended has to hash identically to
+    /// one whose window was closed.
+    ///
+    /// A headless run and a replay ignore it, and they do so by never asking:
+    /// nothing outside the player's session reads this, so a recorded run
+    /// cannot write a file or replace itself from one. See [`crate::suspend`].
+    fn take_suspend_request(&mut self) -> Option<crate::suspend::SuspendRequest> {
+        None
+    }
+
+    /// Tell the sandbox whether a suspended run is waiting.
+    ///
+    /// An input the host supplies, like the profile. The default does nothing,
+    /// which leaves `app.suspended()` false — the answer a replay must give.
+    fn set_suspended(&mut self, _waiting: bool) {}
+
     /// The profile store, for a host that loads it at startup and writes it
     /// back when it changes.
     ///
@@ -320,6 +340,20 @@ impl Sim {
     /// it started with and the host acts afterwards (I8).
     pub fn take_quit(&mut self) -> bool {
         self.scripts.take_quit()
+    }
+
+    /// What a script asked of the suspended-run slot, clearing the request.
+    ///
+    /// Read between ticks, like a scene load and the quit flag: the tick
+    /// finishes over the state it started with and the host acts afterwards
+    /// (I8). See [`crate::suspend`].
+    pub fn take_suspend_request(&mut self) -> Option<crate::suspend::SuspendRequest> {
+        self.scripts.take_suspend_request()
+    }
+
+    /// Tell the scripts whether a suspended run is waiting.
+    pub fn set_suspended(&mut self, waiting: bool) {
+        self.scripts.set_suspended(waiting);
     }
 
     /// Take the diagnostics raised so far.

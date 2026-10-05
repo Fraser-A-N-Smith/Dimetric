@@ -1,0 +1,8 @@
+# A replay has no suspended run to continue, whatever is on the machine it runs
+# on. False on the first tick and false on the last.
+tick 0 /Stage var:waiting == false
+tick 29 /Stage var:waiting == false
+
+# And the run carried on past the tick that asked to be suspended, rather than
+# stopping there the way a windowed runtime would.
+tick 29 /Stage/Mark pos.x == 30.0

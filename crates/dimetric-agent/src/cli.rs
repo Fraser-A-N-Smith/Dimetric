@@ -463,6 +463,17 @@ pub enum StateCmd {
         #[arg(long)]
         from: String,
     },
+    /// Report the one suspended run, if a game has written one.
+    ///
+    /// The headless way to check what `app.suspended()` answers and what a
+    /// Continue row would continue — a save written by a game that was played
+    /// in a window, read without opening one.
+    Suspended {
+        /// The root the run was suspended under. Defaults to the project,
+        /// which is where a game being developed keeps its `profile.toml`.
+        #[arg(long)]
+        root: Option<String>,
+    },
 }
 
 /// Frame capture.
@@ -518,6 +529,15 @@ pub struct ReplayArgs {
     /// Ticks to run. Defaults to the log's length.
     #[arg(long)]
     pub ticks: Option<u64>,
+    /// The suspended run a recorded session continued, if it continued one.
+    ///
+    /// A log recorded after `app.resume()` holds the second half of a run and
+    /// says which run, by the state hash the save restores to. Replaying it
+    /// without that save would reproduce something nobody played, so it is
+    /// refused rather than attempted. Point this at the save directory — for a
+    /// game being played that is `suspended/` beside its `profile.toml`.
+    #[arg(long = "from-save")]
+    pub from_save: Option<String>,
 }
 
 /// Build arguments.

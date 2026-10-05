@@ -111,6 +111,45 @@ fn default_resolution() -> [u32; 2] {
 }
 
 impl SaveFile {
+    /// Whether this build can restore the save, and why not when it cannot.
+    ///
+    /// The same three checks [`SaveFile::restore`] makes, split out so they can
+    /// be made before a scene is parsed. A stale save is refused rather than
+    /// loaded approximately: the state would restore, the game would continue,
+    /// and the divergence would surface somewhere else entirely.
+    pub fn usable(&self) -> Result<(), Diagnostic> {
+        if self.format != SAVE_FORMAT {
+            return Err(Diagnostic::new(
+                Code::SAVE_UNREADABLE,
+                format!("not a Dimetric save: header says {:?}", self.format),
+            ));
+        }
+        if self.version != SAVE_VERSION {
+            return Err(Diagnostic::new(
+                Code::SAVE_VERSION,
+                format!(
+                    "save is format version {} and this build reads {SAVE_VERSION}",
+                    self.version
+                ),
+            ));
+        }
+        if self.engine != env!("CARGO_PKG_VERSION") {
+            // A refusal rather than a warning, unlike an input log's engine
+            // field. A log that replays wrong announces itself as a
+            // divergence; a save that restores wrong just keeps playing.
+            return Err(Diagnostic::new(
+                Code::SAVE_VERSION,
+                format!(
+                    "save was written by engine {} and this is {}; \
+                     a save does not survive a rules change",
+                    self.engine,
+                    env!("CARGO_PKG_VERSION")
+                ),
+            ));
+        }
+        Ok(())
+    }
+
     /// Capture a running simulation.
     pub fn capture(state: &SimState, scene_path: &str) -> SaveFile {
         let uid = |u: &NodeUid| u.to_text();
@@ -158,35 +197,7 @@ impl SaveFile {
     /// The scene comes in separately because it was written as its own file;
     /// see the module note.
     pub fn restore(&self, scene: Scene) -> Result<SimState, Diagnostic> {
-        if self.format != SAVE_FORMAT {
-            return Err(Diagnostic::new(
-                Code::SAVE_UNREADABLE,
-                format!("not a Dimetric save: header says {:?}", self.format),
-            ));
-        }
-        if self.version != SAVE_VERSION {
-            return Err(Diagnostic::new(
-                Code::SAVE_VERSION,
-                format!(
-                    "save is format version {} and this build reads {SAVE_VERSION}",
-                    self.version
-                ),
-            ));
-        }
-        if self.engine != env!("CARGO_PKG_VERSION") {
-            // A refusal rather than a warning, unlike an input log's engine
-            // field. A log that replays wrong announces itself as a
-            // divergence; a save that restores wrong just keeps playing.
-            return Err(Diagnostic::new(
-                Code::SAVE_VERSION,
-                format!(
-                    "save was written by engine {} and this is {}; \
-                     a save does not survive a rules change",
-                    self.engine,
-                    env!("CARGO_PKG_VERSION")
-                ),
-            ));
-        }
+        self.usable()?;
 
         let uid = |text: &str| {
             NodeUid::parse(text).map_err(|_| {
@@ -264,6 +275,28 @@ pub fn save(
     Ok(())
 }
 
+/// Read a save's header without touching its scene.
+///
+/// The cheap half of [`load`], for a caller that needs to know whether a save
+/// is usable before offering to continue it — a Continue row that fails when
+/// pressed is worse than one that was never shown. [`SaveFile::usable`] is the
+/// check; this is how to get something to check.
+pub fn read_header(dir: &Path) -> Result<SaveFile, Diagnostic> {
+    let path = dir.join(STATE_FILE);
+    let text = std::fs::read_to_string(&path).map_err(|e| {
+        Diagnostic::new(
+            Code::SAVE_UNREADABLE,
+            format!("reading {}: {e}", path.display()),
+        )
+    })?;
+    toml::from_str(&text).map_err(|e| {
+        Diagnostic::new(
+            Code::SAVE_UNREADABLE,
+            format!("{} is not a readable save: {e}", path.display()),
+        )
+    })
+}
+
 /// Read a run back.
 pub fn load(dir: &Path, registry: &KindRegistry) -> Result<(SimState, Diagnostics), Diagnostic> {
     let read = |name: &str| -> Result<String, Diagnostic> {
@@ -275,12 +308,7 @@ pub fn load(dir: &Path, registry: &KindRegistry) -> Result<(SimState, Diagnostic
         })
     };
 
-    let file: SaveFile = toml::from_str(&read(STATE_FILE)?).map_err(|e| {
-        Diagnostic::new(
-            Code::SAVE_UNREADABLE,
-            format!("{STATE_FILE} is not a readable save: {e}"),
-        )
-    })?;
+    let file = read_header(dir)?;
 
     let scene_text = read(SCENE_FILE)?;
     let parsed = dimetric_scene::parse(

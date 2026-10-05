@@ -97,6 +97,24 @@ owes, the bindings that turn keys into input, and the session that owns the
 simulation are all in `dimetric-player` as a library with no display in it, and
 they are tested that way.
 
+A run can be set aside and picked up later — the Continue row every roguelike
+has. `app.suspend()` writes the run out and stops, `app.suspended()` says
+whether one is waiting, and `app.resume()` takes it and consumes it; all three
+are read **between ticks**, like a scene load, and none of them is simulation
+state. The run lands as text beside the game's `profile.toml`, a save from
+another engine version reads as no save at all rather than one that fails when
+pressed, and a replay ignores the lot — a recorded run that depended on a file
+beside it would reproduce only on the machine that made one.
+
+```sh
+dim state suspended --root build/linux
+```
+
+says what is in the slot without opening a window, which is how a Continue row
+gets checked on a machine with no display. `docs/API.md` has the rest, including
+the one thing a resume does not bring back: anything a script left in a Lua
+local, which `dim script check` now names as `DIM0508`.
+
 ```sh
 dim --project examples/sorcerer build --target linux --runtime target/release/dim-play
 ```
