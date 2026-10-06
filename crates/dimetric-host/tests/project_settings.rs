@@ -178,3 +178,41 @@ fn a_project_that_declares_nothing_is_drawn_as_it_always_was() {
     };
     assert_eq!(declared, silent, "the default is still 480x270");
 }
+
+#[test]
+fn the_render_settings_are_the_projects_and_not_the_engines() {
+    // `[render] integer_upscale` has to reach the renderer the same way
+    // `resolution` does. Three callers build a `RenderSettings` — the window, a
+    // headless capture, the editor's preview — and each used to assemble it
+    // from the engine's defaults with only the resolution patched in, so a
+    // project that turned whole-multiple scaling off was drawn with it on.
+    let dir = project("[render]\nresolution = [1920, 1080]\ninteger_upscale = false\n");
+    let (settings, warning) = Project::open(dir.path(), 0).render_settings(None);
+    assert_eq!(settings.internal_resolution, (1920, 1080));
+    assert!(!settings.integer_upscale);
+    assert!(warning.is_none());
+
+    // And a project that says nothing keeps square pixels.
+    let dir = project("[render]\nresolution = [480, 270]\n");
+    let (settings, _) = Project::open(dir.path(), 0).render_settings(None);
+    assert!(settings.integer_upscale);
+}
+
+#[test]
+fn an_overridden_resolution_still_warns_through_the_one_door() {
+    let dir = project(DECLARED);
+    let (settings, warning) = Project::open(dir.path(), 0).render_settings(Some((640, 360)));
+    assert_eq!(settings.internal_resolution, (640, 360));
+    let warning = warning.expect("an override costs a warning");
+    assert_eq!(warning.code, dimetric_core::Code::SETTINGS_OVERRIDDEN);
+}
+
+#[test]
+fn the_window_a_project_opens_comes_from_the_project() {
+    // The default is the game's own resolution rather than a number in the
+    // runtime, which is what stops a window being smaller than the game.
+    let dir = project("[render]\nresolution = [1920, 1080]\n\n[window]\nfit = \"monitor\"\n");
+    let project = Project::open(dir.path(), 0);
+    assert_eq!(project.window_size(Some((2560, 1440))), (2560, 1440));
+    assert_eq!(project.window_size(None), (1920, 1080));
+}

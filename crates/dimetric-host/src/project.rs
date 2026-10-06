@@ -540,6 +540,53 @@ impl Project {
         }
     }
 
+    /// The rendering settings this project wants, and what an override costs.
+    ///
+    /// One door, for the same reason `script_host` is one: three callers build
+    /// a `RenderSettings` — the player's window, a headless capture and the
+    /// editor's preview — and each of them used to assemble it from the
+    /// engine's defaults with `internal_resolution` patched in. So
+    /// `[render] integer_upscale` would have reached none of them, and a
+    /// project that turned whole-multiple scaling off would have been drawn
+    /// with it on.
+    ///
+    /// `override_with` is a one-off internal resolution from a command line,
+    /// which warns: see [`Project::render_resolution`].
+    pub fn render_settings(
+        &self,
+        override_with: Option<(u32, u32)>,
+    ) -> (dimetric_render::RenderSettings, Option<Diagnostic>) {
+        let (internal_resolution, warning) = self.render_resolution(override_with);
+        let defaults = dimetric_render::RenderSettings::default();
+        (
+            dimetric_render::RenderSettings {
+                internal_resolution,
+                integer_upscale: self
+                    .settings
+                    .presentation
+                    .integer_upscale
+                    .unwrap_or(defaults.integer_upscale),
+                ..defaults
+            },
+            warning,
+        )
+    }
+
+    /// The window to open, given the monitor there is one to open on.
+    ///
+    /// The project states an intent and this turns it into pixels. `monitor` is
+    /// `None` when there is no display to ask, and then the game's own
+    /// resolution is the best answer available.
+    ///
+    /// Presentation, and nothing else: a window size reaches a window manager
+    /// and a viewport call. The simulation never sees it, so a player who
+    /// resizes cannot change what a recorded run replays to.
+    pub fn window_size(&self, monitor: Option<(u32, u32)>) -> (u32, u32) {
+        self.settings
+            .presentation
+            .window_size(self.settings.resolution, monitor)
+    }
+
     /// Load every `.lua` file under `scripts/`.
     ///
     /// Through the project's source, so a single-file game loads its scripts out

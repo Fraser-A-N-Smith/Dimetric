@@ -1579,12 +1579,13 @@ fn frame_command(project: &mut Project, cmd: FrameCmd) -> Result<Output, Diagnos
         Some(text) => Some(parse_size(text)?),
         None => None,
     };
-    let (internal_resolution, warning) = project.render_resolution(override_with);
-    let mut settings = dimetric_render::RenderSettings {
-        integer_upscale: !no_integer_upscale,
-        internal_resolution,
-        ..Default::default()
-    };
+    let (mut settings, warning) = project.render_settings(override_with);
+    // The flag turns it off for a one-off; the project decides otherwise. A
+    // capture taken with whole-multiple scaling on while the project asked for
+    // it off photographs a differently-placed game from the one a player sees.
+    if no_integer_upscale {
+        settings.integer_upscale = false;
+    }
     if let Some(text) = &ambient {
         settings.ambient = dimetric_scene::Color::parse(text).map_err(|e| {
             one(Diagnostic::new(

@@ -99,6 +99,10 @@ fn settings(name: &str) -> String {
          [game]\n\
          name = {name:?}\n\
          \n\
+         # A `[window]` section is presentation too — `size = [w, h]`, or\n\
+         # `fit = \"monitor\"`. Left out because the default is this game's own\n\
+         # resolution, at the largest whole multiple a screen has room for.\n\
+         \n\
          # Everything else a project can declare *is* the contract — the tick\n\
          # rate, the UI canvas, the render resolution, the input bindings — so\n\
          # two people running the same input log have to agree on it. Left out\n\

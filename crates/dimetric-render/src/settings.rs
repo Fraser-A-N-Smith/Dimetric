@@ -18,6 +18,12 @@ pub struct RenderSettings {
     /// uneven pixel sizes across a scene.
     pub internal_resolution: (u32, u32),
     /// Scale the internal image to the largest whole multiple that fits.
+    ///
+    /// Upscaling only. A whole multiple is what gives a pixel-art frame square
+    /// pixels when it is drawn larger than it was authored; below one there is
+    /// no whole multiple to pick, so a window smaller than the game scales the
+    /// frame down by the exact ratio whatever this says. See
+    /// [`RenderSettings::placement`].
     pub integer_upscale: bool,
     /// Round the camera to whole pixels.
     pub pixel_snap: bool,
@@ -52,16 +58,39 @@ impl RenderSettings {
     /// is centred and the remainder is left as a border, because a fractional
     /// scale is exactly what makes some pixels one screen-pixel wider than
     /// their neighbours.
+    ///
+    /// # Nothing is ever cropped
+    ///
+    /// Integer upscaling used to clamp the scale to 1, which is a whole
+    /// multiple and fits nothing: a 1920×1080 game in a 1440×810 window was
+    /// drawn at full size and centred, so 240 pixels came off each side and 135
+    /// off the top and bottom. A menu button, a right-hand rail and half a
+    /// bottom bar were outside the window, and a click aimed at any of them
+    /// landed on nothing.
+    ///
+    /// The clamp was the wrong shape rather than the wrong number. Whole
+    /// multiples exist to keep pixels square while scaling *up*; there is no
+    /// whole multiple below one, so below one the choice is between a
+    /// fractional scale and throwing part of the frame away. A frame scaled by
+    /// 0.75 has soft edges; a frame with its edges outside the window has a
+    /// button nobody can press.
+    ///
+    /// So `integer_upscale` applies when the frame fits, and under that the
+    /// exact ratio is used. Everything a game draws is always on screen.
+    ///
+    /// Whatever this returns, both the composite pass and the cursor go through
+    /// it — the renderer to place the frame, `dim-play` to turn a window
+    /// position into the internal pixel the simulation hit-tests against. One
+    /// function, so a click lands on what is drawn under it.
     pub fn placement(&self, output: (u32, u32)) -> (f32, f32, f32) {
         let (iw, ih) = self.internal_resolution;
         if iw == 0 || ih == 0 {
             return (1.0, 0.0, 0.0);
         }
         let fit = (output.0 as f32 / iw as f32).min(output.1 as f32 / ih as f32);
-        let scale = if self.integer_upscale {
-            fit.floor().max(1.0)
-        } else {
-            fit.max(f32::MIN_POSITIVE)
+        let scale = match self.integer_upscale && fit >= 1.0 {
+            true => fit.floor(),
+            false => fit.max(f32::MIN_POSITIVE),
         };
         let drawn = (iw as f32 * scale, ih as f32 * scale);
         (
@@ -69,5 +98,21 @@ impl RenderSettings {
             ((output.0 as f32 - drawn.0) * 0.5).floor(),
             ((output.1 as f32 - drawn.1) * 0.5).floor(),
         )
+    }
+
+    /// A point in the output turned into the internal pixel under it.
+    ///
+    /// The inverse of [`RenderSettings::placement`], and here beside it so the
+    /// two cannot drift. A cursor position is in the window's pixels and the
+    /// simulation hit-tests in the internal resolution's, so every click goes
+    /// through this — which is what makes "a click lands on what is drawn under
+    /// it" a property of one function rather than of two that agree today.
+    ///
+    /// The result is not clamped. A point on the letterbox is outside the frame
+    /// and lands outside the internal rectangle, which is the honest answer:
+    /// nothing is drawn there, so nothing should be hit.
+    pub fn window_to_internal(&self, point: (f32, f32), output: (u32, u32)) -> (f32, f32) {
+        let (scale, offset_x, offset_y) = self.placement(output);
+        ((point.0 - offset_x) / scale, (point.1 - offset_y) / scale)
     }
 }

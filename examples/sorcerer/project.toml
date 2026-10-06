@@ -38,6 +38,23 @@ canvas = [320, 180]
 # click different cells from the same pointer.
 resolution = [480, 270]
 
+# The other key in this section is *not* part of the contract: whole-multiple
+# scaling decides how the finished frame is laid into a window and reaches
+# nothing else. On by default, which is what this project wants — its art is
+# pixel-art, and a fractional scale would make some pixels wider than their
+# neighbours. A game whose art is not pixel-locked says:
+#
+#     integer_upscale = false
+#
+# Nothing here says how big a window to open, so the default applies: this
+# game's own 480×270, at the largest whole multiple a screen has room for. On a
+# 1080p monitor that is 3×, in a 1440×810 window. A project that wants to decide
+# says so in a `[window]` section:
+#
+#     [window]
+#     size = [1280, 720]    # exactly this, or
+#     fit = "monitor"       # the largest the screen holds at the game's shape
+
 # Keys to actions. Declaring this section replaces the defaults entirely, so
 # every action the game uses has to appear. Key names come from the window
 # library; one this build does not recognise simply never fires.

@@ -49,6 +49,145 @@ pub struct Game {
     pub icon: Option<String>,
 }
 
+/// How big a window a game wants to open.
+///
+/// The engine cannot answer this without a display, and `dimetric-host` has
+/// none — so a project states its *intent* here and `dim-play` turns it into
+/// pixels once it knows the monitor. [`WindowSize::resolve`] is that
+/// arithmetic, which is why it is here and testable rather than in the
+/// runtime's event loop.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum WindowSize {
+    /// The resolution the world is drawn at, scaled down to fit the monitor.
+    ///
+    /// The default, and the only one that is right without being told anything:
+    /// a game's own resolution is the size at which its interface was laid out,
+    /// so opening there means every pixel of it is a pixel on the screen.
+    ///
+    /// The old default was a fixed 1440×810, which for a 1920×1080 game was
+    /// smaller than the game — and with the frame cropped rather than scaled,
+    /// that is how a menu button came to be outside the window.
+    #[default]
+    Internal,
+    /// The largest size at the game's shape that the monitor will hold.
+    ///
+    /// Up as well as down, for a game whose art is not tied to a pixel size and
+    /// which would rather use the screen it is given.
+    Monitor,
+    /// Exactly this, in pixels.
+    ///
+    /// Not clamped. A project that names a number means it, and a window
+    /// manager that cannot honour it will say so in its own way — whereas a
+    /// number quietly changed here is a project being argued with.
+    Fixed(u32, u32),
+}
+
+/// How much of a monitor the default window leaves alone.
+///
+/// A window opened at exactly the monitor's size has its title bar pushed off
+/// the top, and there is no portable way to ask a window manager how much room
+/// its decorations want — winit reports a monitor's full size and nothing else.
+/// So the default leaves a tenth of it, which is enough for any title bar and a
+/// taskbar, and is also what makes the arithmetic come out at the sizes a
+/// person would have picked: a 480×270 game on a 1080p screen opens at 3× in a
+/// 1440×810 window, which is exactly the fixed default this replaced.
+///
+/// A project that would rather use the whole screen says `fit = "monitor"`, and
+/// one that wants a particular number says `size`. Neither is trimmed.
+const COMFORTABLE: u32 = 90;
+
+/// The largest rectangle with `shape`'s aspect ratio that fits in `within`.
+///
+/// Whole pixels, and at least one of each: a window of zero width is not a
+/// window.
+fn largest_fitting(shape: (u32, u32), within: (u32, u32)) -> (u32, u32) {
+    let within = (within.0.max(1), within.1.max(1));
+    // Integer arithmetic throughout. A float ratio here lands on 1079.999 for
+    // an exact fit and costs a pixel row for nothing.
+    let by_width = (within.0 as u64 * shape.1 as u64) / shape.0 as u64;
+    match by_width <= within.1 as u64 {
+        true => (within.0, (by_width as u32).max(1)),
+        false => (
+            ((within.1 as u64 * shape.0 as u64) / shape.1 as u64).max(1) as u32,
+            within.1,
+        ),
+    }
+}
+
+/// How a game is placed in a window, which is nobody's business but the
+/// runtime's.
+///
+/// Beside [`Game`] rather than among the contract's fields, and for the same
+/// reason: a window size and a scaling mode reach a window manager and a
+/// viewport call and nothing else. The simulation never sees either, so a
+/// player who resizes a window cannot change what a recorded run replays to.
+///
+/// That line runs *through* `[render]`, which is worth saying out loud because
+/// the section holds one key of each kind. `resolution` is the contract — a
+/// script unprojects a click through it — and `integer_upscale` decides only
+/// how the finished frame is laid into the output.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Presentation {
+    /// `[window] size` or `[window] fit`.
+    pub window: WindowSize,
+    /// `[render] integer_upscale`. `None` leaves the engine's default, which is
+    /// on, because a pixel-art project is the one that most needs it and the
+    /// one least likely to know to ask.
+    pub integer_upscale: Option<bool>,
+}
+
+impl Presentation {
+    /// The window to open, given the game's own resolution and the monitor's.
+    ///
+    /// `monitor` is `None` when there is no display to ask — a platform that
+    /// will not say — and then the game's own resolution is the best answer
+    /// available. It is never *smaller* than the game, which is the property
+    /// the fixed 1440×810 default broke.
+    pub fn window_size(&self, internal: (u32, u32), monitor: Option<(u32, u32)>) -> (u32, u32) {
+        let internal = (internal.0.max(1), internal.1.max(1));
+        match self.window {
+            // Said outright. Not clamped: a project that names a number means
+            // it, and a number quietly changed here is a project being argued
+            // with. A window bigger than the screen is the window manager's
+            // business, and the frame inside it is never cropped either way.
+            WindowSize::Fixed(w, h) => (w.max(1), h.max(1)),
+            // Asked for the screen, so no allowance is kept back.
+            WindowSize::Monitor => match monitor {
+                Some(monitor) => largest_fitting(internal, monitor),
+                None => internal,
+            },
+            WindowSize::Internal => {
+                let Some(monitor) = monitor else {
+                    return internal;
+                };
+                let room = (
+                    (monitor.0 as u64 * COMFORTABLE as u64 / 100).max(1) as u32,
+                    (monitor.1 as u64 * COMFORTABLE as u64 / 100).max(1) as u32,
+                );
+                // A pixel-locked game opens at a whole multiple, because that
+                // is the only scale at which its pixels are square — and a
+                // window that forces a fractional scale on launch would make
+                // the setting look broken. One game, 480×270, on a 1080p
+                // screen: 3×, which is 1440×810.
+                let whole = internal.0 <= room.0
+                    && internal.1 <= room.1
+                    && self.integer_upscale.unwrap_or(true);
+                if whole {
+                    let times = (room.0 / internal.0).min(room.1 / internal.1).max(1);
+                    return (internal.0 * times, internal.1 * times);
+                }
+                // Otherwise its own size, trimmed only when the screen will not
+                // hold it. The frame then scales by the exact ratio and all of
+                // it is visible, which is the whole point of this round.
+                match internal.0 <= room.0 && internal.1 <= room.1 {
+                    true => internal,
+                    false => largest_fitting(internal, room),
+                }
+            }
+        }
+    }
+}
+
 /// What a project declares about how it runs.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Settings {
@@ -84,6 +223,9 @@ pub struct Settings {
     pub bindings_declared: bool,
     /// The name and the icon. Presentation, not contract — see [`Game`].
     pub game: Game,
+    /// The window size and the scaling mode. Presentation, not contract — see
+    /// [`Presentation`].
+    pub presentation: Presentation,
 }
 
 impl Default for Settings {
@@ -95,6 +237,7 @@ impl Default for Settings {
             bindings: Vec::new(),
             bindings_declared: false,
             game: Game::default(),
+            presentation: Presentation::default(),
         }
     }
 }
@@ -204,6 +347,64 @@ impl Settings {
                         format!(
                             "{origin}: render.resolution must be two positive whole numbers, \
                              as [width, height]"
+                        ),
+                    )),
+                }
+            }
+            // In `[render]` because that is where a reader looks for a
+            // rendering knob, and in `Presentation` because it is not part of
+            // the contract. The section holds one key of each kind; see
+            // [`Presentation`].
+            if let Some(value) = render.get("integer_upscale") {
+                match value.as_bool() {
+                    Some(on) => out.presentation.integer_upscale = Some(on),
+                    None => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!("{origin}: render.integer_upscale must be true or false"),
+                    )),
+                }
+            }
+        }
+
+        if let Some(window) = doc.get("window") {
+            // `size` and `fit` answer the same question, so declaring both is a
+            // mistake worth reporting rather than a precedence rule to
+            // remember.
+            let size = window.get("size");
+            let fit = window.get("fit");
+            if size.is_some() && fit.is_some() {
+                diagnostics.push(Diagnostic::new(
+                    Code::SETTINGS_INVALID,
+                    format!(
+                        "{origin}: window.size and window.fit both say how big the window \
+                         should be; declare one"
+                    ),
+                ));
+            }
+            if let Some(value) = size {
+                match pair(value) {
+                    Some((w, h)) if w > 0 && h > 0 => {
+                        out.presentation.window = WindowSize::Fixed(w as u32, h as u32)
+                    }
+                    _ => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!(
+                            "{origin}: window.size must be two positive whole numbers, as \
+                             [width, height]"
+                        ),
+                    )),
+                }
+            }
+            if let Some(value) = fit {
+                match value.as_str() {
+                    Some("monitor") => out.presentation.window = WindowSize::Monitor,
+                    Some("internal") => out.presentation.window = WindowSize::Internal,
+                    _ => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!(
+                            "{origin}: window.fit is \"monitor\" — the largest the screen \
+                             holds at the game's shape — or \"internal\", the game's own \
+                             resolution"
                         ),
                     )),
                 }

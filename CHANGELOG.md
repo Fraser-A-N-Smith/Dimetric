@@ -48,40 +48,6 @@ an author has checked.
 
 **Does not move the state hash:** a lint reads scripts and changes nothing.
 
-### Fixed: `DIM0508` named table fields as writes to a module
-
-```lua
-local route = require("scripts/route.lua")
-local sfx = require("scripts/sfx.lua")
-
-function on_ready(self)
-  self.run = { route = {}, sfx = sfx.fresh(), floor_at = 1 }
-end
-```
-
-Nothing there writes `route` or `sfx`: inside `{ … }` a `name = value` is a
-**field**, and a field whose key matches a module's name is the commonest thing
-in Lua. One project reported eighteen warnings and every one was this shape,
-which is worse than having no lint — eighteen false warnings bury the true one.
-
-Braces are exact for this rather than a heuristic: Lua's blocks are `do … end`
-and `function … end`, so `{` opens a table constructor and nothing else. The
-scan already blanks strings and strips comments, so counting them is reliable.
-
-The blind spot this leaves is a function literal *inside* a constructor —
-`local M = { go = function() cached = build() end }` — because telling that
-apart needs matching every `end` to its opener, which is a Lua parser rather
-than the text scan this file is. The trade goes the way the costs do: a missed
-warning on a hazard that raises `DIM0502` at runtime, naming the file and the
-line, against eighteen false ones that hide a real one.
-
-A write *through* a file-scope local is now named as well — `M.count = 1`,
-`seen[k] = true` — because a table's fields live in Lua exactly as the binding
-does and are lost on a restore for the same reason. `-- @transient` still says
-an author has checked.
-
-**Does not move the state hash:** a lint reads scripts and changes nothing.
-
 ### Fixed: a window smaller than the game showed a cropped game
 
 `RenderSettings::placement` clamped the integer-upscale factor to 1. For a

@@ -39,9 +39,15 @@ struct Args {
     /// land where the cursor is.
     #[arg(long)]
     internal: Option<String>,
-    /// Window size, as `WIDTHxHEIGHT`.
-    #[arg(long, default_value = "1440x810")]
-    window: String,
+    /// Window size, as `WIDTHxHEIGHT`, overriding what the project asks for.
+    ///
+    /// Without it the project decides: `[window] size`, or `[window] fit =
+    /// "monitor"`, or — by default — the resolution the game is drawn at,
+    /// scaled down only if the monitor will not hold it. The old fixed
+    /// 1440×810 was smaller than a 1080p game, which is how a menu button came
+    /// to be outside the window.
+    #[arg(long)]
+    window: Option<String>,
     /// Play with no sound.
     ///
     /// The mixer still runs and still decides what would be heard; nothing
@@ -101,7 +107,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(text) => Some(parse_size(text)?),
         None => None,
     };
-    let window_size = parse_size(&args.window)?;
+    let window_override = match &args.window {
+        Some(text) => Some(parse_size(text)?),
+        None => None,
+    };
 
     let root = match &args.project {
         Some(root) => std::path::PathBuf::from(root),
@@ -190,14 +199,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // game has no command line — `dim build` makes something a player
     // double-clicks — so a project that could only be drawn at the engine's
     // default was a project that could only ship at it.
-    let (internal_resolution, override_warning) = project.render_resolution(internal_override);
+    //
+    // Through `render_settings`, so `[render] integer_upscale` reaches the
+    // window as well as the resolution. Assembling this from the engine's
+    // defaults with only the resolution patched in is how a project that asked
+    // for whole-multiple scaling off would have been drawn with it on.
+    let (settings, override_warning) = project.render_settings(internal_override);
     if let Some(d) = &override_warning {
         eprintln!("{d}");
     }
-    let settings = dimetric_render::RenderSettings {
-        internal_resolution,
-        ..Default::default()
-    };
     let mut session = Session::open(
         &mut project,
         SessionConfig {
@@ -335,7 +345,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cursor: (0.0, 0.0),
         pads: dimetric_player::pad::Pads::new(),
         project,
-        window_size,
+        wanted_window: window_override,
         title,
         icon,
         paused: false,
@@ -384,7 +394,11 @@ struct App {
     /// Kept for the whole run because a script can ask for a different scene,
     /// and loading one needs the project's registry, prefabs and disk.
     project: Project,
-    window_size: (u32, u32),
+    /// A window size from the command line, which wins over the project's.
+    ///
+    /// The project's own answer needs the monitor, which only the event loop
+    /// knows, so it is resolved in `resumed` rather than carried here.
+    wanted_window: Option<(u32, u32)>,
     /// What the title bar and the taskbar say. Presentation: nothing below the
     /// runtime reads it, and it cannot reach the state hash.
     title: String,
@@ -402,13 +416,23 @@ impl ApplicationHandler for App {
         if self.window.is_some() {
             return;
         }
+        // The monitor, now that there is an event loop to ask. A platform that
+        // will not say leaves the project with its own resolution, which is the
+        // best answer available and never smaller than the game.
+        let monitor = event_loop
+            .primary_monitor()
+            .or_else(|| event_loop.available_monitors().next())
+            .map(|m| {
+                let size = m.size();
+                (size.width, size.height)
+            });
+        let size = self
+            .wanted_window
+            .unwrap_or_else(|| self.project.window_size(monitor));
         let attributes = Window::default_attributes()
             .with_title(&self.title)
             .with_window_icon(self.icon.clone())
-            .with_inner_size(winit::dpi::PhysicalSize::new(
-                self.window_size.0,
-                self.window_size.1,
-            ));
+            .with_inner_size(winit::dpi::PhysicalSize::new(size.0, size.1));
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(e) => {
@@ -417,6 +441,18 @@ impl ApplicationHandler for App {
                 return;
             }
         };
+        // What it opened at, and what that does to the frame. Beside the other
+        // startup lines because it is the first thing worth knowing when a
+        // frame looks soft or an edge looks missing: the scale says whether the
+        // window is holding the game at its own size, a whole multiple of it,
+        // or a fraction.
+        let internal = self.session.settings().internal_resolution;
+        let (scale, _, _) = self.session.settings().placement(size);
+        eprintln!(
+            "window {}x{} for a {}x{} game, drawn at {scale:.3}x",
+            size.0, size.1, internal.0, internal.1
+        );
+
         match self.start_gpu(window.clone()) {
             Ok(gpu) => self.gpu = Some(gpu),
             Err(e) => {
@@ -604,16 +640,17 @@ impl App {
 
     /// The cursor, in the internal resolution's pixels rather than the
     /// window's, because that is the space the camera is in.
+    ///
+    /// Through `window_to_internal`, which is the inverse of the placement the
+    /// composite pass draws with — one pair of functions, so a click lands on
+    /// what is drawn under it at every window size.
     fn cursor_in_world(&self) -> (f32, f32) {
         let Some(gpu) = &self.gpu else {
             return self.cursor;
         };
-        let settings = self.session.settings();
-        let (scale, offset_x, offset_y) = settings.placement((gpu.config.width, gpu.config.height));
-        (
-            (self.cursor.0 - offset_x) / scale,
-            (self.cursor.1 - offset_y) / scale,
-        )
+        self.session
+            .settings()
+            .window_to_internal(self.cursor, (gpu.config.width, gpu.config.height))
     }
 
     fn draw(&mut self) {

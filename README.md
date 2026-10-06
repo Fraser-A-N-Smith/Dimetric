@@ -445,6 +445,35 @@ Two things about the isometric path are worth knowing before drawing anything:
   places it on. Square tiles under the shear tessellate into columns with gaps,
   which is the artwork being wrong rather than the engine.
 
+### The window, and how the frame sits in it
+
+Everything is drawn at `[render] resolution` and then placed in whatever output
+it is given — a window, or a capture's buffer. **No part of the frame is ever
+cropped.** A window too small for the game scales the frame down by the exact
+ratio, and the cursor is unprojected through the same placement, so a click
+lands on what is drawn under it at any size.
+
+```toml
+[window]
+size = [1280, 720]      # exactly this, or
+fit = "monitor"         # the largest the screen holds at the game's shape
+
+[render]
+integer_upscale = false # for art that is not pixel-locked
+```
+
+Declaring neither opens the game at its own resolution, scaled to a whole
+multiple when it is pixel-locked and the screen has room — so a 480×270 game on
+a 1080p screen opens at 3×, and a 1920×1080 one opens as large as a title bar
+leaves space for. `integer_upscale` applies to scaling **up** only: there is no
+whole multiple below one, so below one the choice is a fractional scale or a
+button nobody can press.
+
+`--window WIDTHxHEIGHT` overrides the project for one run. Note that `[render]`
+holds one key of each kind: `resolution` is part of the replay contract, because
+a script unprojects a click through it, and `integer_upscale` is presentation
+and reaches nothing but a viewport call.
+
 ## Development
 
 ```sh
