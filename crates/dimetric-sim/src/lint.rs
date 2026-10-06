@@ -69,6 +69,9 @@ pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
     // of these is gone the moment a host starts over a state it did not build,
     // so the set has to be known before the hooks are read.
     let file_locals = file_scope_locals(source);
+    // A `name = value` inside `{ … }` is a field, not an assignment. See
+    // [`constructor_depth`].
+    let depths = constructor_depth(source);
     for (index, raw) in source.lines().enumerate() {
         let line = index + 1;
         let code = blank_strings(&strip_comment(raw));
@@ -112,7 +115,8 @@ pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
             }
         }
 
-        if let Some(name) = rebound_file_local(&code, &file_locals) {
+        let in_constructor = depths.get(index).is_some_and(|d| *d > 0);
+        if let Some(name) = rebound_file_local(&code, &file_locals).filter(|_| !in_constructor) {
             if !acknowledged(TRANSIENT_MARK) {
                 out.push(
                     Diagnostic::new(
@@ -121,10 +125,11 @@ pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
                             "`{name}` is a local at the file's own scope, so what this \
                              writes to it lives in Lua rather than in the state. A host \
                              that restores a run it did not play — a resume, a rollback, \
-                             a hot reload — has not run `on_ready` for these nodes, so \
-                             the value is nil and the next use of it raises. Keep it in \
-                             `self`, or look it up again in the hook that needs it, or \
-                             write `-- @transient` if it is rebuilt every tick."
+                             a hot reload — starts from a fresh environment and has not \
+                             run `on_ready` for these nodes, so the value is gone and the \
+                             next use of it raises. Keep it in `self`, or look it up \
+                             again in the hook that needs it, or write `-- @transient` if \
+                             it is rebuilt every tick."
                         ),
                     )
                     .with_span(Span::at(path.to_string(), line as u32))
@@ -434,7 +439,77 @@ fn rebound_file_local(
     if target.starts_with("local ") {
         return None;
     }
-    file_locals.contains(target).then(|| target.to_string())
+    // The root of the target, so a write *through* the local counts too: a
+    // table's field lives in Lua exactly as the binding does, and a hook that
+    // sets `M.count` loses it on a restore for the same reason.
+    let name: String = target
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() || !file_locals.contains(&name) {
+        return None;
+    }
+    // `name`, `name.field` or `name[key]`, and nothing else. A target this does
+    // not recognise is one this scan has no business guessing at.
+    match target[name.len()..].chars().next() {
+        None | Some('.') | Some('[') => Some(name),
+        _ => None,
+    }
+}
+
+/// How many table constructors are open at the start of each line.
+///
+/// A `name = value` inside `{ … }` is a **field**, not an assignment — and a
+/// field whose key happens to match a module's name is the commonest thing in
+/// Lua:
+///
+/// ```lua
+/// local route = require("scripts/route.lua")
+/// local sfx = require("scripts/sfx.lua")
+///
+/// function on_ready(self)
+///   self.run = { route = {}, sfx = sfx.fresh(), floor_at = 1 }
+/// end
+/// ```
+///
+/// Nothing there writes `route` or `sfx`. One game's project reported eighteen
+/// warnings and every one was this shape, which is worse than having no lint:
+/// eighteen false warnings bury the true one.
+///
+/// Braces are exact for this in Lua, not a heuristic — blocks are `do … end`
+/// and `function … end`, so `{` opens a table constructor and nothing else.
+/// Counted over the code with strings blanked and comments stripped, which the
+/// rest of this scan already does.
+///
+/// # The blind spot
+///
+/// A function literal *inside* a constructor holds statements, so a rebinding
+/// there is missed:
+///
+/// ```lua
+/// local M = { go = function() cached = build() end }
+/// ```
+///
+/// Telling that apart needs matching every `end` to its opener — `if`, `for`,
+/// `while`, `do`, `repeat`, `function` — which is a Lua parser rather than a
+/// text scan, and this file's whole premise is that it is the latter. The trade
+/// is deliberate and goes the way the costs do: a missed warning on a hazard
+/// that raises `DIM0502` at runtime, naming the file and the line, against
+/// eighteen false ones that hide a real one.
+fn constructor_depth(source: &str) -> Vec<usize> {
+    let mut depths = Vec::with_capacity(source.lines().count());
+    let mut depth = 0usize;
+    for raw in source.lines() {
+        depths.push(depth);
+        for c in blank_strings(&strip_comment(raw)).chars() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+    }
+    depths
 }
 
 fn find_assignment(code: &str) -> Option<usize> {

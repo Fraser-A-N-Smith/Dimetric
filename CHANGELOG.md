@@ -14,6 +14,143 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: `DIM0508` named table fields as writes to a module
+
+```lua
+local route = require("scripts/route.lua")
+local sfx = require("scripts/sfx.lua")
+
+function on_ready(self)
+  self.run = { route = {}, sfx = sfx.fresh(), floor_at = 1 }
+end
+```
+
+Nothing there writes `route` or `sfx`: inside `{ … }` a `name = value` is a
+**field**, and a field whose key matches a module's name is the commonest thing
+in Lua. One project reported eighteen warnings and every one was this shape,
+which is worse than having no lint — eighteen false warnings bury the true one.
+
+Braces are exact for this rather than a heuristic: Lua's blocks are `do … end`
+and `function … end`, so `{` opens a table constructor and nothing else. The
+scan already blanks strings and strips comments, so counting them is reliable.
+
+The blind spot this leaves is a function literal *inside* a constructor —
+`local M = { go = function() cached = build() end }` — because telling that
+apart needs matching every `end` to its opener, which is a Lua parser rather
+than the text scan this file is. The trade goes the way the costs do: a missed
+warning on a hazard that raises `DIM0502` at runtime, naming the file and the
+line, against eighteen false ones that hide a real one.
+
+A write *through* a file-scope local is now named as well — `M.count = 1`,
+`seen[k] = true` — because a table's fields live in Lua exactly as the binding
+does and are lost on a restore for the same reason. `-- @transient` still says
+an author has checked.
+
+**Does not move the state hash:** a lint reads scripts and changes nothing.
+
+### Fixed: `DIM0508` named table fields as writes to a module
+
+```lua
+local route = require("scripts/route.lua")
+local sfx = require("scripts/sfx.lua")
+
+function on_ready(self)
+  self.run = { route = {}, sfx = sfx.fresh(), floor_at = 1 }
+end
+```
+
+Nothing there writes `route` or `sfx`: inside `{ … }` a `name = value` is a
+**field**, and a field whose key matches a module's name is the commonest thing
+in Lua. One project reported eighteen warnings and every one was this shape,
+which is worse than having no lint — eighteen false warnings bury the true one.
+
+Braces are exact for this rather than a heuristic: Lua's blocks are `do … end`
+and `function … end`, so `{` opens a table constructor and nothing else. The
+scan already blanks strings and strips comments, so counting them is reliable.
+
+The blind spot this leaves is a function literal *inside* a constructor —
+`local M = { go = function() cached = build() end }` — because telling that
+apart needs matching every `end` to its opener, which is a Lua parser rather
+than the text scan this file is. The trade goes the way the costs do: a missed
+warning on a hazard that raises `DIM0502` at runtime, naming the file and the
+line, against eighteen false ones that hide a real one.
+
+A write *through* a file-scope local is now named as well — `M.count = 1`,
+`seen[k] = true` — because a table's fields live in Lua exactly as the binding
+does and are lost on a restore for the same reason. `-- @transient` still says
+an author has checked.
+
+**Does not move the state hash:** a lint reads scripts and changes nothing.
+
+### Fixed: a window smaller than the game showed a cropped game
+
+`RenderSettings::placement` clamped the integer-upscale factor to 1. For a
+1920×1080 game in the old fixed 1440×810 window, `fit` was 0.75, the floor was
+0, and the clamp made it 1 — so the frame was drawn at full size and centred,
+and 240 pixels came off each side and 135 off the top and bottom. A menu
+button, a right-hand rail and half a bottom bar were outside the window, and a
+click aimed at any of them landed on nothing, because the cursor was
+unprojected through the same wrong scale.
+
+The clamp was the wrong shape rather than the wrong number. Whole multiples
+exist to keep pixels square while scaling **up**; there is no whole multiple
+below one, so below one the choice is a fractional scale or throwing part of the
+frame away. `integer_upscale` now applies when the frame fits, and under that
+the exact ratio is used. **Nothing a game draws is ever off screen.**
+
+`RenderSettings::window_to_internal` is the inverse of `placement`, beside it so
+the two cannot drift, and `dim-play` reads the cursor through it — which makes
+"a click lands on what is drawn under it" a property of one pair of functions
+rather than of two that happen to agree.
+
+### Added: a project chooses its own window and scaling
+
+`dim-play` opened a fixed 1440×810 whatever the project said, which for a 1080p
+game is smaller than the game; a packaged game has no command line, so
+`--window` could not help a player.
+
+```toml
+[window]
+size = [1280, 720]       # exactly this, or
+fit = "monitor"          # the largest the screen holds at the game's shape
+
+[render]
+integer_upscale = false  # for art that is not pixel-locked
+```
+
+Declaring neither opens the game at its own `[render] resolution`, scaled to the
+largest whole multiple the screen has room for when the game is pixel-locked:
+
+| game | screen | window | frame |
+|---|---|---|---|
+| 1920×1080 | 1920×1080 | 1728×972 | 0.900× |
+| 1920×1080 | 2560×1440 | 1920×1080 | 1.000× |
+| 480×270 | 1920×1080 | 1440×810 | 3.000× |
+| 1920×1080, `fit = "monitor"` | 1920×1080 | 1920×1080 | 1.000× |
+| 1920×1080 | 1366×768 | 1229×691 | 0.640× |
+
+The default keeps a tenth of the monitor back, because a window opened at
+exactly the screen's size has its title bar pushed off the top and there is no
+portable way to ask a window manager how much room its decorations want. It is
+also what makes the arithmetic land on the sizes a person would have picked: a
+480×270 game opens in exactly the 1440×810 window the fixed default used to
+give it. `size` and `fit` are honoured as written, with nothing kept back.
+
+`--window` still overrides for one run, and `dim-play` now says what it opened
+and what scale the frame is drawn at — the first thing worth knowing when a
+frame looks soft or an edge looks missing.
+
+`Project::render_settings` is one door, for the same reason `script_host` is:
+three callers built a `RenderSettings` from the engine's defaults with only the
+resolution patched in, so `[render] integer_upscale` would have reached none of
+them.
+
+**Neither change moves the state hash**, and neither can. `Settings::presentation`
+holds both keys, beside `Settings::game`, and a test asserts that declaring them
+changes no part of the simulation's configuration. That line runs *through*
+`[render]`: `resolution` is the contract, because a script unprojects a click
+through it, and `integer_upscale` reaches nothing but a viewport call.
+
 ### Added: a run can be suspended and continued
 
 ```lua

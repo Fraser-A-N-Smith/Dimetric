@@ -374,6 +374,107 @@ fn comparing_a_file_local_is_not_assigning_to_it() {
 }
 
 #[test]
+fn a_constructor_field_that_shadows_a_module_is_not_a_write() {
+    // The reported false positive, verbatim in shape. `route` is a required
+    // module and `route = {}` is a field key inside a table — nothing writes
+    // the local. One project reported eighteen warnings and every one was this,
+    // which is worse than no lint: eighteen false ones bury the true one.
+    let found = lua_state(
+        "local route = require(\"scripts/route.lua\")\n\
+         local sfx = require(\"scripts/sfx.lua\")\n\
+         local hazard = require(\"scripts/hazard.lua\")\n\
+         local difficulty = require(\"scripts/difficulty.lua\")\n\
+         function on_ready(self)\n\
+         \x20 self.run = {\n\
+         \x20   route = {}, region_at = 1, floor_at = 1,\n\
+         \x20   sfx = sfx.fresh(),\n\
+         \x20   hazard = hazard.fresh(),\n\
+         \x20   difficulty = difficulty.resolve(self.mode, self.ng),\n\
+         \x20 }\n\
+         end\n",
+    );
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn a_nested_constructor_is_still_a_constructor() {
+    let found = lua_state(
+        "local route\n\
+         local sfx\n\
+         function on_ready(self)\n\
+         \x20 self.run = { floors = { { route = 1, sfx = 2 } }, route = 3 }\n\
+         end\n",
+    );
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn a_statement_after_a_constructor_closes_is_still_seen() {
+    // The depth has to come back down, or one table at the top of a file would
+    // switch the lint off for the rest of it.
+    let found = lua_state(
+        "local SPELLS = { \"fire\", \"frost\" }\n\
+         local mark\n\
+         function on_ready(self)\n\
+         \x20 self.set = { mark = 1 }\n\
+         \x20 mark = scene.find(\"/World/Mark\")\n\
+         end\n",
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].contains("`mark`"), "{}", found[0]);
+}
+
+#[test]
+fn a_brace_in_a_string_or_a_comment_does_not_open_a_constructor() {
+    let found = lua_state(
+        "local mark\n\
+         function on_ready(self)\n\
+         \x20 log.info(\"{ not a table\")\n\
+         \x20 -- { nor this\n\
+         \x20 mark = scene.find(\"/World/Mark\")\n\
+         end\n",
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+}
+
+#[test]
+fn a_write_through_a_file_scope_local_is_named_too() {
+    // A table's field lives in Lua exactly as the binding does, so a hook that
+    // sets one loses it on a restore for the same reason.
+    let found = lua_state(
+        "local M = {}\n\
+         function on_tick(self)\n\
+         \x20 M.count = (M.count or 0) + 1\n\
+         end\n",
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].contains("`M`"), "{}", found[0]);
+
+    let indexed = lua_state(
+        "local seen = {}\n\
+         function on_tick(self)\n\
+         \x20 seen[tick.count()] = true\n\
+         end\n",
+    );
+    assert_eq!(indexed.len(), 1, "{indexed:#?}");
+}
+
+#[test]
+fn reading_a_module_is_never_a_write() {
+    // The ordinary use of a required module: called, indexed, compared. None of
+    // it touches the local.
+    assert!(lua_state(
+        "local route = require(\"scripts/route.lua\")\n\
+         function on_tick(self)\n\
+         \x20 self.next = route.step(self.at)\n\
+         \x20 self.len = route.length\n\
+         \x20 if route.done(self.at) then self.at = 1 end\n\
+         end\n"
+    )
+    .is_empty());
+}
+
+#[test]
 fn the_example_game_is_clean_under_this_lint() {
     // A lint whose first run finds problems in the engine's own scripts is
     // either right about them or wrong about the rule, and both are worth
