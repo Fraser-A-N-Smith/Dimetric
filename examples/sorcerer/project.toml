@@ -54,6 +54,14 @@ resolution = [480, 270]
 #     [window]
 #     size = [1280, 720]    # exactly this, or
 #     fit = "monitor"       # the largest the screen holds at the game's shape
+#
+# At a window that is *not* a whole multiple — one a player dragged to a size of
+# their own — the last blit into it is filtered, because nearest at a fractional
+# scale drops source rows and a dropped row in a letter is a missing stroke.
+# Only that blit; sprites drawn into the frame stay nearest. A project that
+# would rather have the dropped rows says:
+#
+#     present_filter = "nearest"
 
 # Keys to actions. Declaring this section replaces the defaults entirely, so
 # every action the game uses has to appear. Key names come from the window

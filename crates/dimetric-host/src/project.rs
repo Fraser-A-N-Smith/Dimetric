@@ -566,6 +566,11 @@ impl Project {
                     .presentation
                     .integer_upscale
                     .unwrap_or(defaults.integer_upscale),
+                present_filter: self
+                    .settings
+                    .presentation
+                    .present_filter
+                    .unwrap_or(defaults.present_filter),
                 ..defaults
             },
             warning,

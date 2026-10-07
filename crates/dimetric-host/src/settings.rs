@@ -134,6 +134,11 @@ pub struct Presentation {
     /// on, because a pixel-art project is the one that most needs it and the
     /// one least likely to know to ask.
     pub integer_upscale: Option<bool>,
+    /// `[render] present_filter`. `None` leaves the engine's default, which is
+    /// `auto`: nearest at a whole scale and linear at any other, because at any
+    /// other nearest drops source rows and a dropped row in a letter is a
+    /// missing stroke.
+    pub present_filter: Option<dimetric_render::PresentFilter>,
 }
 
 impl Presentation {
@@ -361,6 +366,31 @@ impl Settings {
                     None => diagnostics.push(Diagnostic::new(
                         Code::SETTINGS_INVALID,
                         format!("{origin}: render.integer_upscale must be true or false"),
+                    )),
+                }
+            }
+            // Also presentation. It decides how the finished frame is sampled
+            // into a window and reaches nothing the simulation can see.
+            if let Some(value) = render.get("present_filter") {
+                match value.as_str() {
+                    Some("auto") => {
+                        out.presentation.present_filter = Some(dimetric_render::PresentFilter::Auto)
+                    }
+                    Some("nearest") => {
+                        out.presentation.present_filter =
+                            Some(dimetric_render::PresentFilter::Nearest)
+                    }
+                    Some("linear") => {
+                        out.presentation.present_filter =
+                            Some(dimetric_render::PresentFilter::Linear)
+                    }
+                    _ => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!(
+                            "{origin}: render.present_filter is \"auto\" — nearest at a \
+                             whole scale and linear at any other — or \"nearest\" or \
+                             \"linear\" to say outright"
+                        ),
                     )),
                 }
             }

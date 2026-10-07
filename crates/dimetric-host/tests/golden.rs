@@ -148,6 +148,7 @@ fn every_fixture_matches_its_reference() {
                 integer_upscale: true,
                 pixel_snap: true,
                 ambient: fixture.ambient,
+                ..Default::default()
             },
         };
 
@@ -300,6 +301,7 @@ fn the_walk_cycle_draws_a_different_pose_at_a_different_tick() {
                     integer_upscale: true,
                     pixel_snap: true,
                     ambient: Color::WHITE,
+                    ..Default::default()
                 },
             },
         )

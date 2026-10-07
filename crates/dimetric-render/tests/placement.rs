@@ -11,7 +11,7 @@
 //! each side and 135 from the top and bottom: a menu button, a right-hand rail
 //! and half a bottom bar, with a click aimed at any of them landing on nothing.
 
-use dimetric_render::RenderSettings;
+use dimetric_render::{PresentFilter, RenderSettings};
 
 fn settings(internal: (u32, u32), integer: bool) -> RenderSettings {
     RenderSettings {
@@ -225,6 +225,101 @@ fn the_two_directions_agree_at_every_size() {
                         "{internal:?} in {output:?}: {pixel:?} -> {in_window:?} -> {back:?}"
                     );
                 }
+            }
+        }
+    }
+}
+
+// -- how the last blit is sampled ---------------------------------------
+
+fn filtered(internal: (u32, u32), integer: bool, filter: PresentFilter) -> RenderSettings {
+    RenderSettings {
+        internal_resolution: internal,
+        integer_upscale: integer,
+        present_filter: filter,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_whole_scale_is_sampled_nearest() {
+    // What `integer_upscale` exists to arrange: every source pixel covers the
+    // same whole number of window pixels, so nearest reproduces the frame
+    // exactly and there is nothing a filter could add.
+    let s = filtered((480, 270), true, PresentFilter::Auto);
+    for output in [(480, 270), (960, 540), (1440, 810), (1920, 1080)] {
+        assert_eq!(s.placement(output).0.fract(), 0.0, "{output:?}");
+        assert!(!s.present_linear(output), "{output:?} was filtered");
+    }
+}
+
+#[test]
+fn a_fractional_scale_is_filtered() {
+    // The reported case. At 0.9 one source row and one column in ten are never
+    // sampled, which on a thin letter is a missing stroke: a run menu at
+    // 1728x972 read "Aim en action".
+    let s = filtered((1920, 1080), true, PresentFilter::Auto);
+    assert_eq!(s.placement((1728, 972)).0, 0.9);
+    assert!(s.present_linear((1728, 972)));
+
+    // And every other window a player might drag to.
+    for output in [(1440, 810), (1229, 691), (1000, 1000), (1921, 1081)] {
+        let scale = s.placement(output).0;
+        assert_eq!(
+            s.present_linear(output),
+            scale.fract() != 0.0,
+            "{output:?} at {scale}"
+        );
+    }
+}
+
+#[test]
+fn a_fractional_upscale_is_filtered_too() {
+    // Nearest above one doubles rows unevenly rather than dropping them, which
+    // is the same defect wearing a different hat. Only reachable with whole
+    // multiples turned off, which is the project saying its art is not on a
+    // pixel grid.
+    let s = filtered((480, 270), false, PresentFilter::Auto);
+    assert!(s.present_linear((1700, 956)));
+    // Still exact where it happens to be exact.
+    assert!(!s.present_linear((1440, 810)));
+}
+
+#[test]
+fn a_project_can_say_outright() {
+    // `nearest` is a real preference for some pixel art — a frame with rows
+    // missing over a soft one — which is why it is a setting and not assumed
+    // away.
+    let s = filtered((1920, 1080), true, PresentFilter::Nearest);
+    assert!(!s.present_linear((1728, 972)));
+
+    let s = filtered((480, 270), true, PresentFilter::Linear);
+    assert!(
+        s.present_linear((1920, 1080)),
+        "a whole scale, filtered anyway"
+    );
+}
+
+#[test]
+fn filtering_changes_nothing_about_where_the_frame_lands() {
+    // The one thing this round must not touch: a click's mapping. The sampler
+    // is chosen from the scale `placement` produced and feeds back into
+    // nothing, so every placement and every inverse is identical whatever the
+    // filter says.
+    for filter in [
+        PresentFilter::Auto,
+        PresentFilter::Nearest,
+        PresentFilter::Linear,
+    ] {
+        let s = filtered((1920, 1080), true, filter);
+        let plain = filtered((1920, 1080), true, PresentFilter::Auto);
+        for output in WINDOWS {
+            assert_eq!(s.placement(output), plain.placement(output), "{output:?}");
+            for point in [(0.0, 0.0), (864.0, 486.0), (1727.0, 971.0)] {
+                assert_eq!(
+                    s.window_to_internal(point, output),
+                    plain.window_to_internal(point, output)
+                );
             }
         }
     }

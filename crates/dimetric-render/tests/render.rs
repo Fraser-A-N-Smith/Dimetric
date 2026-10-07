@@ -35,6 +35,7 @@ fn settings() -> RenderSettings {
         integer_upscale: true,
         pixel_snap: true,
         ambient: Color::WHITE,
+        ..Default::default()
     }
 }
 

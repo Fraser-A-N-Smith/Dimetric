@@ -1,10 +1,16 @@
 // Multiplies the world by the light buffer and scales the result to the output.
 //
 // Also where the pixel-art path is honoured: the world is drawn at a fixed
-// internal resolution and this pass scales it by a whole number with nearest
-// sampling, so every source pixel becomes exactly the same number of screen
-// pixels. Scaling sprites individually instead is what makes some of them a
-// pixel wider than their neighbours.
+// internal resolution and this pass scales the whole of it at once, so every
+// source pixel becomes exactly the same number of screen pixels. Scaling
+// sprites individually instead is what makes some of them a pixel wider than
+// their neighbours.
+//
+// `world_sampler` is nearest at a whole scale and linear otherwise, chosen by
+// the bind group the host sets — see `RenderSettings::present_linear`. At a
+// whole scale nearest reproduces the frame exactly; at 0.9 it would never read
+// one source row and column in ten, which on a thin letter is a missing stroke
+// rather than a missing pixel.
 
 struct Settings {
     // Ambient light, multiplied into everything the lights do not reach.

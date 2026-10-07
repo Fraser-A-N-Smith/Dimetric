@@ -14,6 +14,51 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: a fractional scale was dropping strokes out of text
+
+The present pass — the last blit, which takes the finished
+internal-resolution frame and lays it into the window — shared the atlas's
+sampler, and that sampler is `Nearest` because this engine is for pixel art.
+At a whole scale that is exactly right. At 0.9, which is what G44's default
+window gives a 1920×1080 game on a 1080p screen, nearest never reads one
+source row and one column in ten.
+
+On a sprite that loses a pixel here and there. On a letter it loses a stroke: a
+game's run menu at 1728×972 read *Aim en action* because the bowl of the `a`
+sat on a row that went, *Act* lost the bar of its `t`, and *Choose* lost the top
+of its `C`. Which strokes go moves with the window size, so it is not something
+a font or a layout can be designed around.
+
+**The last blit is now filtered when the scale is not a whole number, and only
+then.** Sprites drawn *into* the frame keep nearest, which is where pixel art is
+and where crisp is the point. Measured on that label at 1728×972: with nearest,
+22 of the 103 columns the text occupies hold no ink at all and the lit-pixel
+count is 179; with the new default every column is there and it is 484.
+
+Reduced to its smallest form in `crates/dimetric-render/tests/present_filter.rs`:
+a twenty-pixel-tall frame with one row of ink in it, presented at 0.9. Nearest
+loses rows 4 and 14 of the twenty **completely** — the finished picture is
+blank — and the default loses none of the twenty. At 1×, 2× and 3× the default
+and nearest are byte-identical, so nothing that was already right has softened.
+
+```toml
+[render]
+present_filter = "auto"     # the default, as described above
+present_filter = "nearest"  # a frame with rows missing over a soft one
+present_filter = "linear"   # for art that was never on a pixel grid
+```
+
+`nearest` is a real preference for some pixel art, which is why it is a setting
+rather than assumed away. Area averaging would be better still for a downscale
+and was not built: at 0.9 a mip chain still selects level 0, so it would cost
+generating mips on the internal targets every frame and buy nothing at the scale
+that matters.
+
+**Does not move the state hash**, and cannot: the choice is read from the scale
+`placement` already produced and feeds back into nothing. A test asserts that
+every placement and every `window_to_internal` is identical under all three
+settings, so a click still lands on what is drawn under it.
+
 ### Fixed: `DIM0508` named table fields as writes to a module
 
 ```lua

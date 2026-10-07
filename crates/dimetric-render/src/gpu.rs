@@ -117,7 +117,14 @@ pub struct Renderer {
     sprite_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     light_bind_group: wgpu::BindGroup,
-    composite_bind_group: wgpu::BindGroup,
+    /// The last blit, sampled nearest and sampled linear.
+    ///
+    /// Two bind groups built once rather than one rebuilt when the window
+    /// changes shape: the choice is per-frame — it depends on the scale, which
+    /// depends on the output size — and a bind group is cheap to hold and not
+    /// cheap to make inside a draw. See [`RenderSettings::present_linear`].
+    composite_nearest: wgpu::BindGroup,
+    composite_linear: wgpu::BindGroup,
     composite_buffer: wgpu::Buffer,
 
     sprite_instances: wgpu::Buffer,
@@ -276,14 +283,37 @@ impl Renderer {
             }],
         });
 
+        // Only for the last blit. A frame already off the pixel grid gains
+        // nothing from being sampled as if it were on one, and loses a stroke
+        // of every thin letter: at 0.9 one source row and one column in ten are
+        // never read at all. Sprites drawn *into* the frame keep the nearest
+        // sampler above, which is where pixel art is and where crisp is right.
+        let smooth = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("present sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            ..Default::default()
+        });
+
         let composite_layout = composite_bind_group_layout(&device);
-        let composite_bind_group = composite_bindings(
+        let composite_nearest = composite_bindings(
             &device,
             &composite_layout,
             &world,
             &light,
             &ui,
             &sampler,
+            &composite_buffer,
+        );
+        let composite_linear = composite_bindings(
+            &device,
+            &composite_layout,
+            &world,
+            &light,
+            &ui,
+            &smooth,
             &composite_buffer,
         );
 
@@ -352,7 +382,8 @@ impl Renderer {
             sprite_layout,
             sampler,
             light_bind_group,
-            composite_bind_group,
+            composite_nearest,
+            composite_linear,
             composite_buffer,
             world,
             light,
@@ -664,7 +695,17 @@ impl Renderer {
             1.0,
         );
         pass.set_pipeline(&self.composite_pipeline);
-        pass.set_bind_group(0, &self.composite_bind_group, &[]);
+        // Reading the same `placement` the viewport above came from, so the
+        // scale a frame is drawn at and the sampler it is drawn with cannot
+        // disagree.
+        pass.set_bind_group(
+            0,
+            match self.settings.present_linear(target.size) {
+                true => &self.composite_linear,
+                false => &self.composite_nearest,
+            },
+            &[],
+        );
         pass.draw(0..3, 0..1);
     }
 

@@ -469,6 +469,21 @@ leaves space for. `integer_upscale` applies to scaling **up** only: there is no
 whole multiple below one, so below one the choice is a fractional scale or a
 button nobody can press.
 
+A frame at a fractional scale is also **filtered on the way into the window**,
+and only there. Sprites drawn into the frame stay nearest, which is where pixel
+art is and where crisp is right; the last blit does not, because nearest at 0.9
+never reads one source row and column in ten. On a sprite that loses a pixel;
+on a letter it loses a stroke, and a run menu reads *Aim en action*. Nearest
+stays at 1×, 2× and 3×, where every source pixel lands on whole window pixels
+and nearest is exact.
+
+```toml
+[render]
+present_filter = "auto"     # the default: nearest at a whole scale, linear otherwise
+present_filter = "nearest"  # a frame with rows missing over a soft one
+present_filter = "linear"   # for art that was never on a pixel grid
+```
+
 `--window WIDTHxHEIGHT` overrides the project for one run. Note that `[render]`
 holds one key of each kind: `resolution` is part of the replay contract, because
 a script unprojects a click through it, and `integer_upscale` is presentation

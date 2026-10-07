@@ -216,3 +216,27 @@ fn the_window_a_project_opens_comes_from_the_project() {
     assert_eq!(project.window_size(Some((2560, 1440))), (2560, 1440));
     assert_eq!(project.window_size(None), (1920, 1080));
 }
+
+#[test]
+fn the_present_filter_reaches_the_renderer_through_the_one_door() {
+    // The last blit's sampler is a project's choice and has to arrive like the
+    // resolution does. `render_settings` is the only place that assembles one.
+    let dir = project("[render]\nresolution = [1920, 1080]\npresent_filter = \"nearest\"\n");
+    let (settings, _) = Project::open(dir.path(), 0).render_settings(None);
+    assert_eq!(
+        settings.present_filter,
+        dimetric_render::PresentFilter::Nearest
+    );
+    // And at the window G44 opens for this game, that means an unfiltered
+    // fractional scale — which is what asking for it buys.
+    assert!(!settings.present_linear((1728, 972)));
+
+    let dir = project("[render]\nresolution = [1920, 1080]\n");
+    let (settings, _) = Project::open(dir.path(), 0).render_settings(None);
+    assert_eq!(
+        settings.present_filter,
+        dimetric_render::PresentFilter::Auto
+    );
+    assert!(settings.present_linear((1728, 972)), "0.9 went unfiltered");
+    assert!(!settings.present_linear((1920, 1080)), "1x was filtered");
+}

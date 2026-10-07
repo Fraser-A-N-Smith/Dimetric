@@ -24,6 +24,7 @@ fn presentation(window: WindowSize, integer_upscale: Option<bool>) -> Presentati
     Presentation {
         window,
         integer_upscale,
+        ..Default::default()
     }
 }
 
@@ -231,4 +232,38 @@ fn none_of_this_is_part_of_the_replay_contract() {
     assert_eq!(placed.resolution, bare.resolution);
     assert_eq!(placed.bindings, bare.bindings);
     assert_ne!(placed.presentation, bare.presentation);
+}
+
+#[test]
+fn a_project_can_choose_how_the_last_blit_is_sampled() {
+    use dimetric_render::PresentFilter;
+
+    for (text, want) in [
+        ("auto", PresentFilter::Auto),
+        ("nearest", PresentFilter::Nearest),
+        ("linear", PresentFilter::Linear),
+    ] {
+        let (settings, diagnostics) = Settings::parse(
+            &format!("[render]\npresent_filter = \"{text}\"\n"),
+            "project.toml",
+        );
+        assert!(!diagnostics.has_errors(), "{diagnostics}");
+        assert_eq!(settings.presentation.present_filter, Some(want));
+    }
+
+    // Absent means the engine's default, which is `auto`.
+    let (settings, _) = Settings::parse("", "project.toml");
+    assert_eq!(settings.presentation.present_filter, None);
+}
+
+#[test]
+fn a_present_filter_the_engine_does_not_have_is_reported() {
+    for text in [
+        "[render]\npresent_filter = \"smooth\"\n",
+        "[render]\npresent_filter = true\n",
+    ] {
+        let (settings, diagnostics) = Settings::parse(text, "project.toml");
+        assert!(diagnostics.has_errors(), "{text:?} was accepted");
+        assert_eq!(settings.presentation.present_filter, None);
+    }
 }

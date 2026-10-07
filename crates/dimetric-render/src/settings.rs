@@ -3,6 +3,41 @@
 use dimetric_scene::Color;
 use serde::{Deserialize, Serialize};
 
+/// How the finished frame is sampled on its way into a window.
+///
+/// Everything inside the frame is drawn with nearest sampling and stays that
+/// way: that is where pixel art lives and where a crisp edge is the point. This
+/// is about the **last blit only**, the one that takes a finished
+/// internal-resolution picture and lays it into whatever output it was given.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PresentFilter {
+    /// Nearest at a whole scale, linear at any other.
+    ///
+    /// The default, and the only answer that is right at both ends. At 1×, 2×
+    /// or 3× every source pixel lands on a whole number of window pixels and
+    /// nearest reproduces the frame exactly — which is what `integer_upscale`
+    /// exists to arrange. At 0.9 it cannot: one source row and one column in
+    /// ten are never sampled, so the blit *drops* them.
+    ///
+    /// On a sprite that loses a pixel here and there. On text it loses a
+    /// stroke: a game's run menu at 1728×972 read "Aim en action", because the
+    /// bowl of the `a` was one of the rows that went, and which strokes go
+    /// moves with the window size.
+    #[default]
+    Auto,
+    /// Always nearest, whatever the scale.
+    ///
+    /// For a project that would rather have a frame with rows missing than a
+    /// soft one. It is a real preference for some pixel art, which is why it is
+    /// here rather than assumed away.
+    Nearest,
+    /// Always linear, even at a whole scale.
+    ///
+    /// For art that was never on a pixel grid to begin with.
+    Linear,
+}
+
 /// How a project wants its frames produced.
 ///
 /// The pixel-art path is a setting, not an assumption. A game that wants
@@ -33,6 +68,9 @@ pub struct RenderSettings {
     /// skipped entirely, which is the default because most scenes have no
     /// lights at all.
     pub ambient: Color,
+    /// How the finished frame is sampled into the output. See
+    /// [`PresentFilter`].
+    pub present_filter: PresentFilter,
 }
 
 impl Default for RenderSettings {
@@ -42,6 +80,7 @@ impl Default for RenderSettings {
             integer_upscale: true,
             pixel_snap: true,
             ambient: Color::WHITE,
+            present_filter: PresentFilter::Auto,
         }
     }
 }
@@ -98,6 +137,27 @@ impl RenderSettings {
             ((output.0 as f32 - drawn.0) * 0.5).floor(),
             ((output.1 as f32 - drawn.1) * 0.5).floor(),
         )
+    }
+
+    /// Whether the last blit into an output of `output` pixels should be
+    /// filtered.
+    ///
+    /// The whole decision, in one place, so the renderer only has to pick a
+    /// bind group. Under [`PresentFilter::Auto`] it is exactly "is the scale a
+    /// whole number": at a whole scale every source pixel covers the same whole
+    /// number of window pixels and nearest is lossless, and at any other scale
+    /// nearest can only drop rows or double them unevenly.
+    ///
+    /// Note that this reads the scale `placement` produced rather than deciding
+    /// for itself, so the two cannot disagree about what a frame is being
+    /// scaled by — and nothing here changes where the frame lands or how a
+    /// click maps back through [`RenderSettings::window_to_internal`].
+    pub fn present_linear(&self, output: (u32, u32)) -> bool {
+        match self.present_filter {
+            PresentFilter::Nearest => false,
+            PresentFilter::Linear => true,
+            PresentFilter::Auto => self.placement(output).0.fract() != 0.0,
+        }
     }
 
     /// A point in the output turned into the internal pixel under it.
