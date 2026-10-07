@@ -14,6 +14,60 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: `DIM0508`'s remaining false positives, and the blind spot it had
+
+Two more shapes, both false by the lint's own definition — *a file-scope local
+written inside a hook is state in Lua* — and neither inside a hook.
+
+**A file-scope loop filling a module table.** `rebound_file_local` took
+"indented" to mean "inside a function". These lines are indented and run at
+**load** time:
+
+```lua
+for i = 1, #M.ORDER do
+  M.ELITE_OF[M.ORDER[i]] = "elite"
+  BY_FAMILY[i] = {}
+end
+```
+
+Each builds a constant from data every time the module is required, which is
+the same thing that makes `local M = {}` safe — and `-- @transient` would have
+been a lie about them, teaching readers that the mark means "ignore the lint".
+
+**A constructor that opens mid-line.** Brace depth was measured at the start of
+each line, so the `{ fade = 10 }` here did not count and the `=` inside it was
+read as a write to `M`:
+
+```lua
+queue_fx(m, now, "prefabs/fx_sigil",
+         M.world_of(cell_w, cell_h, g, a.cell), INK_MINE, 14, { fade = 10 })
+```
+
+Both are the same question asked twice — *what encloses this `=`* — so the two
+heuristics are replaced by one walk that answers it: a stack of block openers
+and table constructors, and the innermost of those that can hold an assignment.
+A function body means a hook, a brace means a field, and anything else means
+load time. It tracks short strings, line comments and long brackets — `[[ ]]`,
+`--[[ ]]` and their `[==[` forms — because a commented-out `function` would
+otherwise unbalance the stack for the rest of a file, and a lint that switches
+itself off part-way through one is worse than no lint.
+
+It is still not a Lua parser, and answers only that one question. Three things
+fell out of it:
+
+- the blind spot the previous round wrote down is closed: a function literal
+  inside a constructor is a function body, so a write there is named;
+- a `local` inside a file-scope `for` is no longer collected as a module-level
+  name, which it never was;
+- `f({ a = 1 }); M.x = 2` is seen, because a field's `=` is skipped rather than
+  ending the search for a statement's.
+
+**Does not move the state hash:** a lint reads scripts and changes nothing.
+
+**A correction.** The previous entry said all eighteen warnings in that project
+were the constructor-field shape. Eleven were; these seven were the rest. Both
+the entry and `lint::scopes`' own notes now say so.
+
 ### Fixed: a fractional scale was dropping strokes out of text
 
 The present pass — the last blit, which takes the finished
@@ -72,19 +126,19 @@ end
 
 Nothing there writes `route` or `sfx`: inside `{ … }` a `name = value` is a
 **field**, and a field whose key matches a module's name is the commonest thing
-in Lua. One project reported eighteen warnings and every one was this shape,
-which is worse than having no lint — eighteen false warnings bury the true one.
+in Lua. One project reported eighteen warnings, **eleven** of them this shape —
+this entry first said all eighteen were, which was wrong; the other seven were
+two further false shapes, fixed in the entry above. Every one of the eighteen
+was false, which is worse than having no lint: false warnings bury a true one.
 
 Braces are exact for this rather than a heuristic: Lua's blocks are `do … end`
 and `function … end`, so `{` opens a table constructor and nothing else. The
 scan already blanks strings and strips comments, so counting them is reliable.
 
-The blind spot this leaves is a function literal *inside* a constructor —
-`local M = { go = function() cached = build() end }` — because telling that
-apart needs matching every `end` to its opener, which is a Lua parser rather
-than the text scan this file is. The trade goes the way the costs do: a missed
-warning on a hazard that raises `DIM0502` at runtime, naming the file and the
-line, against eighteen false ones that hide a real one.
+The blind spot this left was a function literal *inside* a constructor —
+`local M = { go = function() cached = build() end }` — on the grounds that
+telling it apart needed matching every `end` to its opener. The entry above
+built that matching for a different reason and closed this too.
 
 A write *through* a file-scope local is now named as well — `M.count = 1`,
 `seen[k] = true` — because a table's fields live in Lua exactly as the binding

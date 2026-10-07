@@ -68,10 +68,10 @@ pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
     // Names the file declares at its own scope. Whatever a hook assigns to one
     // of these is gone the moment a host starts over a state it did not build,
     // so the set has to be known before the hooks are read.
-    let file_locals = file_scope_locals(source);
-    // A `name = value` inside `{ … }` is a field, not an assignment. See
-    // [`constructor_depth`].
-    let depths = constructor_depth(source);
+    // What is open where, so a write can be told from a field and a hook from
+    // the module's own body. See [`scopes`].
+    let scopes = scopes(source);
+    let file_locals = file_scope_locals(source, &scopes);
     for (index, raw) in source.lines().enumerate() {
         let line = index + 1;
         let code = blank_strings(&strip_comment(raw));
@@ -115,8 +115,7 @@ pub fn check(path: &str, source: &str) -> Vec<Diagnostic> {
             }
         }
 
-        let in_constructor = depths.get(index).is_some_and(|d| *d > 0);
-        if let Some(name) = rebound_file_local(&code, &file_locals).filter(|_| !in_constructor) {
+        if let Some(name) = rebound_file_local(&code, &file_locals, scopes.get(index)) {
             if !acknowledged(TRANSIENT_MARK) {
                 out.push(
                     Diagnostic::new(
@@ -390,13 +389,17 @@ fn lost_table_write(code: &str) -> Option<String> {
 /// writes, including this repository's own scripts. A `local function` is left
 /// out — rebinding one is pathological rather than a cache, and naming it would
 /// be noise.
-fn file_scope_locals(source: &str) -> std::collections::BTreeSet<String> {
+fn file_scope_locals(source: &str, scopes: &[LineScope]) -> std::collections::BTreeSet<String> {
     let mut names = std::collections::BTreeSet::new();
-    for raw in source.lines() {
-        if raw.starts_with(char::is_whitespace) {
+    for (index, raw) in source.lines().enumerate() {
+        // Nothing open at all, which is stricter than "not indented": a `local`
+        // inside a file-scope `for` belongs to the loop, and naming it here
+        // would make the loop's own temporaries look like module state.
+        if !scopes.get(index).is_some_and(|s| s.file_scope) {
             continue;
         }
         let code = blank_strings(&strip_comment(raw));
+        let code = code.trim_start().to_string();
         let Some(rest) = code.strip_prefix("local ") else {
             continue;
         };
@@ -418,24 +421,30 @@ fn file_scope_locals(source: &str) -> std::collections::BTreeSet<String> {
     names
 }
 
-/// The name in `    thing = …`, where `thing` is a file-scope local.
+/// The name in `thing = …` inside a hook, where `thing` is a file-scope local.
 ///
-/// Indented, so this is inside a function or a block rather than the file's own
-/// body: a file-scope local assigned where it is declared is re-established
-/// every time the script is loaded, which is exactly what makes it safe. Only a
-/// direct rebinding is matched. A field written through one — `M.count = 1` —
-/// is lost in the same way and is deliberately left alone, because `local M =
-/// {}` with functions hung off it is the module shape `require` returns and
-/// naming every one of those would bury the case worth reading.
+/// "Inside a hook" is the whole question, and [`scopes`] answers it: a write in
+/// a function body is lost when a host restores a run it did not play, and a
+/// write at load time — the module's own body, or a file-scope `for` or `if` —
+/// is re-established by the require that loaded the scripts. The test used to
+/// be "is the line indented", which read a file-scope loop as a hook.
+///
+/// A write *through* the local counts: `M.count = 1` and `seen[k] = true` keep
+/// their value in Lua exactly as the binding does.
 fn rebound_file_local(
     code: &str,
     file_locals: &std::collections::BTreeSet<String>,
+    scope: Option<&LineScope>,
 ) -> Option<String> {
-    if !code.starts_with(char::is_whitespace) {
+    // Inside a function body, which is the only place a write to one of these
+    // is lost. A write at load time — in the module's own body, or in a
+    // file-scope `for` or `if` — runs again on every require, which is what
+    // makes a file-scope local safe in the first place.
+    let (eq, enclosing) = scope?.assignment?;
+    if enclosing != Enclosing::Function {
         return None;
     }
-    let eq = find_assignment(code)?;
-    let target = code[..eq].trim();
+    let target = code.get(..eq)?.trim();
     if target.starts_with("local ") {
         return None;
     }
@@ -457,59 +466,291 @@ fn rebound_file_local(
     }
 }
 
-/// How many table constructors are open at the start of each line.
+/// What encloses a point in the source, as far as an assignment cares.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Enclosing {
+    /// Nothing, or only load-time blocks — a file-scope `for`, `if` or `do`.
+    ///
+    /// Code here runs when the module is required, in whatever environment is
+    /// requiring it, which is exactly what makes a file-scope local assigned
+    /// here safe: a host that restores a run it did not play loaded the scripts
+    /// first, so the assignment has already happened again.
+    LoadTime,
+    /// A table constructor. A `name = value` here is a **field**, and a field
+    /// whose key matches a module's name is the commonest thing in Lua.
+    Constructor,
+    /// A function body. A `name = value` here runs when the hook does, and a
+    /// file-scope local written here is state kept in Lua.
+    Function,
+}
+
+/// One line's answer, from the walk below.
+#[derive(Clone, Copy, Debug)]
+struct LineScope {
+    /// Nothing at all is open at the start of this line, so a `local` here
+    /// declares a name at the file's own scope.
+    file_scope: bool,
+    /// The first assignment `=` on the line that is not a constructor field,
+    /// as a byte offset into the line's blanked code, and what encloses it.
+    assignment: Option<(usize, Enclosing)>,
+}
+
+/// What is open where, line by line.
 ///
-/// A `name = value` inside `{ … }` is a **field**, not an assignment — and a
-/// field whose key happens to match a module's name is the commonest thing in
-/// Lua:
+/// This replaced two heuristics that were each wrong in one direction, and the
+/// reason it is a stack rather than a third heuristic is that the two
+/// directions are the same question asked twice.
+///
+/// **Indentation meant "inside a function".** It does not. These lines are
+/// indented and run at *load* time, inside a file-scope loop:
 ///
 /// ```lua
-/// local route = require("scripts/route.lua")
-/// local sfx = require("scripts/sfx.lua")
-///
-/// function on_ready(self)
-///   self.run = { route = {}, sfx = sfx.fresh(), floor_at = 1 }
+/// local BY_FAMILY = {}
+/// for i = 1, #M.ORDER do
+///   M.ELITE_OF[M.ORDER[i]] = "elite"
+///   BY_FAMILY[i] = {}
 /// end
 /// ```
 ///
-/// Nothing there writes `route` or `sfx`. One game's project reported eighteen
-/// warnings and every one was this shape, which is worse than having no lint:
-/// eighteen false warnings bury the true one.
+/// Each builds a constant from data every time the module is required, which is
+/// the safe case by the same argument that makes `local M = {}` safe. One
+/// game's project reported six warnings of this shape.
 ///
-/// Braces are exact for this in Lua, not a heuristic — blocks are `do … end`
-/// and `function … end`, so `{` opens a table constructor and nothing else.
-/// Counted over the code with strings blanked and comments stripped, which the
-/// rest of this scan already does.
+/// The round before had cleared eleven warnings in that same project by
+/// skipping constructor fields, and said all eighteen it reported were that
+/// shape. They were not — these six and the one below were the rest, and the
+/// claim was corrected rather than left standing.
 ///
-/// # The blind spot
-///
-/// A function literal *inside* a constructor holds statements, so a rebinding
-/// there is missed:
+/// **Brace depth measured at the start of a line** missed a constructor that
+/// opens mid-line, so the second line of this call was read as a write to `M`:
 ///
 /// ```lua
-/// local M = { go = function() cached = build() end }
+/// queue_fx(m, now, "prefabs/fx_sigil",
+///          M.world_of(cell_w, cell_h, g, a.cell), INK_MINE, 14, { fade = 10 })
 /// ```
 ///
-/// Telling that apart needs matching every `end` to its opener — `if`, `for`,
-/// `while`, `do`, `repeat`, `function` — which is a Lua parser rather than a
-/// text scan, and this file's whole premise is that it is the latter. The trade
-/// is deliberate and goes the way the costs do: a missed warning on a hazard
-/// that raises `DIM0502` at runtime, naming the file and the line, against
-/// eighteen false ones that hide a real one.
-fn constructor_depth(source: &str) -> Vec<usize> {
-    let mut depths = Vec::with_capacity(source.lines().count());
-    let mut depth = 0usize;
+/// The `=` belongs to `{ fade = 10 }`. Asking what encloses the `=` at *its own
+/// position* answers that exactly, and the line above it — the same call, the
+/// same constructor — went unflagged only because it did not happen to start
+/// with a module's name.
+///
+/// It also closes the blind spot the previous round wrote down: a function
+/// literal inside a constructor holds statements, and the innermost grouping
+/// there is the function rather than the braces.
+///
+/// # What it tracks, and what it does not
+///
+/// Blocks (`function`, `if`, `for`, `while`, `do`, `repeat`), table
+/// constructors, short strings, line comments and long brackets — `[[ ]]`,
+/// `--[[ ]]` and their `[==[` forms — because a commented-out `function` or a
+/// brace in a long string would otherwise unbalance the stack for the rest of
+/// the file, and a lint that silently switches itself off part-way through a
+/// file is worse than no lint.
+///
+/// It is not a Lua parser and answers one question: of the groupings that can
+/// hold an assignment, which is innermost. Everything else about the grammar —
+/// operator precedence, scoping rules, whether a name exists — is none of its
+/// business.
+fn scopes(source: &str) -> Vec<LineScope> {
+    /// A thing closed by `end`, `until` or `}`.
+    enum Open {
+        Constructor,
+        Function,
+        /// `if`, `for`, `while`, `do` — closed by `end`, and transparent here:
+        /// an assignment inside one is enclosed by whatever encloses it.
+        Block,
+        /// `repeat`, closed by `until`.
+        Repeat,
+    }
+
+    let innermost = |stack: &[Open]| {
+        stack
+            .iter()
+            .rev()
+            .find_map(|open| match open {
+                Open::Constructor => Some(Enclosing::Constructor),
+                Open::Function => Some(Enclosing::Function),
+                _ => None,
+            })
+            .unwrap_or(Enclosing::LoadTime)
+    };
+
+    let mut out = Vec::with_capacity(source.lines().count());
+    let mut stack: Vec<Open> = Vec::new();
+    // The `do` of a `for … do` or `while … do` opens nothing of its own.
+    let mut expect_do = false;
+    // `Some(level)` while inside `[=*[ … ]=*]`, whether comment or string.
+    let mut long: Option<usize> = None;
+
     for raw in source.lines() {
-        depths.push(depth);
-        for c in blank_strings(&strip_comment(raw)).chars() {
+        let line: Vec<char> = raw.chars().collect();
+        let mut scope = LineScope {
+            file_scope: long.is_none() && stack.is_empty(),
+            assignment: None,
+        };
+        // Byte offsets, because that is what the caller indexes the line's
+        // blanked code with; the two strings are the same characters.
+        let mut byte = 0usize;
+        let mut i = 0usize;
+
+        while i < line.len() {
+            let c = line[i];
+            let width = c.len_utf8();
+
+            if let Some(level) = long {
+                if let Some(after) = long_bracket_close(&line, i, level) {
+                    long = None;
+                    byte += line[i..after].iter().map(|c| c.len_utf8()).sum::<usize>();
+                    i = after;
+                    continue;
+                }
+                byte += width;
+                i += 1;
+                continue;
+            }
+
+            // A line comment, unless it opens a long one.
+            if c == '-' && line.get(i + 1) == Some(&'-') {
+                match long_bracket_open(&line, i + 2) {
+                    Some((level, after)) => {
+                        long = Some(level);
+                        byte += line[i..after].iter().map(|c| c.len_utf8()).sum::<usize>();
+                        i = after;
+                        continue;
+                    }
+                    None => break,
+                }
+            }
+            if let Some((level, after)) = long_bracket_open(&line, i) {
+                long = Some(level);
+                byte += line[i..after].iter().map(|c| c.len_utf8()).sum::<usize>();
+                i = after;
+                continue;
+            }
+            if c == '"' || c == '\'' {
+                let mut j = i + 1;
+                while j < line.len() {
+                    if line[j] == '\\' {
+                        j += 2;
+                        continue;
+                    }
+                    if line[j] == c {
+                        j += 1;
+                        break;
+                    }
+                    j += 1;
+                }
+                let stop = j.min(line.len());
+                byte += line[i..stop].iter().map(|c| c.len_utf8()).sum::<usize>();
+                i = stop;
+                continue;
+            }
+
+            if c.is_alphanumeric() || c == '_' {
+                let mut j = i;
+                while j < line.len() && (line[j].is_alphanumeric() || line[j] == '_') {
+                    j += 1;
+                }
+                let word: String = line[i..j].iter().collect();
+                match word.as_str() {
+                    "function" => stack.push(Open::Function),
+                    "if" => stack.push(Open::Block),
+                    "for" | "while" => {
+                        stack.push(Open::Block);
+                        expect_do = true;
+                    }
+                    "do" => match expect_do {
+                        true => expect_do = false,
+                        false => stack.push(Open::Block),
+                    },
+                    "repeat" => stack.push(Open::Repeat),
+                    "end" => {
+                        // Lenient about a stack that has run out: a file this
+                        // scan has misread should stop reporting rather than
+                        // start reporting nonsense.
+                        if matches!(stack.last(), Some(Open::Function) | Some(Open::Block)) {
+                            stack.pop();
+                        }
+                    }
+                    "until" => {
+                        if matches!(stack.last(), Some(Open::Repeat)) {
+                            stack.pop();
+                        }
+                    }
+                    _ => {}
+                }
+                byte += word.len();
+                i = j;
+                continue;
+            }
+
             match c {
-                '{' => depth += 1,
-                '}' => depth = depth.saturating_sub(1),
+                '{' => stack.push(Open::Constructor),
+                '}' => {
+                    if matches!(stack.last(), Some(Open::Constructor)) {
+                        stack.pop();
+                    }
+                }
+                '=' => {
+                    let prev = i.checked_sub(1).map(|j| line[j]);
+                    let next = line.get(i + 1).copied();
+                    let comparison =
+                        matches!(prev, Some('=' | '<' | '>' | '~')) || next == Some('=');
+                    if !comparison {
+                        let here = innermost(&stack);
+                        // A field's `=` is skipped rather than ending the
+                        // search, so `f({ a = 1 }); M.x = 2` is still seen.
+                        if here != Enclosing::Constructor && scope.assignment.is_none() {
+                            scope.assignment = Some((byte, here));
+                        }
+                    }
+                }
                 _ => {}
             }
+            byte += width;
+            i += 1;
         }
+
+        out.push(scope);
     }
-    depths
+    out
+}
+
+/// A long bracket opening at `i`, as `(level, index just past it)`.
+///
+/// `[[` is level 0 and `[==[` is level 2. The level has to come back out so the
+/// close can be matched to it: `]]` does not end a `[==[`.
+fn long_bracket_open(line: &[char], i: usize) -> Option<(usize, usize)> {
+    if line.get(i) != Some(&'[') {
+        return None;
+    }
+    let mut j = i + 1;
+    let mut level = 0;
+    while line.get(j) == Some(&'=') {
+        level += 1;
+        j += 1;
+    }
+    match line.get(j) == Some(&'[') {
+        true => Some((level, j + 1)),
+        false => None,
+    }
+}
+
+/// The index just past a long bracket of `level` closing at `i`, if one does.
+fn long_bracket_close(line: &[char], i: usize, level: usize) -> Option<usize> {
+    if line.get(i) != Some(&']') {
+        return None;
+    }
+    let mut j = i + 1;
+    let mut seen = 0;
+    while line.get(j) == Some(&'=') {
+        seen += 1;
+        j += 1;
+    }
+    match seen == level && line.get(j) == Some(&']') {
+        true => Some(j + 1),
+        false => None,
+    }
 }
 
 fn find_assignment(code: &str) -> Option<usize> {

@@ -475,6 +475,158 @@ fn reading_a_module_is_never_a_write() {
 }
 
 #[test]
+fn a_file_scope_loop_filling_a_module_table_is_not_a_hook() {
+    // Shape one of the reported false positives. These lines are indented and
+    // run at *load* time: the loop is at the file's own scope, so it runs on
+    // every require, in whatever environment is requiring it. That is the same
+    // thing that makes `local M = {}` safe.
+    let found = lua_state(
+        "local M = {}\n\
+         local BY_FAMILY = {}\n\
+         local confluence_names = {}\n\
+         M.ORDER = { \"ash\", \"briar\" }\n\
+         M.ELITE_OF = {}\n\
+         for i = 1, #M.ORDER do\n\
+         \x20 local region = M.ORDER[i]\n\
+         \x20 M.ELITE_OF[region] = region\n\
+         \x20 BY_FAMILY[region] = {}\n\
+         \x20 BY_FAMILY[region][#BY_FAMILY[region] + 1] = region\n\
+         \x20 if i == 1 then\n\
+         \x20   M.MIN_COST = i\n\
+         \x20 end\n\
+         end\n\
+         for i = 1, 3 do\n\
+         \x20 confluence_names[#confluence_names + 1] = i\n\
+         end\n",
+    );
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn a_constructor_opening_mid_line_is_still_a_constructor() {
+    // Shape two. The `=` belongs to `{ fade = 10 }`, and the brace that opens
+    // it is on this very line — which is what a depth measured at the start of
+    // a line could not see.
+    let found = lua_state(
+        "local M = {}\n\
+         local function queue_fx(a, b, c, d, e, f, g) return a end\n\
+         function on_tick(self)\n\
+         \x20 queue_fx(self, 1, \"prefabs/fx_sigil\",\n\
+         \x20          M.world_of(1, 2, 3, 4), 5, 14, { fade = 10 })\n\
+         end\n",
+    );
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn a_write_in_a_hook_is_still_named_however_it_is_nested() {
+    // The true positive, which is the only thing any of this is protecting.
+    let found = lua_state(
+        "local mark\n\
+         if VERSION then\n\
+         \x20 function on_ready(self)\n\
+         \x20   for i = 1, 2 do\n\
+         \x20     mark = scene.find(\"/World/Mark\")\n\
+         \x20   end\n\
+         \x20 end\n\
+         end\n",
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].contains("`mark`"), "{}", found[0]);
+}
+
+#[test]
+fn a_function_literal_inside_a_constructor_is_a_function_body() {
+    // The blind spot the previous round wrote down, closed by the same walk.
+    // Of the two things enclosing this write, the function is the inner one.
+    let found = lua_state(
+        "local cached\n\
+         local M = {\n\
+         \x20 go = function()\n\
+         \x20   cached = scene.find(\"/World/Mark\")\n\
+         \x20 end,\n\
+         }\n",
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].contains("`cached`"), "{}", found[0]);
+}
+
+#[test]
+fn a_commented_out_function_does_not_unbalance_the_walk() {
+    // A stack is only worth having if a long comment cannot corrupt it. A
+    // commented-out block with an `end` in it would otherwise close a real
+    // function and switch the lint off for the rest of the file.
+    let found = lua_state(
+        "local mark\n\
+         --[[\n\
+         function old_ready(self)\n\
+         \x20 mark = nil\n\
+         end\n\
+         ]]\n\
+         function on_ready(self)\n\
+         \x20 mark = scene.find(\"/World/Mark\")\n\
+         end\n",
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+}
+
+#[test]
+fn a_long_string_is_not_code_either() {
+    // Including the levelled form, where `]]` does not close a `[==[`.
+    let found = lua_state(
+        "local mark\n\
+         local HELP = [==[\n\
+         function things() end\n\
+         ]] still inside\n\
+         { a = 1 }\n\
+         ]==]\n\
+         function on_ready(self)\n\
+         \x20 mark = scene.find(\"/World/Mark\")\n\
+         end\n",
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+}
+
+#[test]
+fn a_for_do_opens_one_block_and_not_two() {
+    // `for … do` and `while … do` carry a `do` that opens nothing of its own.
+    // Counting it twice leaves a block open at the end of the file, and the
+    // next `function` would then never look closed.
+    let found = lua_state(
+        "local mark\n\
+         for i = 1, 2 do\n\
+         \x20 local _ = i\n\
+         end\n\
+         while mark == nil do\n\
+         \x20 break\n\
+         end\n\
+         do\n\
+         \x20 local _ = 1\n\
+         end\n\
+         repeat\n\
+         \x20 local _ = 2\n\
+         until true\n\
+         function on_ready(self)\n\
+         \x20 mark = scene.find(\"/World/Mark\")\n\
+         end\n",
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+}
+
+#[test]
+fn a_local_inside_a_file_scope_loop_is_not_a_file_scope_local() {
+    // It belongs to the loop. Naming it would make a loop's own temporary look
+    // like module state, and every iteration assigns it.
+    assert!(lua_state(
+        "for i = 1, 3 do\n\
+         local scratch = i\n\
+         scratch = scratch + 1\n\
+         end\n"
+    )
+    .is_empty());
+}
+
+#[test]
 fn the_example_game_is_clean_under_this_lint() {
     // A lint whose first run finds problems in the engine's own scripts is
     // either right about them or wrong about the rule, and both are worth

@@ -499,7 +499,12 @@ inside a hook is state in Lua. So instead of a hook:
 
 - **`DIM0508`** names the pattern in `dim script check`, with the two spellings
   that work — keep it in `self`, or look it up in the hook that needs it — and
-  `-- @transient` for a local that is rebuilt every tick anyway.
+  `-- @transient` for a local that is rebuilt every tick anyway. It took two
+  further rounds to make it say only that: the first version read every
+  indented line as a hook and every `name = value` as an assignment, so a
+  constructor field and a file-scope `for` filling a module table both tripped
+  it. Eighteen false warnings in one project, which is worse than no lint. It
+  is a block walk now rather than three heuristics — see `lint::scopes`.
 - Three of this repository's own replay fixtures used the hazardous idiom and
   now do not, because an engine that ships a lint its own examples trip is an
   engine arguing with itself.
