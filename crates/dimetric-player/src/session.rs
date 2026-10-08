@@ -463,6 +463,40 @@ impl Session {
         self.sim.take_events()
     }
 
+    /// Apply the events the engine owns, and say how many it took.
+    ///
+    /// Separate from [`Session::drain_events`], and deliberately not folded
+    /// into it. The drained list is the whole record of what the simulation
+    /// said, and a host that mirrors a volume to an OS mixer or a Steam
+    /// overlay has to find its kinds still in it — so this reads the list
+    /// rather than consuming from it, and a kind the engine does not claim is
+    /// left exactly where it was.
+    ///
+    /// The engine claims one kind today: `audio.bus_volume`, because the mixer
+    /// is in here and nothing else can reach it. A game's Options screen owns
+    /// the setting in its profile and says what it is; this is the other half.
+    /// `docs/API.md` has the payload.
+    ///
+    /// Nothing here reaches the simulation. A headless run never calls it —
+    /// there is no device to set — and a replay must not, for the same reason
+    /// it ignores `app.quit()`.
+    pub fn apply_events(&mut self, events: &[dimetric_sim::event::GameEvent]) -> usize {
+        let taken = events
+            .iter()
+            .filter(|event| self.speaker.apply_event(event))
+            .count();
+        self.diagnostics.extend(std::mem::replace(
+            &mut self.speaker.diagnostics,
+            Diagnostics::new(),
+        ));
+        taken
+    }
+
+    /// A bus's gain, for a host or a test that wants to see what an event did.
+    pub fn bus_gain(&self, bus: dimetric_audio::Bus) -> f32 {
+        self.speaker.bus_gain(bus)
+    }
+
     /// Whether a script asked the application to quit, clearing the request.
     ///
     /// Read between ticks, like a scene load: the tick finishes over the state

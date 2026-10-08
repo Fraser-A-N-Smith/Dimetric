@@ -14,6 +14,60 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: a game can set its own volume
+
+`docs/API.md` has said since M12 that a volume change reaches the mixer through
+`event.emit`, and the mixer has had `set_bus_gain` for as long. Nothing joined
+them: `dim-play` never called `Session::drain_events`, so a game's Options
+screen emitted three events on every launch and all three went nowhere.
+
+```lua
+event.emit("audio.bus_volume", { bus = "Music", percent = 80 })
+```
+
+| Field | Meaning |
+|---|---|
+| `bus` | `"Music"`, `"Sfx"` or `"Ui"` |
+| `percent` | A whole number, 0 to 100. `0` is **silent** |
+
+`dim-play` drains each frame and applies the kinds the engine owns; the rest is
+left for whoever drained it. Percent, and whole, because a setting a player
+chose is a number of steps and the determinism lint rightly refuses a float
+literal in Lua.
+
+**The curve is decibels, not amplitude.** Loudness is logarithmic, so a linear
+gain makes halfway up already most of the way loud and a stepped control feel
+nothing like even. Percent maps onto a 40 dB range instead, which gives a
+five-step slider five equal steps — 2.51× of gain apiece — and `0` is silent by
+its own case, because a logarithmic scale has no bottom:
+
+| percent | 0 | 20 | 40 | 60 | 80 | 100 |
+|---|---|---|---|---|---|---|
+| decibels | — | −32 | −24 | −16 | −8 | 0 |
+| gain | 0.000 | 0.025 | 0.063 | 0.158 | 0.398 | 1.000 |
+
+Applied over an 80 ms fade, so stepping a slider is heard as a change rather
+than a click, and through `Speaker::set_bus_gain`, which tells both the voice
+pool (what a *new* voice is worth) and the backend (what the ones already
+sounding are). That second half is why this could not be done from script: a
+`continuous` music voice carried over from the previous floor is already
+playing, and no amount of `volume_db` on a new scene's `Sound` nodes reaches it.
+
+`Session::apply_events` reads the drained list rather than consuming from it, so
+a runtime that mirrors a volume to an OS mixer, or a Steam integration reading
+the same list, still finds its own kinds in it. A kind the engine claims with a
+payload it cannot read is the new **`DIM1103`** — the game asked for something
+and did not get it — and a kind it does not claim is not a diagnostic at all. A
+percent outside 0..100 is clamped rather than refused: a game that computed 120
+meant loud, and a volume control is not a gain stage.
+
+**Does not move the state hash.** A test runs the same twelve ticks with and
+without applying the events and compares every hash: a run played with the
+music off has to hash identically to one played with it on, or a recorded
+session would replay differently depending on a setting in somebody's profile.
+`dim run` still reports the events and applies nothing, because a headless run
+has no device.
+
 ### Fixed: `DIM0508`'s remaining false positives, and the blind spot it had
 
 Two more shapes, both false by the lint's own definition — *a file-scope local

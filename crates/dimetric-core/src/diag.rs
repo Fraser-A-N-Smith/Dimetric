@@ -177,6 +177,7 @@ codes! {
     // 11xx — audio
     AUDIO_UNAVAILABLE = "DIM1101", Warning, "The system audio device was asked for and not obtained";
     SOUND_NODE_REUSED = "DIM1102", Warning, "A playing voice's node id now belongs to a different node";
+    AUDIO_EVENT_BAD   = "DIM1103", Warning, "An event asked for an audio change the runtime could not make sense of";
 
     // 12xx — the window. Beside audio, and warnings for the same reason: a
     // title and an icon reach a window manager and nothing else, so a game

@@ -611,6 +611,14 @@ impl App {
                     break;
                 }
             }
+            // What the game told the host this frame. The engine applies the
+            // kinds it owns — a bus volume reaches the mixer, which nothing
+            // else in the process can — and the rest is left for whoever owns
+            // it. A runtime with a platform SDK reads the same list.
+            let events = self.session.drain_events();
+            if !events.is_empty() {
+                self.session.apply_events(&events);
+            }
             for d in self.session.take_diagnostics().iter() {
                 eprintln!("{d}");
             }

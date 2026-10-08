@@ -395,6 +395,7 @@ message. Codes are never reused for a different meaning.
 | `DIM1003` | warning | A script asked to suspend or resume a run and the runtime could not |
 | `DIM1101` | warning | The system audio device was asked for and not obtained |
 | `DIM1102` | warning | A playing voice's node id now belongs to a different node |
+| `DIM1103` | warning | An event asked for an audio change the runtime could not make sense of |
 | `DIM1201` | warning | The icon a project declared could not be read or decoded |
 
 ## MCP tools
@@ -766,6 +767,41 @@ ticks can still tell them apart. The payload is the `Value` scripts already
 store, so lists stay ordered and there is no second serialisation. `dim run`
 reports them, so an achievement that fires in a windowed build and not in CI is
 visible rather than mysterious.
+
+#### The kinds the engine itself owns
+
+Most kinds are the game's, and the engine leaves them alone — the channel is
+free text so a project can name its own achievements without editing the
+engine. One kind is the engine's, because the thing it reaches is inside the
+engine and nothing else in the process can get at it:
+
+```lua
+event.emit("audio.bus_volume", { bus = "Music", percent = 80 })
+```
+
+| Field | Meaning |
+|---|---|
+| `bus` | `"Music"`, `"Sfx"` or `"Ui"` |
+| `percent` | A whole number, 0 to 100. `0` is **silent** |
+
+Percent, and whole, because a setting a player chose is a number of steps on a
+slider and the determinism lint rightly refuses a float literal in Lua. It is
+mapped onto decibels rather than onto amplitude — loudness is logarithmic, so a
+linear gain makes halfway up already most of the way loud — over a 40 dB range,
+which gives a five-step control five evenly spaced steps. Zero is silent by its
+own case, because a logarithmic scale has no bottom. The change is made over a
+short fade, so stepping a slider is heard as a change rather than a click.
+
+The runtime applies it; the **game still owns the setting**. Keep it in the
+profile and emit it on launch and on every change, which is what makes this
+one-way channel enough — see above for why the host does not talk back.
+
+A kind the engine claims with a payload it cannot read is `DIM1103`, because the
+game asked for something and did not get it. A kind it does not claim is not a
+diagnostic at all: it belongs to whoever drained the list.
+
+A headless run has no device, so `dim run` reports these and applies nothing. A
+replay must not apply them either, for the same reason it ignores `app.quit()`.
 
 ### Saves and the profile
 

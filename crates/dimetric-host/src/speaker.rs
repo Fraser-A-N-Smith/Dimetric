@@ -35,6 +35,23 @@ const PER_CLIP: usize = 4;
 /// Fade applied when a sound is stopped, in seconds.
 const STOP_FADE: f32 = 0.05;
 
+/// The event a game emits to set a bus's volume.
+///
+/// Spelled once, here, rather than in two repositories that happen to agree. A
+/// channel whose payloads the host recognises by name is a channel where a typo
+/// is silence, which is the argument that made `app.quit()` a call rather than
+/// an `event.emit("quit")` convention — the difference is that a volume control
+/// is *platform-facing*, so it belongs on the side of the line where a Steam
+/// overlay and an OS mixer also live.
+pub const BUS_VOLUME: &str = "audio.bus_volume";
+
+/// How long a volume change takes, in seconds.
+///
+/// Short enough to feel immediate on an Options screen and long enough that
+/// stepping a slider is heard as a change rather than a click. A gain moved in
+/// one sample is a click.
+const VOLUME_FADE: f32 = 0.08;
+
 /// The mixer, a backend, and what is currently playing.
 pub struct Speaker {
     pool: VoicePool,
@@ -145,6 +162,83 @@ impl Speaker {
     pub fn set_bus_gain(&mut self, bus: Bus, gain: f32, seconds: f32) {
         self.pool.set_gain(bus, gain);
         self.backend.set_bus_gain(bus, gain, seconds);
+    }
+
+    /// A bus's gain, as the pool has it.
+    pub fn bus_gain(&self, bus: Bus) -> f32 {
+        self.pool.gain(bus)
+    }
+
+    /// Act on one event, if it is one this speaker owns.
+    ///
+    /// Returns whether it was. An event of a kind the engine does not know is
+    /// **left alone** rather than refused or logged: the channel is
+    /// deliberately free text so a game can tell its own host about its own
+    /// achievements, and a Steam integration reading the same drained list has
+    /// to find its kinds still there. Only a kind the engine *does* claim, with
+    /// a payload it cannot read, is a diagnostic — the game asked for something
+    /// and did not get it.
+    ///
+    /// Nothing here reaches the simulation. A volume is a fact about a device,
+    /// and the game already owns the setting in its profile; `docs/API.md` says
+    /// the channel is one-way for exactly this reason.
+    pub fn apply_event(&mut self, event: &dimetric_sim::event::GameEvent) -> bool {
+        if event.kind != BUS_VOLUME {
+            return false;
+        }
+        let refused = |why: String| {
+            Diagnostic::new(
+                Code::AUDIO_EVENT_BAD,
+                format!("{BUS_VOLUME}: {why}; the bus is unchanged"),
+            )
+            .with_field("kind", BUS_VOLUME.to_string())
+        };
+        let dimetric_scene::Value::Map(payload) = &event.payload else {
+            self.diagnostics.push(refused(format!(
+                "the payload is a {} and this wants a table of `bus` and `percent`",
+                event.payload.type_name()
+            )));
+            return true;
+        };
+
+        let bus = match payload.get("bus").and_then(dimetric_scene::Value::as_str) {
+            Some(name) => match Bus::parse(name) {
+                Some(bus) => bus,
+                None => {
+                    let known: Vec<&str> = Bus::ALL.iter().map(|b| b.name()).collect();
+                    self.diagnostics.push(refused(format!(
+                        "{name:?} is not a bus; this build mixes {}",
+                        known.join(", ")
+                    )));
+                    return true;
+                }
+            },
+            None => {
+                self.diagnostics
+                    .push(refused("no `bus` in the payload".into()));
+                return true;
+            }
+        };
+
+        // A whole number, because that is what a slider's step is and what a
+        // script can write without a float. Out of range is clamped rather than
+        // refused — a game that computed 101 meant loud — but a value that is
+        // not a number at all is a mistake worth naming.
+        let percent = match payload
+            .get("percent")
+            .and_then(dimetric_scene::Value::as_int)
+        {
+            Some(percent) => percent.clamp(0, 100) as u32,
+            None => {
+                self.diagnostics.push(refused(
+                    "no whole-number `percent` in the payload, which is 0 to 100".into(),
+                ));
+                return true;
+            }
+        };
+
+        self.set_bus_gain(bus, dimetric_audio::percent_to_gain(percent), VOLUME_FADE);
+        true
     }
 
     /// Act on one tick's worth of sound events.

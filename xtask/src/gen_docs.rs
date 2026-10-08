@@ -591,6 +591,33 @@ fn render_markdown(
          store, so lists stay ordered and there is no second serialisation. `dim run`\n\
          reports them, so an achievement that fires in a windowed build and not in CI is\n\
          visible rather than mysterious.\n\n\
+         #### The kinds the engine itself owns\n\n\
+         Most kinds are the game's, and the engine leaves them alone — the channel is\n\
+         free text so a project can name its own achievements without editing the\n\
+         engine. One kind is the engine's, because the thing it reaches is inside the\n\
+         engine and nothing else in the process can get at it:\n\n\
+         ```lua\n\
+         event.emit(\"audio.bus_volume\", { bus = \"Music\", percent = 80 })\n\
+         ```\n\n\
+         | Field | Meaning |\n\
+         |---|---|\n\
+         | `bus` | `\"Music\"`, `\"Sfx\"` or `\"Ui\"` |\n\
+         | `percent` | A whole number, 0 to 100. `0` is **silent** |\n\n\
+         Percent, and whole, because a setting a player chose is a number of steps on a\n\
+         slider and the determinism lint rightly refuses a float literal in Lua. It is\n\
+         mapped onto decibels rather than onto amplitude — loudness is logarithmic, so a\n\
+         linear gain makes halfway up already most of the way loud — over a 40 dB range,\n\
+         which gives a five-step control five evenly spaced steps. Zero is silent by its\n\
+         own case, because a logarithmic scale has no bottom. The change is made over a\n\
+         short fade, so stepping a slider is heard as a change rather than a click.\n\n\
+         The runtime applies it; the **game still owns the setting**. Keep it in the\n\
+         profile and emit it on launch and on every change, which is what makes this\n\
+         one-way channel enough — see above for why the host does not talk back.\n\n\
+         A kind the engine claims with a payload it cannot read is `DIM1103`, because the\n\
+         game asked for something and did not get it. A kind it does not claim is not a\n\
+         diagnostic at all: it belongs to whoever drained the list.\n\n\
+         A headless run has no device, so `dim run` reports these and applies nothing. A\n\
+         replay must not apply them either, for the same reason it ignores `app.quit()`.\n\n\
          ### Saves and the profile\n\n\
          Two kinds of persistence, and conflating them is the bug.\n\n\
          A **run** is simulation state. `dim state save` writes one and `dim state load`\n\

@@ -224,6 +224,48 @@ pub fn db_to_linear(db: f32) -> f32 {
     10f32.powf(db / 20.0)
 }
 
+/// Decibels at the quietest audible setting, one percent.
+///
+/// The range a volume control spans. Forty decibels is the conventional choice
+/// and it is a wide one: the bottom of the scale is very quiet rather than
+/// nearly-off, which is what a player who turned something down meant.
+pub const VOLUME_FLOOR_DB: f32 = -40.0;
+
+/// A whole-percent volume setting as a linear gain.
+///
+/// Percent in and gain out, because a setting a player chose is a number of
+/// steps on a slider and a game keeps floats out of anything a script writes —
+/// the determinism lint flags a float literal in Lua, and rightly.
+///
+/// # Why decibels rather than amplitude
+///
+/// Loudness is logarithmic, so a linear amplitude makes a slider's steps feel
+/// nothing like even: halfway up is already most of the way loud. Mapping
+/// percent onto decibels instead makes each step the same perceived change,
+/// which is what a stepped control wants. A game with five steps gets five
+/// evenly spaced ones:
+///
+/// | percent | decibels | gain |
+/// |---|---|---|
+/// | 0 | — | 0.000 |
+/// | 20 | −32 | 0.025 |
+/// | 40 | −24 | 0.063 |
+/// | 60 | −16 | 0.158 |
+/// | 80 | −8 | 0.398 |
+/// | 100 | 0 | 1.000 |
+///
+/// Zero is **silent**, by its own case rather than by the curve: a logarithmic
+/// scale has no bottom, so "off" has to be said rather than approached.
+/// Anything above 100 is clamped — a volume control is not a gain stage.
+pub fn percent_to_gain(percent: u32) -> f32 {
+    if percent == 0 {
+        return 0.0;
+    }
+    // I3-exempt: presentation-side audio maths, as above.
+    let percent = percent.min(100) as f32;
+    db_to_linear(VOLUME_FLOOR_DB * (1.0 - percent / 100.0))
+}
+
 /// Pick a pitch multiplier within `±spread` of unity.
 ///
 /// Drawn from a **presentation** RNG stream, deliberately separate from the
