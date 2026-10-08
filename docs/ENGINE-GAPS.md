@@ -517,6 +517,16 @@ unnamed in both. Suspending is what made it reachable from a game.
 
 ## Still open, and known
 
+**A comment in a `.meta` does not survive the next import.** `write_metas`
+compares the file against `ImportSettings::to_text()` and rewrites it whenever
+they differ, and `to_text` hand-writes the keys it knows about — so a comment
+somebody added to explain a `[[clip]]` or a `[[tile]]` block is silently
+deleted the next time `dim asset import` runs. The settings themselves round
+trip exactly; only the prose is lost. Worth knowing before writing an
+explanation into a sidecar, and worth fixing by editing through `toml_edit`
+rather than re-emitting, which is a bigger change than any one request has
+needed yet.
+
 **An agent adding a spell changes the run.** The upgrade roll samples a list, so
 appending to it shifts every later choice — the fixture had to be re-recorded
 after the acceptance test added `frost`. That is correct behaviour rather than a

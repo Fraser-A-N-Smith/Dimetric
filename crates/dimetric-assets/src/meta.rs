@@ -82,6 +82,37 @@ pub struct ClipRange {
     pub frame_ms: Option<u32>,
 }
 
+/// A tile id that cycles through several slices instead of showing one.
+///
+/// A tileset is a sheet of slices and a tile id picks one of them. Water, a
+/// torch and a portal are the same tile as far as the map is concerned, and
+/// four different slices as far as the eye is concerned — so the cycle is a
+/// fact about the *sheet*, which is exactly the kind of thing the sidecar is
+/// for. Nothing in the PNG says that slices 5, 33, 61 and 89 are one animated
+/// tile, and nothing in the map should have to: a level that stored the frame
+/// would be storing a decoration in the simulation, where a rollback would
+/// have to undo it and a replay would have to agree about it.
+///
+/// Frames are **tile ids**, the same numbers an author paints with, rather
+/// than offsets into the sheet. An author counting cells in a tileset window
+/// is reading ids; making them subtract one here would be inviting the
+/// off-by-one that `[[clip]]`'s inclusive ranges exist to avoid.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct TileAnimation {
+    /// The tile id a map stores, as painted.
+    pub id: u32,
+    /// Tile ids to show in turn. The painted one is usually first, so a
+    /// still-image fallback and the first frame agree.
+    pub frames: Vec<u32>,
+    /// How long each frame is held, overriding the sheet's `frame_ms`.
+    ///
+    /// Spelt the same as [`ClipRange::frame_ms`] rather than a shorter `ms`,
+    /// because it is the same quantity in the same file and two names for one
+    /// thing is how a sidecar becomes guesswork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_ms: Option<u32>,
+}
+
 /// Settings for one source file, stored in a sibling `.meta`.
 ///
 /// Text, and hand- and agent-editable. An import setting that can only be
@@ -138,6 +169,12 @@ pub struct ImportSettings {
     /// frame, which is what a strip with no names can usefully be.
     #[serde(default, rename = "clip", skip_serializing_if = "Vec::is_empty")]
     pub clips: Vec<ClipRange>,
+    /// Tile ids on this sheet that cycle rather than standing still.
+    ///
+    /// Empty for every sheet that is not a tileset, and for a tileset whose
+    /// tiles all stand still — which is the old behaviour exactly.
+    #[serde(default, rename = "tile", skip_serializing_if = "Vec::is_empty")]
+    pub tiles: Vec<TileAnimation>,
 }
 
 fn default_frame_ms() -> u32 {
@@ -173,6 +210,7 @@ impl ImportSettings {
             font_size: default_font_size(),
             charset: default_charset(),
             clips: Vec::new(),
+            tiles: Vec::new(),
         }
     }
 
@@ -209,6 +247,15 @@ impl ImportSettings {
                 out.push_str(&format!("frame_ms = {ms}\n"));
             }
         }
+        for tile in &self.tiles {
+            out.push_str("\n[[tile]]\n");
+            out.push_str(&format!("id = {}\n", tile.id));
+            let frames: Vec<String> = tile.frames.iter().map(u32::to_string).collect();
+            out.push_str(&format!("frames = [{}]\n", frames.join(", ")));
+            if let Some(ms) = tile.frame_ms {
+                out.push_str(&format!("frame_ms = {ms}\n"));
+            }
+        }
         out
     }
 
@@ -240,6 +287,7 @@ impl ImportSettings {
         let id_text = get_str("id").ok_or(MetaError::MissingId)?;
         let frames = get_int("frames", 1);
         let clips = parse_clips(&doc, frames)?;
+        let tiles = parse_tiles(&doc)?;
         Ok(ImportSettings {
             id: AssetId::parse(&id_text).map_err(|e| MetaError::BadId(e.to_string()))?,
             source_hash: get_str("source_hash"),
@@ -250,6 +298,7 @@ impl ImportSettings {
             charset: get_str("charset").unwrap_or_else(default_charset),
             frames,
             clips,
+            tiles,
         })
     }
 
@@ -343,6 +392,70 @@ fn parse_clips(doc: &toml_edit::DocumentMut, frames: u32) -> Result<Vec<ClipRang
     Ok(out)
 }
 
+/// Read `[[tile]]` blocks, checking each describes a cycle something can draw.
+///
+/// Refused rather than repaired, for the reason the whole sidecar is: a tile
+/// animation that silently fell back to a still would be a floor that does not
+/// move, which looks exactly like art that is not finished yet.
+fn parse_tiles(doc: &toml_edit::DocumentMut) -> Result<Vec<TileAnimation>, MetaError> {
+    let Some(array) = doc.get("tile").and_then(|i| i.as_array_of_tables()) else {
+        return Ok(Vec::new());
+    };
+    let mut out: Vec<TileAnimation> = Vec::new();
+    for table in array {
+        let int = |key: &str| {
+            table
+                .get(key)
+                .and_then(|i| i.as_value())
+                .and_then(|v| v.as_integer())
+                .and_then(|v| u32::try_from(v).ok())
+        };
+        // Zero is the empty cell, so it is not a tile and cannot be animated.
+        // Said plainly because `id = 0` is what somebody writes when they are
+        // thinking in sheet offsets rather than in tile ids.
+        let Some(id) = int("id").filter(|id| *id > 0) else {
+            return Err(MetaError::BadTile(
+                "a tile animation needs an `id` of 1 or more — the id a map stores, \
+                 where 0 means an empty cell"
+                    .to_string(),
+            ));
+        };
+        let Some(array) = table.get("frames").and_then(|i| i.as_array()) else {
+            return Err(MetaError::BadTile(format!(
+                "tile {id} needs `frames`, a list of the tile ids to show in turn"
+            )));
+        };
+        let mut frames = Vec::with_capacity(array.len());
+        for value in array.iter() {
+            match value.as_integer().and_then(|v| u32::try_from(v).ok()) {
+                Some(frame) if frame > 0 => frames.push(frame),
+                _ => {
+                    return Err(MetaError::BadTile(format!(
+                        "tile {id} lists a frame that is not a tile id of 1 or more; \
+                         frames are the ids an author paints with, not sheet offsets"
+                    )))
+                }
+            }
+        }
+        if frames.is_empty() {
+            return Err(MetaError::BadTile(format!(
+                "tile {id} declares no frames, so there is nothing to cycle through"
+            )));
+        }
+        if out.iter().any(|t| t.id == id) {
+            return Err(MetaError::BadTile(format!(
+                "tile {id} is animated twice, and nothing could decide which cycle wins"
+            )));
+        }
+        out.push(TileAnimation {
+            id,
+            frames,
+            frame_ms: int("frame_ms").filter(|ms| *ms > 0),
+        });
+    }
+    Ok(out)
+}
+
 /// Why a `.meta` file could not be read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum MetaError {
@@ -358,6 +471,9 @@ pub enum MetaError {
     /// A `[[clip]]` block does not describe a usable range.
     #[error("{0}")]
     BadClip(String),
+    /// A `[[tile]]` block does not describe a usable cycle.
+    #[error("{0}")]
+    BadTile(String),
     /// The file is there and could not be read at all.
     #[error("import settings could not be read: {0}")]
     Unreadable(String),

@@ -525,7 +525,7 @@ impl Session {
         // The simulation's canvas, not the renderer's default: these two lay
         // the same UI out, and if they disagree the button a player sees is
         // not the button the tick decided they clicked.
-        dimetric_render::extract_with_canvas(
+        dimetric_render::extract_at(
             &state.scene,
             &self.atlas,
             &camera,
@@ -534,6 +534,11 @@ impl Session {
                 alpha: alpha.clamp(0.0, 1.0),
             }),
             self.sim.config().canvas,
+            // Whole ticks. `alpha` moves a sprite between two positions, and
+            // an animated tile deliberately does not move with it: a cycle
+            // that advanced on the accumulator remainder would make a capture
+            // depend on how busy the machine was.
+            state.tick,
         )
     }
 

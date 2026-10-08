@@ -239,6 +239,14 @@ pub struct Imported {
     /// Separate from `failures` because a warning that aborted an import would
     /// be an error, and an error nobody can see is worse than either.
     pub warnings: Vec<(String, String)>,
+    /// Tile cycles declared on a sheet's sidecar, baked to ticks.
+    ///
+    /// Beside the artifacts rather than inside one, for the reason the font
+    /// metrics are: a tileset imports to an ordinary `Artifact::Image` —
+    /// nothing about the pixels changes — and what the sidecar adds is a fact
+    /// about how to *draw* it. Only tilesets that declare a `[[tile]]` block
+    /// appear here, so the map is empty for almost every project.
+    pub tiles: BTreeMap<String, crate::tile::Animations>,
 }
 
 impl Imported {
@@ -248,6 +256,11 @@ impl Imported {
             Some(Artifact::Animation { clips, .. }) => clips,
             _ => &[],
         }
+    }
+
+    /// The tile cycles a sheet declared, if it declared any.
+    pub fn tile_animations(&self, name: &str) -> Option<&crate::tile::Animations> {
+        self.tiles.get(name)
     }
 }
 
@@ -279,6 +292,7 @@ pub fn import_from(
     let mut failures = Vec::new();
     let mut warnings = Vec::new();
     let mut packable: Vec<Framed> = Vec::new();
+    let mut tiles = BTreeMap::new();
 
     for entry in catalog.entries() {
         let full = catalog.root().join(&entry.path);
@@ -337,6 +351,21 @@ pub fn import_from(
                         _ => {}
                     }
                 }
+                // Baked here rather than at draw time, for the reason
+                // `ms_to_ticks` gives: a duration resolved while the game runs
+                // would make the animation depend on whatever tick rate that
+                // session was configured with. Only alongside an asset that
+                // imported, so a cycle never outlives the sheet it describes.
+                if !entry.settings.tiles.is_empty() {
+                    tiles.insert(
+                        entry.name.clone(),
+                        crate::tile::Animations::bake(
+                            &entry.settings.tiles,
+                            entry.settings.frame_ms,
+                            tick_rate,
+                        ),
+                    );
+                }
                 artifacts.insert(entry.name.clone(), artifact);
             }
             Err(e) => failures.push((entry.name.clone(), e.to_string())),
@@ -348,6 +377,7 @@ pub fn import_from(
         sheet: pack_framed(packable, MAX_SHEET_WIDTH),
         failures,
         warnings,
+        tiles,
     }
 }
 

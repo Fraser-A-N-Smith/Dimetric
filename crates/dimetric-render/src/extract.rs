@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 
 use dimetric_core::Rect;
-use dimetric_core::{Angle, Fx, NodeUid, Vec2Fx};
+use dimetric_core::{Angle, Fx, NodeUid, Tick, Vec2Fx};
 use dimetric_scene::chunk::{CHUNK_SIZE, EMPTY_TILE};
 use dimetric_scene::ui::Canvas;
 use dimetric_scene::{Color, Scene, Value};
@@ -98,6 +98,33 @@ pub fn extract_with_canvas(
     interpolation: Option<Interpolation<'_>>,
     canvas: Canvas,
 ) -> Frame {
+    extract_at(scene, atlas, camera, interpolation, canvas, Tick::ZERO)
+}
+
+/// Extract as the scene stands at `tick`.
+///
+/// The tick is the only thing here that is not in the scene, and it is here
+/// because of animation that is deliberately *not* in the scene: a tileset may
+/// declare that a tile id cycles through several slices, and asking the sheet
+/// which slice to draw is the alternative to stepping the map and snapshotting
+/// a ripple. See [`dimetric_assets::tile`].
+///
+/// **Whole ticks, never the interpolation alpha.** A frame drawn midway between
+/// two ticks shows the earlier tick's slice, which is invisible at any frame
+/// rate worth having and is what makes `dim frame capture --tick N` reproducible
+/// — a golden that moved with the host's accumulator remainder would be a
+/// golden that depends on how busy the machine was.
+///
+/// The two shorter doors above pass [`Tick::ZERO`], which is right for what
+/// they are: a still of a scene, with every cycle on its first frame.
+pub fn extract_at(
+    scene: &Scene,
+    atlas: &Atlas,
+    camera: &Camera,
+    interpolation: Option<Interpolation<'_>>,
+    canvas: Canvas,
+    tick: Tick,
+) -> Frame {
     let mut sprites = Vec::new();
     let mut lights = Vec::new();
 
@@ -139,7 +166,7 @@ pub fn extract_with_canvas(
                     sprites.push(item);
                 }
             }
-            "TileLayer" => tiles(scene, node, pos, camera, atlas, &mut sprites),
+            "TileLayer" => tiles(scene, node, pos, camera, atlas, tick, &mut sprites),
             // A label inside the UI tree is drawn by the UI pass, in canvas
             // pixels. Drawing it here as well would put the same text on
             // screen twice, once in the wrong place.
@@ -641,6 +668,7 @@ fn tiles(
     origin: Vec2Fx,
     camera: &Camera,
     atlas: &Atlas,
+    tick: Tick,
     out: &mut Vec<DrawItem>,
 ) {
     let cell = node
@@ -677,6 +705,9 @@ fn tiles(
         .and_then(Value::as_vec2i)
         .filter(|s| s[0] > 0 && s[1] > 0)
         .unwrap_or(cell);
+    // What the sheet's sidecar said about tiles that move. `None` for the vast
+    // majority of tilesets, and the lookup below then costs nothing.
+    let animations = atlas.tile_animations(&tileset);
     let columns = (sheet.size.0 / tile_size[0] as u32).max(1);
     let modulate = node
         .get("modulate")
@@ -700,8 +731,18 @@ fn tiles(
             let tile_x = chunk.at[0] * CHUNK_SIZE + local_x;
             let tile_y = chunk.at[1] * CHUNK_SIZE + local_y;
 
+            // A tileset may declare that this id cycles through several
+            // slices. Asked, never stored: the chunk still holds the id an
+            // author painted, a snapshot carries no ripple, and a rollback has
+            // nothing to undo. See `dimetric_assets::tile` for why that
+            // matters more than it sounds.
+            let drawn = match animations {
+                Some(animations) => animations.frame_at(*tile as u32, tick),
+                None => *tile as u32,
+            };
             // Tile 0 means empty, so index 1 is the first tile in the sheet.
-            let sheet_index = *tile as u32 - 1;
+            // A cycle that names 0 cannot reach here: the sidecar refuses it.
+            let sheet_index = drawn.saturating_sub(1);
             let uv = sheet
                 .sub(
                     (sheet_index % columns) * tile_size[0] as u32,

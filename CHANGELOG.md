@@ -14,6 +14,55 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a tile can animate
+
+`crates/dimetric-render/src/extract.rs`, `fn tiles` read a cell's id, subtracted
+one, sliced the sheet, and consulted nothing else. That is every tile a still
+forever: water on a played floor could not ripple, and a region built out of
+seven terrains in four looks each had no way to make any of them move.
+
+A tileset's sidecar can now say which ids move:
+
+```toml
+[[tile]]
+id = 5
+frames = [5, 33, 61, 89]
+frame_ms = 240
+```
+
+`frames` are tile ids, the same numbers an author paints with, so the painted
+id usually comes first and a frame may repeat — `[3, 4, 3, 2]` is a ripple that
+goes out and comes back. Tile `0` is the empty cell and cannot be animated. A
+block with no `id`, no `frames`, an empty cycle, a frame of `0`, or a second
+block for the same id fails the import naming the file, rather than quietly
+falling back to a still: a floor that does not move looks exactly like art
+nobody has finished yet.
+
+Two deviations from the shape that was proposed, both for consistency with the
+file the block now lives in. It is `[[tile]]` with an `id` field rather than
+`[tiles.5]`, matching the `[[clip]]` blocks beside it; and the timing is
+`frame_ms` rather than `ms`, because it is the same quantity `[[clip]]` already
+spells that way and two names for one thing is how a sidecar becomes guesswork.
+
+**It does not move the state hash, and it is not in the scene.** The obvious
+implementation is to step the map each tick. That would mean a rollback had to
+undo a ripple, every snapshot carried a decoration, and the state hash of a
+replay depended on the art — change a `.meta`, and a recorded run that verified
+yesterday diverges today. So the cycle is declared on the sheet, converted to
+whole ticks at import against the project's tick rate, and *asked* at draw
+time: which slice to draw is a pure function of a tile id and a tick, and the
+chunk still holds the id an author painted.
+
+`examples/sorcerer`'s floor band shimmers as of this entry, and
+`examples/sorcerer/tests/arena01.hashes` was **not** re-recorded — it still
+passes unchanged. That is the proof, and it runs in CI.
+
+The new door is `dimetric_render::extract_at`, which takes the tick. `extract`
+and `extract_with_canvas` keep their signatures and pass `Tick::ZERO`: a still
+of a scene, which is what an editor viewport wants. Whole ticks, never the
+interpolation alpha — a cycle advancing on the host's accumulator remainder
+would make `dim frame capture --tick N` depend on how busy the machine was.
+
 ### Fixed: a game can set its own volume
 
 `docs/API.md` has said since M12 that a volume change reaches the mixer through

@@ -61,6 +61,7 @@ pub struct Atlas {
     pub pixels: Vec<u8>,
     sheet: Sheet,
     fonts: std::collections::BTreeMap<String, dimetric_assets::Font>,
+    tiles: std::collections::BTreeMap<String, dimetric_assets::TileAnimations>,
 }
 
 impl Atlas {
@@ -82,6 +83,7 @@ impl Atlas {
             pixels: sheet.pixels.clone(),
             sheet,
             fonts: std::collections::BTreeMap::new(),
+            tiles: std::collections::BTreeMap::new(),
         }
     }
 
@@ -92,6 +94,25 @@ impl Atlas {
     ) -> Atlas {
         self.fonts = fonts;
         self
+    }
+
+    /// Attach the tile cycles the tilesets in this atlas declared.
+    ///
+    /// Beside the fonts, and here for the same reason: a tileset's pixels are
+    /// an image like any other, and what its sidecar adds is a fact about how
+    /// to draw them. Extraction needs both at once, and threading a second map
+    /// through every caller would buy nothing.
+    pub fn with_tile_animations(
+        mut self,
+        tiles: std::collections::BTreeMap<String, dimetric_assets::TileAnimations>,
+    ) -> Atlas {
+        self.tiles = tiles;
+        self
+    }
+
+    /// The tile cycles declared for a tileset, by asset name.
+    pub fn tile_animations(&self, name: &str) -> Option<&dimetric_assets::TileAnimations> {
+        self.tiles.get(name)
     }
 
     /// The metrics for a font, by asset name.

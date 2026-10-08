@@ -122,9 +122,16 @@ pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
             }
         }
     }
+    // The tile cycles, from the same cache, for the same reason: a tileset's
+    // pixels are an image like any other and what its sidecar adds is a fact
+    // about how to draw them. Already in ticks — the conversion happened at
+    // import, against this project's tick rate.
+    let tiles = imported.map(|i| i.tiles.clone()).unwrap_or_default();
 
     (
-        Atlas::pack_framed(sources, ATLAS_WIDTH).with_fonts(fonts),
+        Atlas::pack_framed(sources, ATLAS_WIDTH)
+            .with_fonts(fonts)
+            .with_tile_animations(tiles),
         diagnostics,
     )
 }
@@ -312,7 +319,11 @@ pub fn capture(
 
     let state = sim.state();
     let camera = scene_camera(&state.scene, request.settings.internal_resolution);
-    let frame = dimetric_render::extract_with_canvas(
+    // At the tick it ran to, so an animated tile shows the slice it would be
+    // on. `state.tick` rather than `request.tick` because a capture that
+    // loaded its way into a scene is where the simulation actually ended up,
+    // and the two are the same number anyway unless something refused to step.
+    let frame = dimetric_render::extract_at(
         &state.scene,
         &atlas,
         &camera,
@@ -321,6 +332,7 @@ pub fn capture(
             alpha: 0.0,
         }),
         sim.config().canvas,
+        state.tick,
     );
 
     let instance = headless_instance();

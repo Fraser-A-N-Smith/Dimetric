@@ -501,6 +501,47 @@ fn render_markdown(
          a real technique and Aseprite tags may overlap too, so refusing would be\n\
          stricter than the tool this mirrors — but `0..3` then `3..7` when `4` was\n\
          meant is worth saying out loud.\n\n\
+         ### Animating a tile\n\n\
+         A tileset is a sheet of slices and a map cell holds one id that picks one of\n\
+         them. That is enough for a wall and not enough for water: water, a torch and\n\
+         a portal are **one tile** to the map and several slices to the eye. So the\n\
+         sidecar can say which ids move, which is the same job it already does for a\n\
+         strip — nothing in the PNG says that slices 5, 33, 61 and 89 are one animated\n\
+         tile:\n\n\
+         ```toml\n\
+         [[tile]]\n\
+         id = 5\n\
+         frames = [5, 33, 61, 89]\n\
+         frame_ms = 240\n\
+         ```\n\n\
+         `id` is the tile id a map stores, as painted, and `frames` are tile ids too —\n\
+         the same numbers an author counts in a tileset window, not offsets into the\n\
+         sheet. Putting the painted id first means a still fallback and the first frame\n\
+         agree. A frame may repeat, so `[3, 4, 3, 2]` is a ripple that goes out and\n\
+         comes back. `frame_ms` overrides the sheet's own, and is spelt the same as in\n\
+         `[[clip]]` because it is the same quantity in the same file.\n\n\
+         Tile id `0` is the empty cell, so it is not a tile and cannot be animated. A\n\
+         block with no `id`, no `frames`, an empty cycle, a frame of `0`, or a second\n\
+         block for the same id is refused outright (`DIM0602`, naming the file) rather\n\
+         than quietly falling back to a still — a floor that does not move looks\n\
+         exactly like art nobody has finished yet.\n\n\
+         #### Why it is not in the scene\n\n\
+         The obvious implementation is to step the map: advance every animated cell to\n\
+         its next id each tick, and let the existing draw path do the rest. It is also\n\
+         the wrong one, twice over. A rollback would have to undo a ripple, every\n\
+         snapshot would carry a decoration, and the state hash of a replay would then\n\
+         depend on the **art** — change a `.meta`, and a recorded run that verified\n\
+         yesterday diverges today.\n\n\
+         So the cycle is declared on the sheet, converted to whole ticks at import\n\
+         against the project's tick rate, and *asked* at draw time. Which slice to draw\n\
+         is a pure function of a tile id and a tick: the chunk still holds the id an\n\
+         author painted, nothing writes anything down, and `dim frame capture --tick N`\n\
+         gets the same answer on every machine because the tick is the same integer.\n\n\
+         **Whole ticks, never the interpolation alpha.** A frame drawn midway between\n\
+         two ticks shows the earlier tick's slice. That is invisible at any frame rate\n\
+         worth having, and it is what keeps a golden reproducible: a cycle that\n\
+         advanced on the host's accumulator remainder would be a capture that depended\n\
+         on how busy the machine was.\n\n\
          ### Quitting, and the pause key\n\n\
          `app.quit()` asks whatever is running the game to stop. It is read **between\n\
          ticks**, like a scene load: the tick finishes over the state it started with and\n\
