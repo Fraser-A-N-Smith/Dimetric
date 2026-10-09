@@ -82,6 +82,9 @@ A sprite playing frame clips imported from Aseprite tags.
 | `looping` | `bool` | `true` | Restart at the end of the clip. |
 | `frame` | `int` | `0` | Frame showing now. Written by the engine as the clip plays, and read by the renderer to pick a slice of the sheet — the one-way path from simulation to presentation that invariant I7 asks for. Setting it by hand pins a frame until playback moves it. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
+| `offset` | `vec2` | — | Draw offset from the node origin. Absent means none. |
+| `sort_offset` | `vec2` | — | Point this sprite sorts at, as an offset from where it is drawn. Added to the depth position and to nothing else, so a sprite can be drawn at one point and sorted at another. A standing figure is taller than its cell, so it is drawn lifted for its feet to land on the floor — and lifting it also moved the point it sorts at, putting it behind its own floor tile, which then drew over its feet. Sorting at the feet is what makes a wall in front of a figure cover it and a wall behind it not. Absent and zero are the plain behaviour: sort where you draw. |
+| `lit` | `bool` | — | Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it. |
 | `flip_h` | `bool` | `false` | Mirror horizontally. |
 | `flip_v` | `bool` | `false` | Mirror vertically. |
 | `speed_numerator` | `int` | `1` | Playback rate numerator. Integer ratio, not a float, because frame advance is gameplay and must land on the same tick everywhere. |
@@ -129,6 +132,7 @@ A view onto the world.
 
 | Property | Type | Default | Notes |
 |---|---|---|---|
+| `ambient` | `color` | — | Light level this view is drawn under. Opaque white is unlit, and anything darker dims the world and lets `Light2D` show. Absent leaves the project's `[render] ambient`, so a region states its own light and a scene that says nothing takes the default. Presentation, like `zoom`: it reaches a uniform and a multiply, never the simulation, so two players under different lights replay the same run identically. The UI layer is composited after the multiply and is never dimmed. |
 | `projection` | `enum(TopDown | Isometric)` | `"TopDown"` | Top-down is identity; isometric is a 2:1 shear applied at render time. The simulation is free-form 2D either way — this flag never reaches it. |
 | `zoom` | `scalar` | `1.0` | Scale factor. |
 | `current` | `bool` | `false` | Use this camera for rendering. |
@@ -204,6 +208,7 @@ A run of text drawn from a baked font.
 | `text` | `string` | `""` | What to draw. A newline starts a new line. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
 | `align` | `enum(Left | Center | Right)` | `"Left"` | Horizontal alignment of each line about the node origin. |
+| `lit` | `bool` | — | Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it. |
 | `offset` | `vec2` | `[0.0, 0.0]` | Draw offset from the node origin. |
 
 ### `Light2D`
@@ -274,6 +279,8 @@ A textured quad.
 | `region` | `rect` | — | Sub-rectangle of the texture, in pixels. Whole texture when absent. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
 | `offset` | `vec2` | `[0.0, 0.0]` | Draw offset from the node origin. |
+| `sort_offset` | `vec2` | — | Point this sprite sorts at, as an offset from where it is drawn. Added to the depth position and to nothing else, so a sprite can be drawn at one point and sorted at another. A standing figure is taller than its cell, so it is drawn lifted for its feet to land on the floor — and lifting it also moved the point it sorts at, putting it behind its own floor tile, which then drew over its feet. Sorting at the feet is what makes a wall in front of a figure cover it and a wall behind it not. Absent and zero are the plain behaviour: sort where you draw. |
+| `lit` | `bool` | — | Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it. |
 | `flip_h` | `bool` | `false` | Mirror horizontally. |
 | `flip_v` | `bool` | `false` | Mirror vertically. |
 | `blend` | `enum(Alpha | Additive | Multiply)` | `"Alpha"` | Blend mode. Also part of the batching key. |
@@ -315,6 +322,7 @@ A grid of tiles, stored as run-length encoded chunks.
 | `cell` | `vec2i` | `[16, 16]` | The grid's step in world units. Square under Isometric, which is what makes a 2:1 diamond tessellate. |
 | `tile_size` | `vec2i` | — | The sprite's size in pixels, for slicing the sheet and drawing. Absent means `cell`. A dimetric floor wants `cell = [16, 16]` with `tile_size = [32, 16]`. |
 | `collision` | `bool` | `false` | Feed this layer into the collision grid. |
+| `lit` | `bool` | — | Whether the scene's light applies to this layer. Absent and true both dim with the region, which is what a floor and a wall want; false keeps full colour, which is what a layer of range cells or reachable tiles wants. An unlit layer still sorts with everything else; only the light's multiply skips it. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
 
 ### `VBox`
@@ -574,6 +582,108 @@ layer's sprite size and the step between its cells are different numbers, and
 scaling one without the other breaks the lattice; a label's glyph advance is in
 screen pixels, so scaling it would grow the letters without spreading them.
 Both want an answer of their own rather than this one.
+
+### Depth, and sorting at the feet
+
+Within a layer, what draws on top is decided by depth: `y` under `TopDown`
+and `x + y` under `Isometric`. A `TileLayer`'s tiles and the sprites beside
+them go through the same key, which is what lets a wall tile hide a figure
+standing behind it and a figure cover the wall it stands in front of.
+
+The catch is that a figure is usually taller than its cell. A 28-pixel sprite
+on a 16-pixel grid has to be drawn **lifted** for its feet to land on the
+floor, and `offset` fed the depth as well — so lifting it six units sorted it
+six units *behind* its own floor tile, which then drew over its feet. The two
+ways around it were both a way of lying to the sorter: pad every sheet with
+transparent rows until the centre falls at the feet, encoding a sort point in
+every frame rectangle, or put the figures on a layer above all tiles, which
+fixes the walls in front and breaks the walls behind.
+
+`sort_offset` separates the two points:
+
+```toml
+[[node]]
+kind = "AnimatedSprite2D"
+name = "Figure"
+frames = "asset:sprites/walk"
+offset = [0.0, -6.0]       # drawn lifted, feet on the cell
+sort_offset = [0.0, 7.0]   # sorted at the feet, a nudge past the cell
+```
+
+It is added to the depth position and to nothing else, in world units, so it
+carries through the isometric shear rather than being a screen-space fudge.
+The extra unit past the cell centre is worth having: landing exactly on the
+centre ties with the figure's own floor tile and leaves the node-id tie-break
+to decide, and a game should not have to depend on a tie.
+
+`AnimatedSprite2D` also declares `offset` now. The renderer had always read it
+for both sprite kinds and only `Sprite2D` declared it, so authoring it on the
+one kind a game animates was a hard `DIM0301` — on exactly the node that needs
+lifting.
+
+### Light
+
+A `Light2D` is drawn into an accumulation buffer and the composite multiplies
+the world by it. That multiply only happens when the **ambient** is darker
+than opaque white, and until now nothing a game shipped could set it: the
+agent's `--ambient` could, a project could not, a scene could not, and a
+script could not. So in `dim-play` the ambient was always white and every
+light a game placed added nothing at all.
+
+There are two doors, and the nearer one wins:
+
+```toml
+# project.toml — the floor under every scene
+[render]
+ambient = "#303040ff"
+```
+
+```toml
+# a scene — this region's own light
+[[node]]
+kind = "Camera2D"
+name = "View"
+current = true
+ambient = "#604020ff"
+```
+
+A region's light is a fact about the region — a drowned march at dusk, a
+foundry lit by its slag, a tomb by candles — so the current camera's `ambient`
+wins over the project's, and a scene swap brings the new one with it. The
+camera's property has **no default** on purpose: a camera that answered
+"white" when it had been asked nothing would mean every scene overrode the
+project's setting with the engine's, and `[render] ambient` could never apply
+to any scene that has a camera — which is all of them.
+
+`dim frame capture --ambient` sets the project-wide value, so a scene that
+declares its own is photographed under *its* light and the flag says so
+(`DIM0904`). That is deliberate: a capture is meant to be evidence about what
+a player sees. Every capture now reports the ambient it drew under.
+
+A dim scene with **no lights in it** dims. It used to not: the composite only
+applied the ambient when the frame also carried at least one light, so a
+region at dusk with no torches was drawn as if it were noon.
+
+#### Keeping what a player reads out of the light
+
+The multiply covers the whole world, which is right for the floor, the walls
+and the figures and wrong for everything a player *reads*: a health bar over a
+monster's head, a damage number, the cursor, the cells an ability can reach, a
+spell effect that ought to glow rather than dim. Those are world drawing —
+they sit on the board and move with the camera — so they cannot be UI controls
+without re-projecting every one of them into screen space each frame, and the
+UI pass is the only thing the light already skips.
+
+`lit = false` on a `Sprite2D`, an `AnimatedSprite2D`, a `Label` or a
+`TileLayer` leaves that drawing at full colour however dark the room gets.
+Absent and `true` both dim.
+
+An unlit node still **sorts and batches with everything else**; only the
+multiply skips it. That matters for an overlay that belongs *under* the
+figures — a layer of reachable cells between the floor and the actors — and it
+is why the exemption is a mask written in draw order rather than a second
+picture laid over the first: a lit figure drawn in front of an unlit marker
+clears the exemption behind it, so the figure still dims.
 
 ### Spawning
 

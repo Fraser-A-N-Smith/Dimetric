@@ -14,6 +14,98 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a sprite can be sorted at its feet
+
+Within a layer, a `TileLayer`'s tiles and the sprites beside them sort by the
+depth of their centres, which is what lets a wall tile hide a figure behind it.
+A figure is taller than its cell, though, so it has to be drawn **lifted** for
+its feet to land on the floor — and `offset` fed the depth too. Lift a figure
+six units and it sorted six units *behind* its own floor tile, which then drew
+over its feet. The ways around it were both a way of lying to the sorter: pad
+every sheet with transparent rows until the centre falls at the feet, or put the
+figures on a layer above all tiles, which fixes the walls in front and breaks
+the walls behind.
+
+`sort_offset` (`vec2`, world units) on `Sprite2D` and `AnimatedSprite2D` is
+added to the depth position and to nothing else:
+
+```toml
+offset = [0.0, -6.0]       # drawn lifted, feet on the cell
+sort_offset = [0.0, 7.0]   # sorted at the feet, a nudge past the cell
+```
+
+The extra unit past the cell centre is worth having: landing exactly on it ties
+with the figure's own floor tile and leaves the node-id tie-break to decide.
+
+**`AnimatedSprite2D` now declares `offset`.** `extract::sprite` had always read
+it for both sprite kinds and only `Sprite2D` declared it, so authoring it was a
+hard `DIM0301` — on the one kind a game animates, which is exactly the node that
+needs lifting. Found while checking this request's premise.
+
+### Added: a game can set its ambient light, and keep what a player reads out of it
+
+`RenderSettings::ambient` has existed since M6 and nothing a game ships could
+reach it. `dim frame capture --ambient` could, through the agent; `project.toml`
+could not, a scene could not, and a script could not. So in `dim-play` the
+ambient was always white, the light pass never ran, and every `Light2D` a game
+placed added nothing at all.
+
+Two doors, with the nearer one winning. `[render] ambient` in `project.toml` is
+the floor under every scene; `ambient` on the current `Camera2D` is a region's
+own light, and a scene swap brings the new one with it. The camera's property
+has no default on purpose — a camera answering "white" when asked nothing would
+mean every scene overrode the project's setting with the engine's.
+
+`--ambient` sets the project-wide value, so a scene declaring its own is
+photographed under *its* light, and the flag says so (`DIM0904`) rather than
+doing nothing quietly. A capture is meant to be evidence about what a player
+sees. Every capture now reports the ambient it drew under.
+
+**A dim scene with no lights in it now dims.** The composite only applied the
+ambient when the frame *also* carried at least one light, so a region at dusk
+with no torches in it was drawn as if it were noon: the pass that applies the
+ambient was skipped along with the pass that accumulates lights, and those are
+not the same question.
+
+`lit = false` on a `Sprite2D`, `AnimatedSprite2D`, `Label` or `TileLayer` keeps
+that drawing at full colour however dark the room gets — for a health bar over a
+monster's head, a damage number, the cells an ability can reach, a spell effect
+that should glow rather than dim. These are world drawing, on the board and
+moving with the camera, so they cannot be UI controls without the game
+re-projecting every one of them into screen space each frame.
+
+An unlit node still **sorts and batches with everything else**; only the
+multiply skips it. That is why the exemption is a mask written in draw order
+into its own target rather than a second picture laid over the first: an overlay
+can belong *under* the figures, and a lit figure drawn in front clears the
+exemption behind it, so the figure still dims. The mask pass and its target cost
+nothing in a frame where nothing asked to be left out.
+
+### None of the three moves the state hash — and one thing to know about why
+
+`sort_offset`, `lit` and `Camera2D ambient` are declared with **no default**,
+and that is load-bearing rather than tidy. `parse` fills in every declared
+default so a node's property *set* does not depend on which keys an author
+happened to write, and `Scene::hash_state` hashes every property — so a
+defaulted property added to a builtin kind appears on every node of that kind
+and changes the hash of **every scene already recorded**. Three of this
+repository's own replay fixtures caught it, which is what they are for.
+
+Declared absent instead, with the renderer supplying the fallback. Every scene
+already written is byte-identical and hash-identical, and
+`examples/sorcerer/tests/arena01.hashes` was not re-recorded.
+
+What does move a hash is a scene *adopting* one of these, because an authored
+property is scene data — the same is true of `zoom`, `projection` and
+`pixel_snap` beside `ambient`. That is not the hazard the invariant guards
+against: the hazard is a presentation value that differs between machines or
+sessions and silently changes the hash, and a scene's authored content is the
+same everywhere because it is committed. It costs a re-record for the scenes
+that adopt it, and `[render] ambient` is the door that costs nothing.
+
+`Sprite2D.offset` keeps its old zero default. Taking it away would unfill it on
+every sprite already written and move exactly the hashes this avoids.
+
 ### Added: a tile can animate
 
 `crates/dimetric-render/src/extract.rs`, `fn tiles` read a cell's id, subtracted

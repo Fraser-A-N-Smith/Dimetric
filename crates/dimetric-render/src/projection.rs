@@ -9,6 +9,7 @@
 //! Everything here is presentation. It reads simulation state and never writes
 //! it (I7), which is why floats are allowed below this line and nowhere above.
 use dimetric_core::Vec2Fx;
+use dimetric_scene::Color;
 
 // The projection itself lives in `dimetric-core` now, because a script
 // picking a world cell from a canvas pixel has to invert it, and a second copy
@@ -80,6 +81,19 @@ pub struct Camera {
     /// A project setting, not an assumption: a pixel-art game needs it and a
     /// smooth-scrolling one does not want it.
     pub pixel_snap: bool,
+    /// Light level this view is drawn under, when the scene names one.
+    ///
+    /// `None` means the scene said nothing and the project's own
+    /// [`RenderSettings::ambient`] stands. It is on the camera because a
+    /// region's light is a fact about the region: nine scenes, nine ambients,
+    /// and a scene swap brings the new one with it. The current camera already
+    /// decides the projection, the zoom and what is in view, so it is where a
+    /// reader looks.
+    ///
+    /// Presentation, like the zoom beside it. It reaches a uniform and a
+    /// multiply, never the simulation, so two players under different lights
+    /// replay the same run identically.
+    pub ambient: Option<Color>,
 }
 
 impl Camera {
@@ -91,6 +105,7 @@ impl Camera {
             zoom: 1.0,
             viewport,
             pixel_snap: true,
+            ambient: None,
         }
     }
 

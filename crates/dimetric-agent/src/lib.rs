@@ -1627,19 +1627,41 @@ fn frame_command(project: &mut Project, cmd: FrameCmd) -> Result<Output, Diagnos
             "sprites": captured.sprites,
             "draw_calls": captured.draw_calls,
             "adapter": captured.adapter,
+            "ambient": captured.ambient.to_hex(),
         }),
         format!(
-            "captured tick {tick} to {} ({}x{}, {} sprites in {} draw calls, via {})",
+            "captured tick {tick} to {} ({}x{}, {} sprites in {} draw calls, ambient {}, via {})",
             path.display(),
             captured.width,
             captured.height,
             captured.sprites,
             captured.draw_calls,
+            captured.ambient.to_hex(),
             captured.adapter
         ),
     );
     out.warnings = captured.diagnostics.0;
     out.warnings.extend(warning);
+    // The flag sets the project-wide ambient, and a scene's own `Camera2D`
+    // ambient wins over it — deliberately, because a capture is evidence about
+    // what a player sees and a region states its own light. Not silently,
+    // though: a flag that did nothing is exactly the kind of thing somebody
+    // spends an afternoon on.
+    if ambient.is_some() && captured.ambient != settings.ambient {
+        out.warnings.push(
+            Diagnostic::new(
+                Code::SETTINGS_OVERRIDDEN,
+                format!(
+                    "--ambient asked for {}, and this scene's Camera2D declares \
+                     ambient = {}, which is what the frame was drawn under — a region's \
+                     own light wins, so that a capture shows what a player sees",
+                    settings.ambient.to_hex(),
+                    captured.ambient.to_hex(),
+                ),
+            )
+            .with_severity(dimetric_core::Severity::Warning),
+        );
+    }
     Ok(out)
 }
 

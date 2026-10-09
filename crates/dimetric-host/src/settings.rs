@@ -139,6 +139,14 @@ pub struct Presentation {
     /// other nearest drops source rows and a dropped row in a letter is a
     /// missing stroke.
     pub present_filter: Option<dimetric_render::PresentFilter>,
+    /// `[render] ambient`. `None` leaves the engine's default, opaque white,
+    /// which is unlit — most projects have no lights at all.
+    ///
+    /// The project-wide floor under a scene's own. A `Camera2D` that names an
+    /// `ambient` wins, because a region's light is a fact about the region;
+    /// this is for the game whose light is the same everywhere, and for the
+    /// default a scene that says nothing falls back to.
+    pub ambient: Option<dimetric_scene::Color>,
 }
 
 impl Presentation {
@@ -371,6 +379,26 @@ impl Settings {
             }
             // Also presentation. It decides how the finished frame is sampled
             // into a window and reaches nothing the simulation can see.
+            // Presentation too, and the one key in here a scene can override:
+            // a `Camera2D`'s own `ambient` wins, because nine regions want
+            // nine lights. This is the floor under all of them.
+            if let Some(value) = render.get("ambient") {
+                match value.as_str().map(dimetric_scene::Color::parse) {
+                    Some(Ok(color)) => out.presentation.ambient = Some(color),
+                    Some(Err(e)) => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!("{origin}: render.ambient: {e}"),
+                    )),
+                    None => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!(
+                            "{origin}: render.ambient must be a colour written as a \
+                             string, \"#rrggbbaa\" — \"#ffffffff\" is unlit, and \
+                             anything darker dims the world and lets a Light2D show"
+                        ),
+                    )),
+                }
+            }
             if let Some(value) = render.get("present_filter") {
                 match value.as_str() {
                     Some("auto") => {

@@ -413,6 +413,89 @@ fn render_markdown(
          scaling one without the other breaks the lattice; a label\'s glyph advance is in\n\
          screen pixels, so scaling it would grow the letters without spreading them.\n\
          Both want an answer of their own rather than this one.\n\n\
+         ### Depth, and sorting at the feet\n\n\
+         Within a layer, what draws on top is decided by depth: `y` under `TopDown`\n\
+         and `x + y` under `Isometric`. A `TileLayer`'s tiles and the sprites beside\n\
+         them go through the same key, which is what lets a wall tile hide a figure\n\
+         standing behind it and a figure cover the wall it stands in front of.\n\n\
+         The catch is that a figure is usually taller than its cell. A 28-pixel sprite\n\
+         on a 16-pixel grid has to be drawn **lifted** for its feet to land on the\n\
+         floor, and `offset` fed the depth as well — so lifting it six units sorted it\n\
+         six units *behind* its own floor tile, which then drew over its feet. The two\n\
+         ways around it were both a way of lying to the sorter: pad every sheet with\n\
+         transparent rows until the centre falls at the feet, encoding a sort point in\n\
+         every frame rectangle, or put the figures on a layer above all tiles, which\n\
+         fixes the walls in front and breaks the walls behind.\n\n\
+         `sort_offset` separates the two points:\n\n\
+         ```toml\n\
+         [[node]]\n\
+         kind = \"AnimatedSprite2D\"\n\
+         name = \"Figure\"\n\
+         frames = \"asset:sprites/walk\"\n\
+         offset = [0.0, -6.0]       # drawn lifted, feet on the cell\n\
+         sort_offset = [0.0, 7.0]   # sorted at the feet, a nudge past the cell\n\
+         ```\n\n\
+         It is added to the depth position and to nothing else, in world units, so it\n\
+         carries through the isometric shear rather than being a screen-space fudge.\n\
+         The extra unit past the cell centre is worth having: landing exactly on the\n\
+         centre ties with the figure's own floor tile and leaves the node-id tie-break\n\
+         to decide, and a game should not have to depend on a tie.\n\n\
+         `AnimatedSprite2D` also declares `offset` now. The renderer had always read it\n\
+         for both sprite kinds and only `Sprite2D` declared it, so authoring it on the\n\
+         one kind a game animates was a hard `DIM0301` — on exactly the node that needs\n\
+         lifting.\n\n\
+         ### Light\n\n\
+         A `Light2D` is drawn into an accumulation buffer and the composite multiplies\n\
+         the world by it. That multiply only happens when the **ambient** is darker\n\
+         than opaque white, and until now nothing a game shipped could set it: the\n\
+         agent's `--ambient` could, a project could not, a scene could not, and a\n\
+         script could not. So in `dim-play` the ambient was always white and every\n\
+         light a game placed added nothing at all.\n\n\
+         There are two doors, and the nearer one wins:\n\n\
+         ```toml\n\
+         # project.toml — the floor under every scene\n\
+         [render]\n\
+         ambient = \"#303040ff\"\n\
+         ```\n\n\
+         ```toml\n\
+         # a scene — this region's own light\n\
+         [[node]]\n\
+         kind = \"Camera2D\"\n\
+         name = \"View\"\n\
+         current = true\n\
+         ambient = \"#604020ff\"\n\
+         ```\n\n\
+         A region's light is a fact about the region — a drowned march at dusk, a\n\
+         foundry lit by its slag, a tomb by candles — so the current camera's `ambient`\n\
+         wins over the project's, and a scene swap brings the new one with it. The\n\
+         camera's property has **no default** on purpose: a camera that answered\n\
+         \"white\" when it had been asked nothing would mean every scene overrode the\n\
+         project's setting with the engine's, and `[render] ambient` could never apply\n\
+         to any scene that has a camera — which is all of them.\n\n\
+         `dim frame capture --ambient` sets the project-wide value, so a scene that\n\
+         declares its own is photographed under *its* light and the flag says so\n\
+         (`DIM0904`). That is deliberate: a capture is meant to be evidence about what\n\
+         a player sees. Every capture now reports the ambient it drew under.\n\n\
+         A dim scene with **no lights in it** dims. It used to not: the composite only\n\
+         applied the ambient when the frame also carried at least one light, so a\n\
+         region at dusk with no torches was drawn as if it were noon.\n\n\
+         #### Keeping what a player reads out of the light\n\n\
+         The multiply covers the whole world, which is right for the floor, the walls\n\
+         and the figures and wrong for everything a player *reads*: a health bar over a\n\
+         monster's head, a damage number, the cursor, the cells an ability can reach, a\n\
+         spell effect that ought to glow rather than dim. Those are world drawing —\n\
+         they sit on the board and move with the camera — so they cannot be UI controls\n\
+         without re-projecting every one of them into screen space each frame, and the\n\
+         UI pass is the only thing the light already skips.\n\n\
+         `lit = false` on a `Sprite2D`, an `AnimatedSprite2D`, a `Label` or a\n\
+         `TileLayer` leaves that drawing at full colour however dark the room gets.\n\
+         Absent and `true` both dim.\n\n\
+         An unlit node still **sorts and batches with everything else**; only the\n\
+         multiply skips it. That matters for an overlay that belongs *under* the\n\
+         figures — a layer of reachable cells between the floor and the actors — and it\n\
+         is why the exemption is a mask written in draw order rather than a second\n\
+         picture laid over the first: a lit figure drawn in front of an unlit marker\n\
+         clears the exemption behind it, so the figure still dims.\n\n\
          ### Spawning\n\n\
          `scene.spawn` returns the id the node *will* have and creates nothing yet.\n\
          A node inserted mid-tick would be going into a tree another script may be\n\

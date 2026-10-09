@@ -47,6 +47,27 @@
           "type": "color"
         },
         {
+          "default": null,
+          "doc": "Draw offset from the node origin. Absent means none.",
+          "name": "offset",
+          "required": false,
+          "type": "vec2"
+        },
+        {
+          "default": null,
+          "doc": "Point this sprite sorts at, as an offset from where it is drawn. Added to the depth position and to nothing else, so a sprite can be drawn at one point and sorted at another. A standing figure is taller than its cell, so it is drawn lifted for its feet to land on the floor — and lifting it also moved the point it sorts at, putting it behind its own floor tile, which then drew over its feet. Sorting at the feet is what makes a wall in front of a figure cover it and a wall behind it not. Absent and zero are the plain behaviour: sort where you draw.",
+          "name": "sort_offset",
+          "required": false,
+          "type": "vec2"
+        },
+        {
+          "default": null,
+          "doc": "Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it.",
+          "name": "lit",
+          "required": false,
+          "type": "bool"
+        },
+        {
           "default": "false",
           "doc": "Mirror horizontally.",
           "name": "flip_h",
@@ -246,6 +267,13 @@
       "doc": "A view onto the world.",
       "kind": "Camera2D",
       "properties": [
+        {
+          "default": null,
+          "doc": "Light level this view is drawn under. Opaque white is unlit, and anything darker dims the world and lets `Light2D` show. Absent leaves the project's `[render] ambient`, so a region states its own light and a scene that says nothing takes the default. Presentation, like `zoom`: it reaches a uniform and a multiply, never the simulation, so two players under different lights replay the same run identically. The UI layer is composited after the multiply and is never dimmed.",
+          "name": "ambient",
+          "required": false,
+          "type": "color"
+        },
         {
           "default": "\"TopDown\"",
           "doc": "Top-down is identity; isometric is a 2:1 shear applied at render time. The simulation is free-form 2D either way — this flag never reaches it.",
@@ -563,6 +591,13 @@
           "type": "enum(Left | Center | Right)"
         },
         {
+          "default": null,
+          "doc": "Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it.",
+          "name": "lit",
+          "required": false,
+          "type": "bool"
+        },
+        {
           "default": "[0.0, 0.0]",
           "doc": "Draw offset from the node origin.",
           "name": "offset",
@@ -807,6 +842,20 @@
           "type": "vec2"
         },
         {
+          "default": null,
+          "doc": "Point this sprite sorts at, as an offset from where it is drawn. Added to the depth position and to nothing else, so a sprite can be drawn at one point and sorted at another. A standing figure is taller than its cell, so it is drawn lifted for its feet to land on the floor — and lifting it also moved the point it sorts at, putting it behind its own floor tile, which then drew over its feet. Sorting at the feet is what makes a wall in front of a figure cover it and a wall behind it not. Absent and zero are the plain behaviour: sort where you draw.",
+          "name": "sort_offset",
+          "required": false,
+          "type": "vec2"
+        },
+        {
+          "default": null,
+          "doc": "Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it.",
+          "name": "lit",
+          "required": false,
+          "type": "bool"
+        },
+        {
           "default": "false",
           "doc": "Mirror horizontally.",
           "name": "flip_h",
@@ -1004,6 +1053,13 @@
           "default": "false",
           "doc": "Feed this layer into the collision grid.",
           "name": "collision",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": null,
+          "doc": "Whether the scene's light applies to this layer. Absent and true both dim with the region, which is what a floor and a wall want; false keeps full colour, which is what a layer of range cells or reachable tiles wants. An unlit layer still sorts with everything else; only the light's multiply skips it.",
+          "name": "lit",
           "required": false,
           "type": "bool"
         },

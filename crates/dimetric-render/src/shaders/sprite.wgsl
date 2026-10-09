@@ -31,12 +31,16 @@ struct Instance {
     @location(4) uv_min: vec2<f32>,
     @location(5) uv_max: vec2<f32>,
     @location(6) color: vec4<f32>,
+    // 1.0 when the light buffer must not apply to this sprite, 0.0 otherwise.
+    // Read only by `fs_mask`; the colour pass ignores it.
+    @location(7) unlit: f32,
 };
 
 struct VertexOut {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
+    @location(2) unlit: f32,
 };
 
 @vertex
@@ -61,10 +65,29 @@ fn vs_main(@builtin(vertex_index) vertex: u32, instance: Instance) -> VertexOut 
     out.clip_position = center + vec4<f32>(screen, 0.0, 0.0);
     out.uv = mix(instance.uv_min, instance.uv_max, corner);
     out.color = instance.color;
+    out.unlit = instance.unlit;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     return textureSample(atlas_texture, atlas_sampler, in.uv) * in.color;
+}
+
+// Which pixels the light must not touch, into the mask target.
+//
+// Red carries the answer and alpha carries the sprite's real coverage, which is
+// what blends it: `unlit * coverage + dst * (1 - coverage)`. Keeping the two
+// apart is forced rather than tidy — a mask stored in alpha would be both the
+// value and the factor, and a fully opaque *lit* sprite wanting to write zero
+// over an unlit one would write `0 * 0 + dst * 1` and change nothing.
+//
+// A second pass over the same instances in the same sort order, and that order
+// is the point: a lit figure drawn in front of an unlit range marker writes
+// zero over it, so the figure still dims. A mask built out of order would let
+// whatever was marked unlit leak its exemption onto everything drawn over it.
+@fragment
+fn fs_mask(in: VertexOut) -> @location(0) vec4<f32> {
+    let coverage = textureSample(atlas_texture, atlas_sampler, in.uv).a * in.color.a;
+    return vec4<f32>(in.unlit, 0.0, 0.0, coverage);
 }

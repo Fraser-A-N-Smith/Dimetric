@@ -131,6 +131,7 @@ fn item(layer: i32, depth: i32, atlas: u16, blend: Blend, id: &str) -> DrawItem 
         uv: [0.0, 0.0, 1.0, 1.0],
         modulate: [255; 4],
         node: uid(id),
+        lit: true,
     }
 }
 

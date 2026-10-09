@@ -571,6 +571,11 @@ impl Project {
                     .presentation
                     .present_filter
                     .unwrap_or(defaults.present_filter),
+                ambient: self
+                    .settings
+                    .presentation
+                    .ambient
+                    .unwrap_or(defaults.ambient),
                 ..defaults
             },
             warning,

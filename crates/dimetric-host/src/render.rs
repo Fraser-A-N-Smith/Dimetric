@@ -192,6 +192,11 @@ pub fn scene_camera(scene: &Scene, viewport: (u32, u32)) -> Camera {
             .get("pixel_snap")
             .and_then(Value::as_bool)
             .unwrap_or(true);
+        // The region's own light, if this scene names one. Absent rather than
+        // white when it does not, so the project's `[render] ambient` can
+        // stand: a camera that answered "white" would mean every scene
+        // overrode the project default with the engine's.
+        camera.ambient = node.get("ambient").and_then(Value::as_color);
     }
     camera
 }
@@ -224,6 +229,14 @@ pub struct CapturedFrame {
     pub sprites: usize,
     /// What the adapter reported.
     pub adapter: String,
+    /// The light level the frame was actually drawn under.
+    ///
+    /// Reported rather than assumed, because a scene's own `Camera2D ambient`
+    /// wins over the project's `[render] ambient` and over `--ambient`. A
+    /// capture is meant to be evidence about what a player sees, so when a
+    /// region states its own light the capture takes it — and then the one
+    /// thing worth printing is which light that was.
+    pub ambient: Color,
     /// Anything that went wrong but did not stop the capture.
     pub diagnostics: Diagnostics,
 }
@@ -354,6 +367,7 @@ pub fn capture(
         draw_calls: frame.draw_calls(),
         sprites: frame.sprites.len(),
         adapter: renderer.adapter_info.name.clone(),
+        ambient: frame.camera.ambient.unwrap_or(request.settings.ambient),
         diagnostics,
     })
 }
@@ -393,6 +407,7 @@ pub fn draw_scene(
         draw_calls: frame.draw_calls(),
         sprites: frame.sprites.len(),
         adapter: renderer.adapter_info.name.clone(),
+        ambient: frame.camera.ambient.unwrap_or(settings.ambient),
         diagnostics,
     })
 }

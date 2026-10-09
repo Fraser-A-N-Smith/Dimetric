@@ -67,6 +67,19 @@ pub struct DrawItem {
     pub modulate: [u8; 4],
     /// Node it came from, for picking and for debugging.
     pub node: NodeUid,
+    /// Whether the light buffer applies to this item.
+    ///
+    /// The composite multiplies the whole world texture by the light, which is
+    /// right for the floor, the walls and the figures and wrong for everything
+    /// a player *reads*: a health bar over a monster's head, a damage number,
+    /// the cells an ability can reach. Those are world drawing — they sit on
+    /// the board and move with the camera — so they cannot be UI controls
+    /// without the game re-projecting every one of them into screen space each
+    /// frame, and the UI pass is the only thing the light already skips.
+    ///
+    /// An unlit item still sorts and batches with everything else; only the
+    /// multiply skips it. See the mask pass in [`crate::gpu`].
+    pub lit: bool,
 }
 
 /// What the batcher splits on, packed for the sort key.

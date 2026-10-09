@@ -15,10 +15,12 @@
 struct Settings {
     // Ambient light, multiplied into everything the lights do not reach.
     ambient: vec4<f32>,
-    // x is 0 when the light buffer should be ignored entirely; the rest is
-    // unused. A vec4 rather than a float and a pad, because vec3 carries
-    // 16-byte alignment in WGSL and the obvious Rust mirror of it is the wrong
-    // size -- which the validator catches, but only at the first draw.
+    // x is 0 when the light buffer should be ignored entirely; y is 0 when
+    // nothing in the frame asked to be left out of the multiply, and the mask
+    // must not be read. The rest is unused. A vec4 rather than a float and a
+    // pad, because vec3 carries 16-byte alignment in WGSL and the obvious Rust
+    // mirror of it is the wrong size -- which the validator catches, but only
+    // at the first draw.
     lighting: vec4<f32>,
 };
 
@@ -28,6 +30,11 @@ struct Settings {
 @group(0) @binding(3) var<uniform> settings: Settings;
 // The UI layer, drawn through the canvas projection into its own target.
 @group(0) @binding(4) var ui_texture: texture_2d<f32>;
+// Red is how much of each pixel came from drawing the light must not touch —
+// a health bar over a head, a damage number, the cells an ability can reach.
+// Written by `sprite.wgsl`'s `fs_mask` in the same order as the colour, so a
+// lit sprite drawn in front clears what is behind it.
+@group(0) @binding(5) var mask_texture: texture_2d<f32>;
 
 struct VertexOut {
     @builtin(position) clip_position: vec4<f32>,
@@ -60,7 +67,17 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var lit = world.rgb;
     if (settings.lighting.x != 0.0) {
         let light = textureSample(light_texture, world_sampler, in.uv);
-        lit = world.rgb * (settings.ambient.rgb + light.rgb);
+        // Per pixel, between "the light decides" and "leave it alone". A health
+        // bar over a monster's head, a damage number and the cells an ability
+        // can reach are world drawing — they sit on the board and move with the
+        // camera — but they are read rather than looked at, so they must not
+        // dim with the room. Mixing rather than branching so a half-covered
+        // edge pixel is half exempt instead of picking a side.
+        var exempt = 0.0;
+        if (settings.lighting.y != 0.0) {
+            exempt = textureSample(mask_texture, world_sampler, in.uv).r;
+        }
+        lit = world.rgb * mix(settings.ambient.rgb + light.rgb, vec3<f32>(1.0), exempt);
     }
     // UI last and unlit. A health bar does not get darker when the player
     // walks into a shadow, so it is blended over the finished picture rather

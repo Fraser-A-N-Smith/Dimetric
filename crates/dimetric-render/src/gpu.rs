@@ -71,6 +71,10 @@ struct SpriteInstance {
     uv_min: [f32; 2],
     uv_max: [f32; 2],
     color: [f32; 4],
+    /// `1.0` when the light must not apply to this sprite. See the mask pass.
+    unlit: f32,
+    /// Padding to a 16-byte multiple, so the stride is what the layout says.
+    _padding: [f32; 3],
 }
 
 #[repr(C)]
@@ -99,6 +103,7 @@ pub struct Renderer {
     queue: wgpu::Queue,
 
     sprite_pipelines: [wgpu::RenderPipeline; 3],
+    mask_pipeline: wgpu::RenderPipeline,
     light_pipeline: wgpu::RenderPipeline,
     composite_pipeline: wgpu::RenderPipeline,
 
@@ -134,6 +139,7 @@ pub struct Renderer {
 
     world: wgpu::Texture,
     light: wgpu::Texture,
+    mask: wgpu::Texture,
 
     settings: RenderSettings,
     output_format: wgpu::TextureFormat,
@@ -227,7 +233,7 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
-        let (world, light) = internal_targets(&device, settings.internal_resolution);
+        let internal = internal_targets(&device, settings.internal_resolution);
         let ui = ui_target(&device, settings.internal_resolution);
         let ui_instances = instance_buffer::<SpriteInstance>(&device, 256, "ui");
 
@@ -301,8 +307,7 @@ impl Renderer {
         let composite_nearest = composite_bindings(
             &device,
             &composite_layout,
-            &world,
-            &light,
+            &internal,
             &ui,
             &sampler,
             &composite_buffer,
@@ -310,8 +315,7 @@ impl Renderer {
         let composite_linear = composite_bindings(
             &device,
             &composite_layout,
-            &world,
-            &light,
+            &internal,
             &ui,
             &smooth,
             &composite_buffer,
@@ -338,6 +342,7 @@ impl Renderer {
             sprite_pipeline(&device, &sprite_shader, &sprite_layout, Blend::Additive),
             sprite_pipeline(&device, &sprite_shader, &sprite_layout, Blend::Multiply),
         ];
+        let mask_pipeline = mask_pipeline(&device, &sprite_shader, &sprite_layout);
         let light_pipeline = light_pipeline(&device, &light_shader, &light_layout);
         // What the composite writes into: the surface's preferred sRGB format
         // when there is a surface, and the offscreen format when there is not.
@@ -370,6 +375,7 @@ impl Renderer {
             device,
             queue,
             sprite_pipelines,
+            mask_pipeline,
             light_pipeline,
             composite_pipeline,
             camera_buffer,
@@ -385,8 +391,9 @@ impl Renderer {
             composite_nearest,
             composite_linear,
             composite_buffer,
-            world,
-            light,
+            world: internal.world,
+            light: internal.light,
+            mask: internal.mask,
             settings,
             output_format,
             adapter,
@@ -503,13 +510,36 @@ impl Renderer {
             }),
         );
 
-        let lighting = self.settings.lighting_enabled() && !frame.lights.is_empty();
+        // The scene's own light if it names one, and the project's otherwise.
+        // Resolved per frame rather than at construction, because a scene swap
+        // is how a game moves between regions and each region has its own: a
+        // renderer rebuilt to change the light level would have to be rebuilt
+        // on every doorway.
+        let ambient = frame.camera.ambient.unwrap_or(self.settings.ambient);
+        // Whether anything is dimmed at all, which is a question about the
+        // ambient alone. It used to also require at least one light, and that
+        // conflated two things: a scene at dusk with no torches in it was
+        // composited as if it were noon, because the pass that applies the
+        // ambient was skipped along with the pass that accumulates lights.
+        // Clearing a 480x270 buffer and drawing no instances into it is
+        // cheaper than the bug.
+        let lighting = ambient != Color::WHITE;
+        // Whether anything asked to be left out of the multiply. When nothing
+        // did, the mask pass is skipped and the composite does not read the
+        // mask at all — so a project that says nothing pays for nothing, and
+        // the stale contents of the target cannot be mistaken for an answer.
+        let unlit = lighting && frame.sprites.iter().any(|item| !item.lit);
         self.queue.write_buffer(
             &self.composite_buffer,
             0,
             bytemuck::bytes_of(&CompositeUniform {
-                ambient: to_linear(self.settings.ambient),
-                lighting: [if lighting { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
+                ambient: to_linear(ambient),
+                lighting: [
+                    if lighting { 1.0 } else { 0.0 },
+                    if unlit { 1.0 } else { 0.0 },
+                    0.0,
+                    0.0,
+                ],
             }),
         );
 
@@ -537,6 +567,9 @@ impl Renderer {
         let light_view = self
             .light
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let mask_view = self
+            .mask
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -546,6 +579,9 @@ impl Renderer {
         self.sprite_pass(&mut encoder, &world_view, frame);
         if lighting {
             self.light_pass(&mut encoder, &light_view, frame);
+            if unlit {
+                self.mask_pass(&mut encoder, &mask_view, frame);
+            }
         }
         let ui_view = self.ui.create_view(&wgpu::TextureViewDescriptor::default());
         self.ui_pass(&mut encoder, &ui_view, frame);
@@ -661,6 +697,46 @@ impl Renderer {
         pass.set_bind_group(0, &self.light_bind_group, &[]);
         pass.set_vertex_buffer(0, self.light_instances.slice(..));
         pass.draw(0..4, 0..frame.lights.len() as u32);
+    }
+
+    /// Write unlit coverage into the mask target.
+    ///
+    /// The same instances as the colour pass, in the same order, through a
+    /// fragment that emits `unlit` in red and the sprite's real coverage in
+    /// alpha. The order is the point: a lit figure drawn in front of an unlit
+    /// range marker writes zero over it, so the figure still dims. A mask built
+    /// out of order would let whatever was marked unlit leak its exemption onto
+    /// everything drawn over it.
+    fn mask_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        frame: &Frame,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("unlit mask"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    // Nothing is exempt until something says so.
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_bind_group(0, &self.sprite_bind_group, &[]);
+        pass.set_vertex_buffer(0, self.sprite_instances.slice(..));
+        pass.set_pipeline(&self.mask_pipeline);
+        for batch in &frame.batches {
+            let start = batch.start as u32;
+            pass.draw(0..4, start..start + batch.count as u32);
+        }
     }
 
     fn composite_pass(&self, encoder: &mut wgpu::CommandEncoder, target: &Target<'_>) {
@@ -808,7 +884,22 @@ fn instance_buffer<T>(device: &wgpu::Device, capacity: usize, label: &str) -> wg
     })
 }
 
-fn internal_targets(device: &wgpu::Device, size: (u32, u32)) -> (wgpu::Texture, wgpu::Texture) {
+/// The world, the accumulated light, and the unlit mask.
+///
+/// The mask is its own target rather than a spare channel of the light buffer,
+/// and it has to be. Blending writes `value * coverage + dst * (1 - coverage)`
+/// where the coverage is the fragment's **alpha** — so a mask kept in alpha
+/// would be both the value and the factor, and a fully opaque *lit* sprite
+/// wanting to write zero over an unlit one would write `0 * 0 + dst * 1` and
+/// change nothing. With a channel of its own the value goes in red and the
+/// sprite's real coverage stays in alpha, and the lerp comes out right.
+struct Internal {
+    world: wgpu::Texture,
+    light: wgpu::Texture,
+    mask: wgpu::Texture,
+}
+
+fn internal_targets(device: &wgpu::Device, size: (u32, u32)) -> Internal {
     let make = |label: &str| {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
@@ -825,7 +916,11 @@ fn internal_targets(device: &wgpu::Device, size: (u32, u32)) -> (wgpu::Texture, 
             view_formats: &[],
         })
     };
-    (make("world"), make("light"))
+    Internal {
+        world: make("world"),
+        light: make("light"),
+        mask: make("unlit mask"),
+    }
 }
 
 /// The UI layer, drawn at the same internal resolution as the world so the
@@ -960,6 +1055,7 @@ fn composite_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
             },
             texture(2),
             texture(4),
+            texture(5),
             wgpu::BindGroupLayoutEntry {
                 binding: 3,
                 visibility: wgpu::ShaderStages::FRAGMENT,
@@ -977,14 +1073,20 @@ fn composite_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 fn composite_bindings(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
-    world: &wgpu::Texture,
-    light: &wgpu::Texture,
+    internal: &Internal,
     ui: &wgpu::Texture,
     sampler: &wgpu::Sampler,
     settings: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
-    let world_view = world.create_view(&wgpu::TextureViewDescriptor::default());
-    let light_view = light.create_view(&wgpu::TextureViewDescriptor::default());
+    let world_view = internal
+        .world
+        .create_view(&wgpu::TextureViewDescriptor::default());
+    let light_view = internal
+        .light
+        .create_view(&wgpu::TextureViewDescriptor::default());
+    let mask_view = internal
+        .mask
+        .create_view(&wgpu::TextureViewDescriptor::default());
     let ui_view = ui.create_view(&wgpu::TextureViewDescriptor::default());
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("composite bindings"),
@@ -1010,6 +1112,10 @@ fn composite_bindings(
                 binding: 3,
                 resource: settings.as_entire_binding(),
             },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(&mask_view),
+            },
         ],
     })
 }
@@ -1033,6 +1139,11 @@ fn sprite_instance(item: &crate::batch::DrawItem) -> SpriteInstance {
             item.modulate[2],
             item.modulate[3],
         )),
+        unlit: match item.lit {
+            true => 0.0,
+            false => 1.0,
+        },
+        _padding: [0.0; 3],
     }
 }
 
@@ -1085,7 +1196,7 @@ fn sprite_pipeline(
                 attributes: &wgpu::vertex_attr_array![
                     0 => Float32x2, 1 => Float32x2, 2 => Float32x2,
                     3 => Float32x2, 4 => Float32x2, 5 => Float32x2,
-                    6 => Float32x4
+                    6 => Float32x4, 7 => Float32
                 ],
             })],
             compilation_options: Default::default(),
@@ -1096,6 +1207,64 @@ fn sprite_pipeline(
             targets: &[Some(wgpu::ColorTargetState {
                 format: FORMAT,
                 blend: Some(blend_state(blend)),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+/// The pipeline that writes unlit coverage into the light buffer's alpha.
+///
+/// The same vertex shader and the same instance buffer as the colour pass, with
+/// a fragment that emits coverage instead of colour. One blend mode is enough:
+/// coverage is coverage, whatever the sprite composites with, and ordinary
+/// alpha blending is what lets a lit sprite drawn in front clear the mask
+/// behind it.
+///
+/// Its own target, so `unlit` can sit in red while the coverage that blends
+/// it stays in alpha. See [`internal_targets`] for why that separation is forced.
+fn mask_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    bind_layout: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("unlit mask pipeline layout"),
+        bind_group_layouts: &[Some(bind_layout)],
+        immediate_size: 0,
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("unlit mask"),
+        layout: Some(&layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<SpriteInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &wgpu::vertex_attr_array![
+                    0 => Float32x2, 1 => Float32x2, 2 => Float32x2,
+                    3 => Float32x2, 4 => Float32x2, 5 => Float32x2,
+                    6 => Float32x4, 7 => Float32
+                ],
+            })],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_mask"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: FORMAT,
+                blend: Some(blend_state(Blend::Alpha)),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
             compilation_options: Default::default(),
