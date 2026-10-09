@@ -118,6 +118,41 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 Some(Value::Vec2(dimetric_core::Vec2Fx::ZERO)),
                 "Draw offset from the node origin.",
             ),
+            // No default, which matters more than it looks. `parse` fills in
+            // every declared default so that a node's property *set* does not
+            // depend on which keys an author happened to write — and
+            // `Scene::hash_state` hashes every property, so a defaulted
+            // property added to a builtin kind would change the hash of every
+            // scene already recorded. Absent means the renderer's fallback, and
+            // a scene that says nothing stays byte- and hash-identical.
+            prop(
+                "sort_offset",
+                PropertyType::Vec2,
+                None,
+                "Point this sprite sorts at, as an offset from where it is drawn. \
+                 Added to the depth position and to nothing else, so a sprite can \
+                 be drawn at one point and sorted at another. A standing figure is \
+                 taller than its cell, so it is drawn lifted for its feet to land \
+                 on the floor — and lifting it also moved the point it sorts at, \
+                 putting it behind its own floor tile, which then drew over its \
+                 feet. Sorting at the feet is what makes a wall in front of a \
+                 figure cover it and a wall behind it not. Absent and zero are the \
+                 plain behaviour: sort where you draw.",
+            ),
+            prop(
+                "lit",
+                PropertyType::Bool,
+                None,
+                "Whether the scene's light applies to this. Absent and true both dim \
+                 with the region; false keeps full colour however dark it gets. For the \
+                 drawing a player *reads* rather than looks at — a health bar over \
+                 a head, a damage number, the cells an ability can reach, a spell \
+                 effect that should glow rather than dim. These sit on the board \
+                 and move with the camera, so they are world drawing and cannot be \
+                 UI controls without re-projecting every one of them into screen \
+                 space each frame. An unlit node still sorts and batches with \
+                 everything else; only the light's multiply skips it.",
+            ),
             prop(
                 "flip_h",
                 PropertyType::Bool,
@@ -178,12 +213,71 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                  Setting it by hand pins a frame until playback moves it.",
             ),
             prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
+            // `extract::sprite` has always read `offset` for both sprite kinds
+            // and only `Sprite2D` declared it, so authoring it here was a hard
+            // `DIM0301` — on the one kind a game animates, which is the one it
+            // needs to lift. A figure taller than its cell has to be drawn
+            // raised for its feet to land on the floor.
+            //
+            // Absent rather than zero, for the reason below. `Sprite2D`
+            // declares the same key *with* a zero default and keeps it: taking
+            // that default away would unfill it on every sprite already
+            // written and move every recorded hash, which is exactly what this
+            // asymmetry exists to avoid.
+            // No default, which matters more than it looks. `parse` fills in
+            // every declared default so that a node's property *set* does not
+            // depend on which keys an author happened to write — and
+            // `Scene::hash_state` hashes every property, so a defaulted
+            // property added to a builtin kind would change the hash of every
+            // scene already recorded. Absent means the renderer's fallback, and
+            // a scene that says nothing stays byte- and hash-identical.
+            prop(
+                "offset",
+                PropertyType::Vec2,
+                None,
+                "Draw offset from the node origin. Absent means none.",
+            ),
+            // No default, which matters more than it looks. `parse` fills in
+            // every declared default so that a node's property *set* does not
+            // depend on which keys an author happened to write — and
+            // `Scene::hash_state` hashes every property, so a defaulted
+            // property added to a builtin kind would change the hash of every
+            // scene already recorded. Absent means the renderer's fallback, and
+            // a scene that says nothing stays byte- and hash-identical.
+            prop(
+                "sort_offset",
+                PropertyType::Vec2,
+                None,
+                "Point this sprite sorts at, as an offset from where it is drawn. \
+                 Added to the depth position and to nothing else, so a sprite can \
+                 be drawn at one point and sorted at another. A standing figure is \
+                 taller than its cell, so it is drawn lifted for its feet to land \
+                 on the floor — and lifting it also moved the point it sorts at, \
+                 putting it behind its own floor tile, which then drew over its \
+                 feet. Sorting at the feet is what makes a wall in front of a \
+                 figure cover it and a wall behind it not. Absent and zero are the \
+                 plain behaviour: sort where you draw.",
+            ),
             // The same two `Sprite2D` has, with the same meaning. Under a 2:1
             // shear a grid actor needs four screen facings and two of them are
             // mirrors, so a mirrored sheet halves the art for a directional
             // character. It is a render-time flip of the quad and reaches no
             // simulation state — which way a character faces is gameplay, but
             // the flip itself is not.
+            prop(
+                "lit",
+                PropertyType::Bool,
+                None,
+                "Whether the scene's light applies to this. Absent and true both dim \
+                 with the region; false keeps full colour however dark it gets. For the \
+                 drawing a player *reads* rather than looks at — a health bar over \
+                 a head, a damage number, the cells an ability can reach, a spell \
+                 effect that should glow rather than dim. These sit on the board \
+                 and move with the camera, so they are world drawing and cannot be \
+                 UI controls without re-projecting every one of them into screen \
+                 space each frame. An unlit node still sorts and batches with \
+                 everything else; only the light's multiply skips it.",
+            ),
             prop(
                 "flip_h",
                 PropertyType::Bool,
@@ -541,6 +635,20 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 "Horizontal alignment of each line about the node origin.",
             ),
             prop(
+                "lit",
+                PropertyType::Bool,
+                None,
+                "Whether the scene's light applies to this. Absent and true both dim \
+                 with the region; false keeps full colour however dark it gets. For the \
+                 drawing a player *reads* rather than looks at — a health bar over \
+                 a head, a damage number, the cells an ability can reach, a spell \
+                 effect that should glow rather than dim. These sit on the board \
+                 and move with the camera, so they are world drawing and cannot be \
+                 UI controls without re-projecting every one of them into screen \
+                 space each frame. An unlit node still sorts and batches with \
+                 everything else; only the light's multiply skips it.",
+            ),
+            prop(
                 "offset",
                 PropertyType::Vec2,
                 Some(Value::Vec2(dimetric_core::Vec2Fx::ZERO)),
@@ -553,6 +661,24 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
         "Camera2D",
         "A view onto the world.",
         vec![
+            // No default on purpose. A camera that answered "white" when it had
+            // been asked nothing would mean every scene overrode the project's
+            // `[render] ambient` with the engine's, so the project-wide setting
+            // could never apply to any scene that has a camera — which is all
+            // of them.
+            prop(
+                "ambient",
+                PropertyType::Color,
+                None,
+                "Light level this view is drawn under. Opaque white is unlit, and \
+                 anything darker dims the world and lets `Light2D` show. Absent \
+                 leaves the project's `[render] ambient`, so a region states its \
+                 own light and a scene that says nothing takes the default. \
+                 Presentation, like `zoom`: it reaches a uniform and a multiply, \
+                 never the simulation, so two players under different lights \
+                 replay the same run identically. The UI layer is composited \
+                 after the multiply and is never dimmed.",
+            ),
             prop(
                 "projection",
                 enum_of(&["TopDown", "Isometric"]),
@@ -659,6 +785,16 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 PropertyType::Bool,
                 boolean(false),
                 "Feed this layer into the collision grid.",
+            ),
+            prop(
+                "lit",
+                PropertyType::Bool,
+                None,
+                "Whether the scene's light applies to this layer. Absent and true \
+                 both dim with the region, which is what a floor and a wall \
+                 want; false keeps full colour, which is what a layer of range cells or reachable \
+                 tiles wants. An unlit layer still sorts with everything else; \
+                 only the light's multiply skips it.",
             ),
             prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
         ],

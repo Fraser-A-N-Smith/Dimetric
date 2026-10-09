@@ -324,6 +324,10 @@ fn panel(
         uv: region.uv,
         modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
         node: node.uid,
+        // Never in the mask pass: the UI is composited after the multiply and
+        // has never been lit. A health bar does not get darker when the player
+        // walks into a shadow.
+        lit: false,
     });
 }
 
@@ -378,6 +382,10 @@ fn texture_rect(
             painted.modulate.a,
         ],
         node: node.uid,
+        // Never in the mask pass: the UI is composited after the multiply and
+        // has never been lit. A health bar does not get darker when the player
+        // walks into a shadow.
+        lit: false,
     });
 }
 
@@ -513,6 +521,26 @@ fn sprite(
         .and_then(Value::as_vec2)
         .unwrap_or(Vec2Fx::ZERO);
     let center = pos + offset;
+    // Where it sorts, which need not be where it is drawn.
+    //
+    // A standing figure is taller than its cell, so it is drawn lifted for its
+    // feet to land on the floor — and `offset` fed the depth as well, so
+    // lifting it six units sorted it six units *behind* its own floor tile,
+    // which then drew over its feet. The only ways out were both a way of
+    // lying to the sorter: pad every sheet with transparent rows until the
+    // centre falls at the feet, encoding a sort point in every frame
+    // rectangle; or put the figures on a layer above all tiles, which fixes
+    // the walls in front and breaks the walls behind.
+    //
+    // Added to the depth position and to nothing else, so zero is exactly the
+    // old behaviour. A ground-level nudge past the cell's own centre is what
+    // makes the figure sort strictly between its own tile and the tiles in
+    // front of it, rather than tying with its own tile and leaving the uid
+    // tie-break to decide.
+    let sort_offset = node
+        .get("sort_offset")
+        .and_then(Value::as_vec2)
+        .unwrap_or(Vec2Fx::ZERO);
     // `scale` is a key every node has, `tween.rs` writes it into the transform,
     // and nothing drew it: a scale tween ran, was hashed and snapshotted, and
     // changed nothing on screen. A health bar could not shrink and a hit could
@@ -535,7 +563,7 @@ fn sprite(
         key: SortKey::new(
             node.layer,
             node.z,
-            camera.projection.depth_of(center),
+            camera.projection.depth_of(center + sort_offset),
             crate::batch::batch_group(0, 0, blend),
             node.uid,
         ),
@@ -549,7 +577,19 @@ fn sprite(
         uv,
         modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
         node: node.uid,
+        lit: lit_of(node),
     })
+}
+
+/// Whether the light buffer applies to what this node draws.
+///
+/// True unless the node says otherwise, so every scene already written is
+/// unchanged. A game marks the drawing a player *reads* — a health bar over a
+/// head, a damage number, the cells an ability can reach, a spell effect that
+/// ought to glow rather than dim — and the composite leaves it alone. See
+/// [`crate::batch::DrawItem::lit`].
+fn lit_of(node: &dimetric_scene::Node) -> bool {
+    node.get("lit").and_then(Value::as_bool).unwrap_or(true)
 }
 
 /// Expand a label into one sprite per inked glyph.
@@ -652,6 +692,7 @@ fn label(
             uv: region.sub(g.x, g.y, g.width, g.height).uv,
             modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
             node: node.uid,
+            lit: lit_of(node),
         });
     }
 }
@@ -771,6 +812,7 @@ fn tiles(
                 uv,
                 modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
                 node: node.uid,
+                lit: lit_of(node),
             });
         }
     }
