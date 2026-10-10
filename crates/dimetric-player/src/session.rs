@@ -84,6 +84,10 @@ pub struct Session {
     log: InputLog,
     recording: bool,
     record_to: Option<std::path::PathBuf>,
+    /// What the host has to tell the next tick about input it handled itself.
+    pending_captured: Option<String>,
+    pending_capturing: bool,
+    pending_rebinds: Vec<(String, Vec<String>)>,
     /// Where the profile came from and the table scripts are reading, kept
     /// together so `finish` cannot write one project's profile into another's
     /// directory.
@@ -207,6 +211,9 @@ impl Session {
                 .with_date(date),
             recording: config.record.is_some(),
             record_to: config.record,
+            pending_captured: None,
+            pending_capturing: false,
+            pending_rebinds: Vec::new(),
             profile,
             suspend_root: config.suspend,
             scene: config.scene,
@@ -268,6 +275,13 @@ impl Session {
     pub fn step(&mut self, project: &mut Project, input: PlayerInput) {
         let frame = InputFrame {
             players: vec![input],
+            // What the host did with the input since the last tick. Drained
+            // into the frame rather than passed as arguments, so every caller
+            // that has only input to give keeps working — a headless run and a
+            // replay both have nothing to say here.
+            captured: self.pending_captured.take(),
+            capturing: std::mem::take(&mut self.pending_capturing),
+            rebinds: std::mem::take(&mut self.pending_rebinds),
         };
         if self.recording {
             self.log.push(frame.clone());
@@ -520,6 +534,33 @@ impl Session {
             Diagnostics::new(),
         ));
         taken
+    }
+
+    /// Tell the simulation what an action is bound to now.
+    ///
+    /// The host owns the bindings and the simulation reads them, so this is the
+    /// one channel between the two: whatever is said here lands in the next
+    /// tick's frame, in [`SimState::bindings`], and in the recording. A
+    /// Controls page then draws its rows from `input.bindings(action)` without
+    /// keeping a second copy of `project.toml` in Lua.
+    ///
+    /// Called with the whole table once before the first tick, and a row at a
+    /// time as a player rebinds.
+    pub fn note_bindings(&mut self, rebinds: Vec<(String, Vec<String>)>) {
+        self.pending_rebinds.extend(rebinds);
+    }
+
+    /// Tell the simulation what a key capture is doing.
+    ///
+    /// `captured` is the name a capture settled on, on the tick it settled;
+    /// `capturing` is whether the runtime is still waiting. A capture that ends
+    /// with no name was cancelled, which is how a page knows to take its
+    /// "press a key" prompt down.
+    pub fn note_capture(&mut self, captured: Option<String>, capturing: bool) {
+        if captured.is_some() {
+            self.pending_captured = captured;
+        }
+        self.pending_capturing = capturing;
     }
 
     /// The actions this project declared of its own, in order.

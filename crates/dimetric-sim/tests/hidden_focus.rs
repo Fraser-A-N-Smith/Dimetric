@@ -80,6 +80,7 @@ fn frame() -> InputFrame {
             pointer: Vec2Fx::from_ints(canvas.width / 2, canvas.height / 2),
             ..PlayerInput::default()
         }],
+        ..InputFrame::default()
     }
 }
 

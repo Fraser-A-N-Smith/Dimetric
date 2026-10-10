@@ -14,6 +14,87 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a Controls page can learn which key was pressed
+
+G53 built the half that binds. `input.*` speaks actions, though, and that is the
+whole difficulty: a key bound to nothing never reaches a script, and a key bound
+to something arrives as that something — so there was no moment at which a script
+could learn "the player pressed F". The page had no name to put in `input.bind`,
+none to show in its row, and none to save for the next launch.
+
+```lua
+event.emit("input.capture", { action = "fire" })  -- take the next key
+
+input.capturing()         -- true while the runtime is waiting
+input.captured()          -- "KeyF" on the tick it settled, else nil
+input.bindings("fire")    -- { "KeyF" }, what it is bound to now
+```
+
+The runtime takes the next key, mouse button or pad button pressed and binds it
+as `input.bind` would. The press is **not** delivered as input while a capture is
+live: a player assigning Space to something should not also fire. Escape cancels
+and is deliberately not capturable, so a page cannot capture its own way out and
+leave a player stuck; it stays bindable as an ordinary action, and the exclusion
+holds only while a capture is live. A capture ending with `captured()` set was
+bound; one ending with it unset was cancelled, and `capturing()` going false is
+the signal either way.
+
+**This moves the hash of a run that uses it, and narrows a promise.** All three
+are in the recording, because a page writes a captured name into a label and
+draws its rows from the bindings it read, and labels are hashed. The log gains a
+`capture` line and a `bind` line, both sparse and both omitted when there is
+nothing to say, so `LOG_VERSION` stays at 1 and every log already written is
+byte-for-byte what it was.
+
+The promise this narrows is G53's: *a session played under any bindings replays
+identically under any other*. The half that still holds without qualification is
+the half that matters — a recording stores actions, so bindings never change how
+input is **read**, and remapping still cannot be done in script. What has changed
+is that a game may now read its bindings back, and a game that does has put them
+into its own hashed state. A game that calls neither is unaffected.
+
+`dim-play`'s two drivers now make the press decision in one place
+(`bindings::press_with_capture`). They had their own copies of the simpler rule,
+which is exactly how the `pause` key once came to photograph correctly and play
+wrongly. The scripted `--keys` run also drains the game's events now — it
+ignored them, so a volume, a rebind and a capture all did nothing under
+`--capture` — and `--record` writes a log on that path, where it used to produce
+a picture and no log.
+
+### Added: a shipped game can start a different run each launch
+
+A packaged game boots with the seed in its manifest, and every stream a script
+draws from is derived from that one number — so the first run of every launch of
+the same build was identical, and the second identical to the second. For a
+roguelike whose title screen offers a new run, that is the same three essences
+every time somebody quits and comes back. Rebuilding did not help: the build
+stamped the same seed.
+
+```toml
+seed = "launch"   # from `dim build --seed launch`
+```
+
+The runtime reads a seed from outside at startup when the manifest says that.
+`--seed N` still wins, so a capture, a smoke test and a bug report are as pinned
+as they ever were — and `--seed 0` is now distinguishable from passing nothing,
+which it had not been.
+
+Safe for one reason: **the number goes into the recording**, the same way the
+date does. A log already carried its seed, so a launch-seeded session replays to
+the run it recorded. Verified against a real packaged build: three launches, three
+seeds, and the recording of one replays to its own hashes.
+
+`app.seed()` is the run seed the session is playing, for a run summary and a bug
+report. A number in the manifest is still the default and every manifest written
+before this names one; a seed this build cannot read is refused by `dim build`
+before anything is copied, and reported by the runtime rather than quietly played
+as run zero.
+
+**Neither request moves the hash of a run that does not use it.** The frame's
+three new fields and the bindings table all contribute nothing when empty, which
+is the rule an absent node property follows and the one the device followed last
+round. `examples/sorcerer/tests/arena01.hashes` was not re-recorded.
+
 ### Fixed: a control inside a hidden panel no longer catches the pointer
 
 `visible` is a node's own flag and a parent's is never stored on its children,

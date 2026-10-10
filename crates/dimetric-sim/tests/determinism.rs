@@ -247,6 +247,7 @@ fn input_logs_round_trip_through_text() {
                 },
                 PlayerInput::default(),
             ],
+            ..InputFrame::default()
         });
     }
     let text = log.to_text();

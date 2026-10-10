@@ -99,6 +99,22 @@ pub struct SimState {
     pub tweens: crate::tween::Tweens,
     /// Input for the tick in progress.
     pub input: InputFrame,
+    /// What each action is bound to, as the host last reported it.
+    ///
+    /// A Controls page draws every row from this, rather than keeping a second
+    /// copy of `project.toml` in Lua. It is **state** because a page writes it
+    /// into labels and labels are hashed, and it gets here only through
+    /// [`crate::input::InputFrame::rebinds`] — the host sends the table once
+    /// before the first tick and a row at a time after that.
+    ///
+    /// One channel, so the host's table and this cannot drift: nothing else
+    /// writes here, and the simulation never decides a binding. A recording
+    /// carries the changes, so a replay reads back what the recording read.
+    ///
+    /// Empty for a run whose host never said — a headless run, a replay of a
+    /// log written before this existed — and then `input.bindings` answers
+    /// nothing, which is what those runs saw.
+    pub bindings: BTreeMap<String, Vec<String>>,
     /// Input for the tick before this one.
     ///
     /// State rather than something derived from the log, because a rollback
@@ -198,6 +214,7 @@ impl SimState {
             anim: BTreeMap::new(),
             tweens: BTreeMap::new(),
             input: InputFrame::idle(1),
+            bindings: BTreeMap::new(),
             previous_input: InputFrame::idle(1),
             signals: Vec::new(),
             collisions: Vec::new(),
@@ -356,6 +373,19 @@ impl HashState for SimState {
         }
 
         self.input.hash_state(h);
+
+        // Nothing when the host never said, which is every run recorded before
+        // a Controls page could read its own bindings. The same discipline the
+        // frame's own new fields follow.
+        if !self.bindings.is_empty() {
+            h.tag("bindings").len(self.bindings.len());
+            for (action, keys) in &self.bindings {
+                h.str(action).len(keys.len());
+                for key in keys {
+                    h.str(key);
+                }
+            }
+        }
 
         h.tag("signals").len(self.signals.len());
         for s in &self.signals {

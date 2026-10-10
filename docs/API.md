@@ -478,7 +478,7 @@ Scripts see exactly these globals and nothing else.
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)` — returns false for a control nothing can see — `focus_next(step)`, `rect(node)`, `measure(font, text)` |
 | `event` | `emit(kind, payload)` — tells the host something. Drained by the runtime, **never** hashed |
-| `app` | `quit()`, `suspend()`, `resume()`, `discard_suspended()`, `suspended()` — asks whatever is running the game to stop, to write the run out and stop, to continue the written one, or to throw it away. Read by the host between ticks, **never** hashed; a headless run and a replay ignore the requests and answer `suspended()` false |
+| `app` | `quit()`, `suspend()`, `resume()`, `discard_suspended()`, `suspended()` — asks whatever is running the game to stop, to write the run out and stop, to continue the written one, or to throw it away. Read by the host between ticks, **never** hashed; a headless run and a replay ignore the requests and answer `suspended()` false. Also `today()`, the day the session began, and `seed()`, the run seed it is playing — both come from outside and both travel in the recording |
 | `profile` | `get(key)`, `put(key, value)`, `clear(key)` — across runs, and **never** in the state hash |
 | `camera` | `to_world(canvas_point)`, `to_canvas(world_point)`, `center()` — the view's inverse, in fixed point |
 | `tick` | `count()`, `dt()`, `rate` |
@@ -759,6 +759,55 @@ replay differently under another profile. Bindings belong to the host,
 before the input frame is built. A game emits its saved bindings on launch
 and on every change, and keeps them in its profile.
 
+### A Controls page
+
+`input.*` speaks actions, and that is the whole difficulty: a key bound to
+nothing never reaches a script, and a key bound to something arrives as
+that something. So there was no moment at which a script could learn "the
+player pressed F" — no name to put in `input.bind`, none to show in a row,
+none to save for the next launch.
+
+```lua
+event.emit("input.capture", { action = "fire" })  -- take the next key
+
+input.capturing()         -- true while the runtime is waiting
+input.captured()          -- "KeyF" on the tick it settled, else nil
+input.bindings("fire")    -- { "KeyF" }, what it is bound to now
+```
+
+The runtime takes the next key, mouse button or pad button pressed and binds
+it, exactly as `input.bind` would. The press is **not** delivered as input
+while a capture is live: a player assigning Space to something should not
+also fire. Escape cancels, and is deliberately not capturable — a page that
+could capture its own way out would leave a player stuck in it. Escape stays
+bindable as an ordinary action; the exclusion holds only while a capture is
+live, which is a moment the game asked for.
+
+A capture that ends with `captured()` set was bound; one that ends with it
+unset was cancelled. `capturing()` going false is the signal either way, so
+a page knows when to take its prompt down.
+
+`input.bindings(action)` is what lets a page draw every row on launch without
+keeping a second copy of `project.toml` in Lua. The runtime reports the whole
+table once before the first tick and a row at a time after that.
+
+#### What this costs, and it is worth knowing
+
+All three are **in the recording**, because a page writes a captured name
+into a label and draws its rows from the bindings it read, and labels are
+hashed. A capture travels as a `capture` line and a binding change as a
+`bind` line, both sparse and both omitted when there is nothing to say.
+
+That **narrows** what the bindings section above used to promise. It said a
+session played under any bindings replays identically under any other. The
+half that still holds without qualification is the half that matters: a
+recording stores *actions*, so bindings never change how input is **read**,
+and remapping still cannot be done in script. What has changed is that a game
+may now **read** its bindings back — and a game that does has put them into
+its own hashed state, so a recording of it carries them. A game that never
+calls `input.bindings` or `input.captured` is unaffected, and so is every
+recording already made.
+
 ### What day it is, and what is in somebody's hands
 
 A tick has no clock and no devices: the only time inside one is the tick
@@ -792,6 +841,40 @@ everywhere.
 For the daily seed itself, `rng.seed(stream, n)` is the one to use rather
 than `rng.reset`: a date-derived seed should not depend on the build's boot
 seed.
+
+### A different run each launch
+
+A packaged game boots with the seed in its manifest, and every stream a
+script draws from is derived from that one number — so the first run of
+every launch of the same build was identical, and the second identical to
+the second. For a roguelike whose title screen offers a new run, that is the
+same three essences every time somebody quits and comes back. Rebuilding did
+not help: the build stamped the same seed.
+
+```toml
+# the manifest `dim build` writes, from `dim build --seed launch`
+seed = "launch"
+```
+
+The runtime then reads a seed from outside at startup. `--seed N` still wins,
+so a capture, a smoke test and a bug report are as pinned as they ever were —
+and `--seed 0` is now distinguishable from passing nothing, which it had not
+been.
+
+Safe for exactly one reason: **the number goes into the recording**, the same
+way the date does. A log already carried its seed, so a launch-seeded session
+replays to the run it recorded rather than to whatever the clock says at
+replay time. Nothing else about this reaches a tick.
+
+`app.seed()` is the run seed the session is playing, for a run summary and a
+bug report: a player who says "seed 4815162342" has said enough to reproduce
+what they saw. Signed on the way out, because Lua integers are, and the
+number is a 64-bit pattern either way.
+
+A number is still the default, and every manifest written before this names
+one. A seed this build cannot read is refused by `dim build` before anything
+is copied, and reported by the runtime rather than quietly played as run
+zero.
 
 ### Starting a stream over
 

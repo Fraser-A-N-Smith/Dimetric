@@ -412,6 +412,13 @@ impl Sim {
                     let mut state = self.state.borrow_mut();
                     let was = std::mem::replace(&mut state.input, input.clone());
                     state.previous_input = was;
+                    // Bindings the host changed before this tick, folded into
+                    // the table a Controls page reads. Here rather than in a
+                    // phase of their own because they arrive *with* the input
+                    // and a script asking in the same tick has to see them.
+                    for (action, keys) in &input.rebinds {
+                        state.bindings.insert(action.clone(), keys.clone());
+                    }
                     // Cleared here rather than at the end of the tick, so that
                     // when `step` returns the list holds what this tick asked
                     // for and whoever is listening can read it.

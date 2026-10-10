@@ -51,6 +51,7 @@ fn frame(bits: u32) -> InputFrame {
             buttons: bits,
             ..PlayerInput::default()
         }],
+        ..InputFrame::default()
     }
 }
 

@@ -123,6 +123,7 @@ fn input_from_a_session_writes_exactly_into_a_log() {
     let mut log = dimetric_sim::InputLog::new(7, "test", 1);
     log.push(dimetric_sim::InputFrame {
         players: vec![held.player_input()],
+        ..dimetric_sim::InputFrame::default()
     });
     let text = log.to_text();
     let back = dimetric_sim::InputLog::parse(&text).expect("the log parses");

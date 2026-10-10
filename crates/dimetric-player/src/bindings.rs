@@ -672,6 +672,108 @@ pub fn apply_event(
     None
 }
 
+/// The event kind a game asks for a key capture with.
+pub const CAPTURE: &str = "input.capture";
+
+/// A capture the runtime is in the middle of.
+///
+/// A Controls page says "press a key for Act" and the runtime takes the next
+/// one pressed. The press is **not** delivered as input while this is live: a
+/// player assigning Space to something should not also fire, and a page that
+/// fired every time somebody rebound a key would be unusable.
+#[derive(Clone, Debug)]
+pub struct Capture {
+    /// The action the next press is bound to.
+    pub action: Action,
+    /// What the game called it, for a diagnostic.
+    pub name: String,
+}
+
+/// What a capture settled on, for the frame to carry.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Captured {
+    /// This key or button, now bound.
+    Bound(String),
+    /// The player pressed the cancel key and nothing was bound.
+    Cancelled,
+}
+
+/// The key that cancels a capture, and is never captured by one.
+///
+/// Not bindable *as a capture*, deliberately: a page that could capture its
+/// own way out would leave a player stuck in it, with the only exit being to
+/// kill the game. Escape stays bindable as an ordinary action, which is what
+/// `pause` is usually on — the exclusion is only ever in force while a capture
+/// is live, which is a moment the game asked for.
+pub const CANCEL_CAPTURE_KEY: &str = "Escape";
+
+/// Read an `input.capture` event, if that is what it is.
+///
+/// `Some(Ok(capture))` when the runtime should start one, `Some(Err(d))` when
+/// the event was this kind and could not be read, `None` when it was not this
+/// kind. Read rather than consumed, like every other consumer of the drained
+/// list.
+///
+/// ```text
+/// event.emit("input.capture", { action = "fire" })
+/// ```
+pub fn read_capture_event(
+    actions: &[String],
+    event: &dimetric_sim::event::GameEvent,
+) -> Option<Result<Capture, Diagnostic>> {
+    if event.kind != CAPTURE {
+        return None;
+    }
+    let refused = |why: String| {
+        Err(Diagnostic::new(
+            Code::BINDING_UNKNOWN,
+            format!("{CAPTURE}: {why}; nothing is being captured"),
+        )
+        .with_severity(dimetric_core::Severity::Warning)
+        .with_field("kind", CAPTURE.to_string()))
+    };
+    let dimetric_scene::Value::Map(payload) = &event.payload else {
+        return Some(refused("the payload is not a table".to_string()));
+    };
+    let Some(name) = payload
+        .get("action")
+        .and_then(dimetric_scene::Value::as_str)
+    else {
+        return Some(refused("no `action` name in the payload".to_string()));
+    };
+    let Some(action) = Action::resolve(name, actions) else {
+        return Some(refused(format!(
+            "no action called `{name}`. The engine has: {}{}",
+            Action::ALL
+                .iter()
+                .map(|a| a.name())
+                .collect::<Vec<_>>()
+                .join(", "),
+            match actions.is_empty() {
+                true => String::new(),
+                false => format!("; this project also declares {}", actions.join(", ")),
+            }
+        )));
+    };
+    Some(Ok(Capture {
+        action,
+        name: name.to_string(),
+    }))
+}
+
+/// Settle a live capture on a key, binding it unless it was the cancel key.
+///
+/// Binding through [`Bindings::rebind`] like everything else, so the key is
+/// taken from whatever else held it and a Controls page's row means what it
+/// shows.
+pub fn settle_capture(bindings: &mut Bindings, capture: &Capture, key: &str) -> Captured {
+    if key == CANCEL_CAPTURE_KEY {
+        return Captured::Cancelled;
+    }
+    bindings.rebind(capture.action, vec![key.to_string()]);
+    Captured::Bound(key.to_string())
+}
+
 /// The key the runtime freezes its own simulation on.
 ///
 /// Not a bindable action, deliberately. Freezing is a debugging affordance of
@@ -692,6 +794,55 @@ pub enum KeyEffect {
     ToggleFreeze,
     /// Bound to nothing. Worth saying out loud when it came from `--keys`.
     Unbound,
+}
+
+/// What became of a press, once a live capture has had its say.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Pressed {
+    /// A capture took it. Nothing was delivered as input.
+    Captured {
+        /// What it settled on.
+        result: Captured,
+        /// The action's name as the game spelt it, for the frame to carry.
+        action: String,
+    },
+    /// No capture was live, so the key means what the bindings say.
+    Effect(KeyEffect),
+    /// A capture was live and this was a release, which it has no use for.
+    Ignored,
+}
+
+/// What a press does, given whatever capture is live.
+///
+/// **The one place that decision is made.** A live capture takes the press
+/// before the bindings are consulted at all — a player assigning Space to
+/// something should not also fire — and before the freeze key, so that a
+/// player who wants Pause/Break on an action can put it there.
+///
+/// Both drivers go through this: the window, and the scripted `--keys` run
+/// behind `--capture`. They had their own copies of the simpler rule and that
+/// is exactly how the `pause` key came to photograph correctly and play
+/// wrongly; one function is the fix that does not come undone.
+pub fn press_with_capture(
+    bindings: &mut Bindings,
+    capture: &mut Option<Capture>,
+    key: &str,
+    down: bool,
+) -> Pressed {
+    if capture.is_some() {
+        // On the press, not the release: the release of the key that settled
+        // the capture would otherwise settle it again.
+        if !down {
+            return Pressed::Ignored;
+        }
+        let live = capture.take().expect("just checked");
+        let result = settle_capture(bindings, &live, key);
+        return Pressed::Captured {
+            result,
+            action: live.name,
+        };
+    }
+    Pressed::Effect(key_effect(bindings, key))
 }
 
 /// Decide what a key press does, before anything is done about it.

@@ -63,6 +63,7 @@ fn frame(device: Device) -> InputFrame {
             device,
             ..PlayerInput::default()
         }],
+        ..InputFrame::default()
     }
 }
 
@@ -228,6 +229,7 @@ fn a_two_player_frame_keeps_each_players_device_to_itself() {
                 ..PlayerInput::default()
             },
         ],
+        ..InputFrame::default()
     });
     log.push(InputFrame {
         players: vec![
@@ -242,6 +244,7 @@ fn a_two_player_frame_keeps_each_players_device_to_itself() {
                 ..PlayerInput::default()
             },
         ],
+        ..InputFrame::default()
     });
     let read = InputLog::parse(&log.to_text()).expect("parses");
     assert_eq!(read.frame(0).player(0).buttons, 3);

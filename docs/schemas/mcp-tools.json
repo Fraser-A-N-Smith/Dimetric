@@ -365,7 +365,7 @@
             "type": "string"
           },
           "seed": {
-            "description": "Seed the packaged game starts from",
+            "description": "Seed the packaged game starts from, or `launch` for a new one each time",
             "type": "string"
           },
           "single": {

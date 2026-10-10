@@ -517,6 +517,20 @@ unnamed in both. Suspending is what made it reachable from a game.
 
 ## Still open, and known
 
+**Reading your own bindings puts them in the hash.** G53 promised that a
+session played under any bindings replays identically under any other, and
+G58's `input.bindings(action)` and `input.captured()` narrow that. The half
+that still holds without qualification is the half that matters: a recording
+stores *actions*, so bindings never change how input is **read**, and
+remapping still cannot be done in script. What changed is that a game may now
+read them back — and because a Controls page writes what it reads into a
+label, and labels are hashed, the table and any captured key travel in the
+recording. A game that calls neither is unaffected, and so is every recording
+made before they existed. Worth knowing before a game starts calling
+`input.bindings` from somewhere other than its Controls page: a HUD that drew
+"press [Space] to act" every tick would put the whole binding table into every
+tick's hash, which works and is more than it needs.
+
 **A collider under a hidden parent still collides.** `PhysicsWorld::build`
 skips a node whose own `visible` is false and never reads its ancestors — the
 same shape as the UI hit-test bug that G56 fixed, in the one place where

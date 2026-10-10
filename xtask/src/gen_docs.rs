@@ -557,6 +557,45 @@ fn render_markdown(
          replay differently under another profile. Bindings belong to the host,\n\
          before the input frame is built. A game emits its saved bindings on launch\n\
          and on every change, and keeps them in its profile.\n\n\
+         ### A Controls page\n\n\
+         `input.*` speaks actions, and that is the whole difficulty: a key bound to\n\
+         nothing never reaches a script, and a key bound to something arrives as\n\
+         that something. So there was no moment at which a script could learn \"the\n\
+         player pressed F\" — no name to put in `input.bind`, none to show in a row,\n\
+         none to save for the next launch.\n\n\
+         ```lua\n\
+         event.emit(\"input.capture\", { action = \"fire\" })  -- take the next key\n\n\
+         input.capturing()         -- true while the runtime is waiting\n\
+         input.captured()          -- \"KeyF\" on the tick it settled, else nil\n\
+         input.bindings(\"fire\")    -- { \"KeyF\" }, what it is bound to now\n\
+         ```\n\n\
+         The runtime takes the next key, mouse button or pad button pressed and binds\n\
+         it, exactly as `input.bind` would. The press is **not** delivered as input\n\
+         while a capture is live: a player assigning Space to something should not\n\
+         also fire. Escape cancels, and is deliberately not capturable — a page that\n\
+         could capture its own way out would leave a player stuck in it. Escape stays\n\
+         bindable as an ordinary action; the exclusion holds only while a capture is\n\
+         live, which is a moment the game asked for.\n\n\
+         A capture that ends with `captured()` set was bound; one that ends with it\n\
+         unset was cancelled. `capturing()` going false is the signal either way, so\n\
+         a page knows when to take its prompt down.\n\n\
+         `input.bindings(action)` is what lets a page draw every row on launch without\n\
+         keeping a second copy of `project.toml` in Lua. The runtime reports the whole\n\
+         table once before the first tick and a row at a time after that.\n\n\
+         #### What this costs, and it is worth knowing\n\n\
+         All three are **in the recording**, because a page writes a captured name\n\
+         into a label and draws its rows from the bindings it read, and labels are\n\
+         hashed. A capture travels as a `capture` line and a binding change as a\n\
+         `bind` line, both sparse and both omitted when there is nothing to say.\n\n\
+         That **narrows** what the bindings section above used to promise. It said a\n\
+         session played under any bindings replays identically under any other. The\n\
+         half that still holds without qualification is the half that matters: a\n\
+         recording stores *actions*, so bindings never change how input is **read**,\n\
+         and remapping still cannot be done in script. What has changed is that a game\n\
+         may now **read** its bindings back — and a game that does has put them into\n\
+         its own hashed state, so a recording of it carries them. A game that never\n\
+         calls `input.bindings` or `input.captured` is unaffected, and so is every\n\
+         recording already made.\n\n\
          ### What day it is, and what is in somebody's hands\n\n\
          A tick has no clock and no devices: the only time inside one is the tick\n\
          count (I5), and whatever a key or a pad did became a button bit long before\n\
@@ -585,6 +624,33 @@ fn render_markdown(
          For the daily seed itself, `rng.seed(stream, n)` is the one to use rather\n\
          than `rng.reset`: a date-derived seed should not depend on the build's boot\n\
          seed.\n\n\
+         ### A different run each launch\n\n\
+         A packaged game boots with the seed in its manifest, and every stream a\n\
+         script draws from is derived from that one number — so the first run of\n\
+         every launch of the same build was identical, and the second identical to\n\
+         the second. For a roguelike whose title screen offers a new run, that is the\n\
+         same three essences every time somebody quits and comes back. Rebuilding did\n\
+         not help: the build stamped the same seed.\n\n\
+         ```toml\n\
+         # the manifest `dim build` writes, from `dim build --seed launch`\n\
+         seed = \"launch\"\n\
+         ```\n\n\
+         The runtime then reads a seed from outside at startup. `--seed N` still wins,\n\
+         so a capture, a smoke test and a bug report are as pinned as they ever were —\n\
+         and `--seed 0` is now distinguishable from passing nothing, which it had not\n\
+         been.\n\n\
+         Safe for exactly one reason: **the number goes into the recording**, the same\n\
+         way the date does. A log already carried its seed, so a launch-seeded session\n\
+         replays to the run it recorded rather than to whatever the clock says at\n\
+         replay time. Nothing else about this reaches a tick.\n\n\
+         `app.seed()` is the run seed the session is playing, for a run summary and a\n\
+         bug report: a player who says \"seed 4815162342\" has said enough to reproduce\n\
+         what they saw. Signed on the way out, because Lua integers are, and the\n\
+         number is a 64-bit pattern either way.\n\n\
+         A number is still the default, and every manifest written before this names\n\
+         one. A seed this build cannot read is refused by `dim build` before anything\n\
+         is copied, and reported by the runtime rather than quietly played as run\n\
+         zero.\n\n\
          ### Starting a stream over\n\n\
          Every random value comes from a named stream, created from the run seed the\n\
          first time it is asked for and kept for the rest of the session. That is\n\

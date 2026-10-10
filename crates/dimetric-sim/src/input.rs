@@ -206,6 +206,46 @@ impl PlayerInput {
 pub struct InputFrame {
     /// Per-player, in player-number order.
     pub players: Vec<PlayerInput>,
+    /// The key or button a capture settled on, on the tick it settled.
+    ///
+    /// `input.*` speaks actions: a key bound to nothing never reaches a script
+    /// and a key bound to something arrives as that something, so there was no
+    /// moment at which a script could learn "the player pressed F". A Controls
+    /// page therefore had no name to put in `input.bind`, none to show in its
+    /// row, and none to save for the next launch.
+    ///
+    /// So the runtime captures it — `event.emit("input.capture", …)` — and the
+    /// **name** comes back here, in the frame, because the page writes it into
+    /// a label and a label is hashed. The same rule `device` follows.
+    ///
+    /// `None` on every other tick, and on the tick a capture was cancelled:
+    /// [`InputFrame::capturing`] is what tells those two apart.
+    ///
+    /// Not per player. A Controls page is modal and one-handed, and this engine
+    /// does not do more than one player's pad.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured: Option<String>,
+    /// Whether the runtime is waiting for a key to capture.
+    ///
+    /// What lets a page draw "press a key for Act" and take it down again. A
+    /// capture that ends with [`InputFrame::captured`] set was bound; one that
+    /// ends with it unset was cancelled.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capturing: bool,
+    /// Bindings the host changed before this tick, as action and its keys.
+    ///
+    /// The host owns the bindings — a recording stores actions, so a session
+    /// played under any bindings replays identically — and a Controls page
+    /// still has to *read* them, to draw every row without keeping a second
+    /// copy of `project.toml` in Lua. What a page reads it writes into a
+    /// label, and a label is hashed, so the table has to be in the recording.
+    ///
+    /// Changes rather than the whole table, and almost always empty: the host
+    /// sends the lot once before the first tick and a row at a time after
+    /// that, as a player rebinds. [`crate::SimState::bindings`] is where they
+    /// accumulate.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rebinds: Vec<(String, Vec<String>)>,
 }
 
 impl InputFrame {
@@ -213,6 +253,7 @@ impl InputFrame {
     pub fn idle(n: usize) -> InputFrame {
         InputFrame {
             players: vec![PlayerInput::default(); n],
+            ..InputFrame::default()
         }
     }
 
@@ -222,10 +263,34 @@ impl InputFrame {
     }
 
     /// Feed into a state hash.
+    ///
+    /// The three fields below the players contribute **nothing when they are
+    /// empty**, which is what keeps every run recorded before they existed
+    /// hashing exactly as it did — the same rule [`PlayerInput::hash_state`]
+    /// follows for the device, and the one an absent node property follows.
+    ///
+    /// They are hashed when they are not, and they have to be: a Controls page
+    /// writes a captured key's name into a label and draws its rows from the
+    /// bindings it reads, and labels are hashed.
     pub fn hash_state(&self, h: &mut StateHasher) {
         h.tag("input").len(self.players.len());
         for p in &self.players {
             p.hash_state(h);
+        }
+        if let Some(captured) = &self.captured {
+            h.tag("captured").str(captured);
+        }
+        if self.capturing {
+            h.tag("capturing");
+        }
+        if !self.rebinds.is_empty() {
+            h.tag("rebinds").len(self.rebinds.len());
+            for (action, keys) in &self.rebinds {
+                h.str(action).len(keys.len());
+                for key in keys {
+                    h.str(key);
+                }
+            }
         }
     }
 }
@@ -429,6 +494,29 @@ impl InputLog {
         );
         for (offset, frame) in self.frames.iter().enumerate() {
             let tick = self.from_tick + offset as u64;
+            // The rebinds and the capture that belong to this tick, on their
+            // own lines before it, and only when there are any. Omitted
+            // otherwise, so every log written before they existed is
+            // byte-for-byte what it was.
+            for (action, keys) in &frame.rebinds {
+                let _ = write!(out, "bind {action}");
+                for key in keys {
+                    let _ = write!(out, " {key}");
+                }
+                out.push('\n');
+            }
+            // `-` for "still waiting", a key name for "settled on this". A
+            // cancelled capture writes neither: it is the tick on which
+            // `capturing` stops and nothing was captured.
+            match (&frame.captured, frame.capturing) {
+                (Some(key), _) => {
+                    let _ = writeln!(out, "capture {key}");
+                }
+                (None, true) => {
+                    let _ = writeln!(out, "capture -");
+                }
+                (None, false) => {}
+            }
             let _ = write!(out, "{tick}");
             for i in 0..self.player_count {
                 let p = frame.player(i);
@@ -472,6 +560,9 @@ impl InputLog {
         let mut from_tick = 0u64;
         let mut player_count = 1usize;
         let mut date: Option<String> = None;
+        let mut pending_captured: Option<String> = None;
+        let mut pending_capturing = false;
+        let mut pending_rebinds: Vec<(String, Vec<String>)> = Vec::new();
         let mut actions: Vec<String> = Vec::new();
         let mut frames = Vec::new();
         let mut saw_tag = false;
@@ -507,6 +598,26 @@ impl InputLog {
                 "from_tick" => from_tick = parse_field(parts.next(), number)?,
                 "players" => player_count = parse_field(parts.next(), number)?,
                 "date" => date = parts.next().map(str::to_string),
+                // A capture and a rebind are their own lines rather than more
+                // columns on a tick line. The tick line is positional and
+                // interleaved per player, and a table of key names does not
+                // belong in it — a named line is also what somebody reading
+                // the file would rather find.
+                //
+                // They are written *before* the tick they belong to, and
+                // gathered here until it arrives.
+                "capture" => match parts.next() {
+                    // `capture <key>` — settled on this key.
+                    Some("-") | None => pending_capturing = true,
+                    // `capture -` — still waiting, nothing settled.
+                    Some(key) => pending_captured = Some(key.to_string()),
+                },
+                "bind" => {
+                    let Some(action) = parts.next() else {
+                        return Err(LogError::Malformed(number + 1, raw.to_string()));
+                    };
+                    pending_rebinds.push((action.to_string(), parts.map(str::to_string).collect()));
+                }
                 "actions" => actions = parts.map(str::to_string).collect(),
                 _ => {
                     // A tick line. The tick number is positional and checked,
@@ -568,7 +679,12 @@ impl InputLog {
                             device,
                         });
                     }
-                    frames.push(InputFrame { players });
+                    frames.push(InputFrame {
+                        players,
+                        captured: pending_captured.take(),
+                        capturing: std::mem::take(&mut pending_capturing),
+                        rebinds: std::mem::take(&mut pending_rebinds),
+                    });
                 }
             }
         }

@@ -63,6 +63,7 @@ fn frame(x: i32, y: i32, down: bool) -> InputFrame {
             pointer: Vec2Fx::from_ints(x, y),
             ..PlayerInput::default()
         }],
+        ..InputFrame::default()
     }
 }
 
