@@ -34,8 +34,10 @@ pub const GLOBALS: &[Global] = &[
     },
     Global {
         name: "input",
-        about: "`move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, \
-                `released(button)`",
+        about: "`move()`, `aim()`, `aim_vector()`, `held(action)`, `pressed(action)`, \
+                `released(action)` — the engine's five buttons plus whatever \
+                `[input] actions` declared — and `device()`, which is \
+                \"keyboard\", \"mouse\" or \"pad\"",
     },
     Global {
         name: "tiles",

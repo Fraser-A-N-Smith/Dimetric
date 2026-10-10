@@ -234,6 +234,18 @@ pub struct Settings {
     pub bindings: Vec<(String, Vec<String>)>,
     /// True when the project declared an `[input]` section at all.
     pub bindings_declared: bool,
+    /// `[input] actions`: verbs the project declared of its own, in order.
+    ///
+    /// The engine has nine actions and a game may want more — an undo, a
+    /// screens key. Each declared one takes a bit in the recorded button
+    /// field from `buttons::CUSTOM_FIRST` upward, **by position in this
+    /// list**, which is why it is an array rather than a table: the order is
+    /// part of what a recording means, and an array is the shape that says so.
+    ///
+    /// Appending is safe for every log already recorded. Reordering or
+    /// removing one is not, and a log carries this list so a replay refuses
+    /// rather than replaying wrongly.
+    pub actions: Vec<String>,
     /// The name and the icon. Presentation, not contract — see [`Game`].
     pub game: Game,
     /// The window size and the scaling mode. Presentation, not contract — see
@@ -249,6 +261,7 @@ impl Default for Settings {
             resolution: (480, 270),
             bindings: Vec::new(),
             bindings_declared: false,
+            actions: Vec::new(),
             game: Game::default(),
             presentation: Presentation::default(),
         }
@@ -503,6 +516,25 @@ impl Settings {
                 Some(table) => {
                     out.bindings_declared = true;
                     for (action, item) in table.iter() {
+                        // `actions` is the one key here that is not a binding:
+                        // it declares the verbs this project has beyond the
+                        // engine's nine, so that a name in it can be bound
+                        // below like any built-in and a typo still cannot.
+                        if action == "actions" {
+                            match keys(item) {
+                                Some(names) => out.actions = names,
+                                None => diagnostics.push(Diagnostic::new(
+                                    Code::SETTINGS_INVALID,
+                                    format!(
+                                        "{origin}: input.actions must be a list of action \
+                                         names, such as [\"undo\", \"screens\"] — the order \
+                                         is part of what a recording means, so append \
+                                         rather than reorder"
+                                    ),
+                                )),
+                            }
+                            continue;
+                        }
                         match keys(item) {
                             Some(k) => out.bindings.push((action.to_string(), k)),
                             None => diagnostics.push(Diagnostic::new(

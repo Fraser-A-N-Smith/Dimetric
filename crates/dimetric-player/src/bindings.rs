@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 
 use dimetric_core::{Angle, Code, Diagnostic, Fx, Vec2Fx};
-use dimetric_sim::input::buttons;
+use dimetric_sim::input::{buttons, Device};
 use dimetric_sim::PlayerInput;
 
 /// Something a player can be doing.
@@ -35,6 +35,12 @@ pub enum Action {
     Use,
     /// Pause. Read outside the simulation.
     Pause,
+    /// An action the project declared of its own, by its position in the list.
+    ///
+    /// The index rather than the name so this stays `Copy` and cheap in a set,
+    /// and because the index *is* the contract: it picks the bit, and a
+    /// recording stores bits. See [`dimetric_sim::input::action_button`].
+    Custom(usize),
 }
 
 impl Action {
@@ -47,6 +53,10 @@ impl Action {
             Action::Dash => buttons::DASH,
             Action::Use => buttons::USE,
             Action::Pause => buttons::PAUSE,
+            // `custom` returns `None` past the cap rather than shifting a bit
+            // out of the field, and `Bindings::from_declared` never builds one
+            // past it — this is the second lock on the same door.
+            Action::Custom(index) => return buttons::custom(index),
             _ => return None,
         })
     }
@@ -64,12 +74,30 @@ impl Action {
         Action::Pause,
     ];
 
-    /// The action a binding file names, if it is one.
+    /// The built-in action a binding file names, if it is one.
     pub fn from_name(name: &str) -> Option<Action> {
         Action::ALL.iter().copied().find(|a| a.name() == name)
     }
 
+    /// The action a binding file names, built-in or declared by the project.
+    ///
+    /// `declared` is the project's own actions in declaration order. A built-in
+    /// wins, which is why declaring one of their names is refused: a key bound
+    /// to `fire` must set the engine's bit whatever a project wrote.
+    pub fn resolve(name: &str, declared: &[String]) -> Option<Action> {
+        Action::from_name(name).or_else(|| {
+            declared
+                .iter()
+                .position(|a| a == name)
+                .filter(|index| *index < buttons::MAX_CUSTOM)
+                .map(Action::Custom)
+        })
+    }
+
     /// The name used in bindings and in diagnostics.
+    ///
+    /// A declared action's own name is not here — it belongs to the project,
+    /// not to this enum. [`Action::label`] is the one to print.
     pub fn name(self) -> &'static str {
         match self {
             Action::Up => "up",
@@ -81,8 +109,59 @@ impl Action {
             Action::Dash => "dash",
             Action::Use => "use",
             Action::Pause => "pause",
+            Action::Custom(_) => "declared",
         }
     }
+
+    /// What to call this action in a message, given the project's own list.
+    pub fn label(self, declared: &[String]) -> String {
+        match self {
+            Action::Custom(index) => declared
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| format!("declared action {index}")),
+            other => other.name().to_string(),
+        }
+    }
+}
+
+/// Every pad button a binding may name, in a fixed order.
+///
+/// Here rather than in [`crate::pad`] on purpose: the names belong to the
+/// binding vocabulary, and a build without the `pad` feature has to validate a
+/// `project.toml` and print the same documentation as one with it. Only the
+/// mapping to the gamepad library's own enum is feature-gated.
+///
+/// Spelt `Pad` plus the shoulder and trigger abbreviations people actually use,
+/// because a Controls page shows these strings and `PadLeftTrigger2` is not
+/// what anybody calls it.
+pub const PAD_BUTTONS: &[&str] = &[
+    "PadSouth",
+    "PadEast",
+    "PadNorth",
+    "PadWest",
+    "PadLB",
+    "PadRB",
+    "PadLT",
+    "PadRT",
+    "PadSelect",
+    "PadStart",
+    "PadMode",
+    "PadLeftThumb",
+    "PadRightThumb",
+    "PadUp",
+    "PadDown",
+    "PadLeft",
+    "PadRight",
+];
+
+/// Whether a binding name is a pad button rather than a key.
+///
+/// Used only for messages: the bindings table does not care which a name is,
+/// which is the point — one table, keys and buttons together, so a Controls
+/// page is one list and a pad is as bindable as a keyboard.
+pub fn is_pad_button(name: &str) -> bool {
+    PAD_BUTTONS.contains(&name)
 }
 
 /// Snap an analogue stick to something a log can hold exactly.
@@ -160,6 +239,24 @@ impl Bindings {
                 ("ShiftLeft".into(), Action::Dash),
                 ("KeyE".into(), Action::Use),
                 ("Escape".into(), Action::Pause),
+                // The pad, in the same table as the keys.
+                //
+                // This used to be a constant in `pad.rs` that nothing could
+                // reach: South *was* fire, and a player who wanted confirm and
+                // cancel the other way round — which is the other half of the
+                // world's convention — had no way to say so. One table means a
+                // Controls page is one list and `input.bind` rebinds a button
+                // exactly as it rebinds a key.
+                ("PadSouth".into(), Action::Fire),
+                ("PadRB".into(), Action::Fire),
+                ("PadWest".into(), Action::Alt),
+                ("PadEast".into(), Action::Dash),
+                ("PadNorth".into(), Action::Use),
+                ("PadStart".into(), Action::Pause),
+                ("PadUp".into(), Action::Up),
+                ("PadDown".into(), Action::Down),
+                ("PadLeft".into(), Action::Left),
+                ("PadRight".into(), Action::Right),
             ],
         }
     }
@@ -179,30 +276,103 @@ impl Bindings {
         declared: &[(String, Vec<String>)],
         declared_any: bool,
     ) -> (Bindings, Vec<Diagnostic>) {
+        Bindings::from_declared_with(declared, declared_any, &[])
+    }
+
+    /// The same, with the project's own declared action names.
+    ///
+    /// `actions` is `[input] actions` in declaration order. A name in it is
+    /// bindable like any built-in, which is the point: a game's undo should be
+    /// a key and a pad button, not only a button on the screen.
+    ///
+    /// An unknown name is still an error, and that is why declaring has to be
+    /// explicit. If an unrecognised action simply became a new one, `fier =
+    /// ["Space"]` would silently be a verb nothing reads, which is the typo
+    /// this diagnostic exists to catch.
+    pub fn from_declared_with(
+        declared: &[(String, Vec<String>)],
+        declared_any: bool,
+        actions: &[String],
+    ) -> (Bindings, Vec<Diagnostic>) {
         if !declared_any {
             return (Bindings::wasd(), Vec::new());
         }
         let mut pairs = Vec::new();
         let mut problems = Vec::new();
         for (action, keys) in declared {
-            match Action::from_name(action) {
+            match Action::resolve(action, actions) {
                 Some(action) => {
                     for key in keys {
                         pairs.push((key.clone(), action));
                     }
                 }
-                None => problems.push(Diagnostic::new(
-                    Code::BINDING_UNKNOWN,
-                    format!(
-                        "no action called `{action}`. The engine has: {}",
-                        Action::ALL
-                            .iter()
-                            .map(|a| a.name())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                )),
+                None => problems.push(
+                    Diagnostic::new(
+                        Code::BINDING_UNKNOWN,
+                        format!(
+                            "no action called `{action}`. The engine has: {}{}. Declare \
+                             one of your own under `[input] actions` to bind it.",
+                            Action::ALL
+                                .iter()
+                                .map(|a| a.name())
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            match actions.is_empty() {
+                                true => String::new(),
+                                false =>
+                                    format!("; this project also declares {}", actions.join(", ")),
+                            }
+                        ),
+                    )
+                    .with_field("action", action.clone()),
+                ),
             }
+        }
+        // A project that declares `[input]` replaces the defaults, and that
+        // used to mean only the keys, because the pad was a separate constant
+        // nothing could reach. Now the pad is in this table — so a project
+        // that says nothing about it would silently have no pad at all, which
+        // is a worse game than the one it had before this change.
+        //
+        // Four cases, and each says what it means:
+        //
+        //   * no `[input]` at all — the engine's defaults, keys and pad;
+        //   * `[input]` with nothing under it — nothing bound, which is a
+        //     choice a project is allowed to make, and is why this is guarded
+        //     on the table being non-empty rather than on the pad alone;
+        //   * `[input]` with keys and no pad button — those keys, and the
+        //     engine's pad, so a controller does not vanish from every project
+        //     that has not written a pad layout yet;
+        //   * `[input]` naming any pad button — exactly what it says, because
+        //     a project with an opinion about the pad owns all of it.
+        // One key, two actions. `action` answers with the first match, so the
+        // second binding would be a line in a project file that does nothing —
+        // which is the same class of mistake as a mistyped action name, and
+        // deserves the same treatment.
+        for (index, (key, action)) in pairs.iter().enumerate() {
+            if let Some((_, first)) = pairs[..index].iter().find(|(k, _)| k == key) {
+                problems.push(
+                    Diagnostic::new(
+                        Code::BINDING_UNKNOWN,
+                        format!(
+                            "`{key}` is bound to both `{}` and `{}`; the first wins, so \
+                             the second does nothing. One key does one thing.",
+                            first.label(actions),
+                            action.label(actions)
+                        ),
+                    )
+                    .with_severity(dimetric_core::Severity::Warning)
+                    .with_field("key", key.clone()),
+                );
+            }
+        }
+        if !pairs.is_empty() && !pairs.iter().any(|(key, _)| is_pad_button(key)) {
+            pairs.extend(
+                Bindings::wasd()
+                    .pairs
+                    .into_iter()
+                    .filter(|(key, _)| is_pad_button(key)),
+            );
         }
         (Bindings { pairs }, problems)
     }
@@ -219,6 +389,50 @@ impl Bindings {
     pub fn pairs(&self) -> impl Iterator<Item = (&str, Action)> {
         self.pairs.iter().map(|(k, a)| (k.as_str(), *a))
     }
+
+    /// Every key and button bound to an action, in order.
+    ///
+    /// What a Controls page shows for a row: the bindings a player would see
+    /// beside "Confirm".
+    pub fn keys_for(&self, action: Action) -> Vec<&str> {
+        self.pairs
+            .iter()
+            .filter(|(_, a)| *a == action)
+            .map(|(k, _)| k.as_str())
+            .collect()
+    }
+
+    /// Replace everything bound to an action.
+    ///
+    /// The whole set rather than one key, because that is what a Controls page
+    /// knows: a player picking keys for "Confirm" has decided the list, and
+    /// adding to it would make a page that showed two keys and meant three.
+    ///
+    /// Keys are not validated, for the reason `from_declared` gives: the set of
+    /// names belongs to whatever window library is underneath and differs by
+    /// platform, so refusing one this build has never heard of would make a
+    /// saved Controls page unportable for no benefit. A name nothing produces
+    /// simply never fires.
+    ///
+    /// **Nothing here reaches the simulation.** A recording stores actions, so
+    /// a session played under any bindings replays identically under any other
+    /// — which is exactly why remapping cannot be done in script. A script
+    /// reading `fire` and deciding it meant `alt` would put the player's
+    /// preference into the simulation's reading of the input, and the same
+    /// recording would replay differently under another profile.
+    /// A key assigned here is **taken** from whatever else held it. That is
+    /// what a Controls page does and what a player expects: putting F on
+    /// Confirm means F confirms, not that F confirms unless something earlier
+    /// in a table claims it. [`Bindings::action`] answers with the first
+    /// match, so leaving a duplicate behind would be a row that showed F and
+    /// did nothing.
+    pub fn rebind(&mut self, action: Action, keys: Vec<String>) {
+        self.pairs
+            .retain(|(key, a)| *a != action && !keys.contains(key));
+        for key in keys {
+            self.pairs.push((key, action));
+        }
+    }
 }
 
 /// The actions currently held.
@@ -233,6 +447,13 @@ pub struct Held {
     /// stick is analogue and keys are not, and adding them would let a player
     /// holding both walk at twice the speed.
     stick: Option<Vec2Fx>,
+    /// Which kind of device last did something.
+    ///
+    /// For prompts that match the hand on the device: "Space" for a keyboard,
+    /// the South button for a pad. It goes into the input frame, so what a
+    /// game draws from it is reproduced by a recording — see
+    /// [`dimetric_sim::input::Device`].
+    device: Device,
 }
 
 impl Held {
@@ -241,13 +462,38 @@ impl Held {
         Held::default()
     }
 
-    /// Record a press or a release.
+    /// Record a press or a release, from a device.
+    ///
+    /// A release counts: letting go of a key is the keyboard doing something,
+    /// and a player who taps a key should see keyboard prompts while the key
+    /// is up as well as down.
+    pub fn set_from(&mut self, action: Action, down: bool, device: Device) {
+        self.device = device;
+        self.set(action, down);
+    }
+
+    /// Record a press or a release, leaving the device as it was.
     pub fn set(&mut self, action: Action, down: bool) {
         if down {
             self.actions.insert(action);
         } else {
             self.actions.remove(&action);
         }
+    }
+
+    /// Which kind of device last did something.
+    pub fn device(&self) -> Device {
+        self.device
+    }
+
+    /// Note that a device did something no action came of.
+    ///
+    /// A mouse move, a wheel, a stick going back to centre: nothing an action
+    /// is bound to, and still the player's hand moving from one device to
+    /// another. Without this a player who puts the keyboard down and picks up
+    /// a pad would keep seeing key prompts until they pressed a bound button.
+    pub fn touched(&mut self, device: Device) {
+        self.device = device;
     }
 
     /// True when an action is held.
@@ -265,7 +511,15 @@ impl Held {
     /// Whole pixels, and the caller does the conversion from window
     /// coordinates: the window is the one thing that must not reach a tick,
     /// so the boundary is where its size gets divided out.
+    ///
+    /// Moving the pointer is the mouse doing something, so it counts — but
+    /// only when it actually moves. A window that reports the same position
+    /// every frame would otherwise hold the device on `mouse` for ever and a
+    /// pad player would never see a pad prompt.
     pub fn point_at(&mut self, canvas_pixel: Vec2Fx) {
+        if canvas_pixel != self.pointer {
+            self.device = Device::Mouse;
+        }
         self.pointer = canvas_pixel;
     }
 
@@ -277,7 +531,17 @@ impl Held {
     /// Push the movement stick, or let it go with `None`.
     ///
     /// The value is quantised by [`quantize_stick`] before it gets here.
+    ///
+    /// A stick past its dead zone is a pad in somebody's hands. Letting it go
+    /// is too, so long as it was pushed: a pad polled every frame reports a
+    /// centred stick for ever, and treating that as activity would pin the
+    /// device on `pad` and no keyboard prompt would ever come back.
     pub fn push_stick(&mut self, stick: Option<Vec2Fx>) {
+        let pushed = stick.is_some_and(|s| !s.is_zero());
+        let was_pushed = self.stick.is_some_and(|s| !s.is_zero());
+        if pushed || was_pushed {
+            self.device = Device::Pad;
+        }
         self.stick = stick;
     }
 
@@ -319,8 +583,93 @@ impl Held {
             move_dir,
             aim: self.aim,
             pointer: self.pointer,
+            device: self.device,
         }
     }
+}
+
+/// The event kind a game rebinds an action with.
+pub const BIND: &str = "input.bind";
+
+/// Apply an `input.bind` event, if that is what it is.
+///
+/// Returns whether the event was this kind — read rather than consumed, so
+/// another consumer of the same drained list still finds its own kinds. The
+/// same shape `Speaker::apply_event` has for `audio.bus_volume`, and for the
+/// same reason.
+///
+/// ```text
+/// event.emit("input.bind", { action = "fire", keys = { "Space", "Enter" } })
+/// ```
+///
+/// # Why this is the host's and not the script's
+///
+/// Remapping in script — reading `fire` and deciding it meant `alt` — would put
+/// the player's preference into the simulation's *reading* of the input, so the
+/// same recording would replay differently under another profile. Bindings
+/// belong here, before the input frame is built: a recording stores actions, so
+/// a session played under any bindings replays identically under any other.
+///
+/// A game emits its saved bindings on launch and on every change, which is why
+/// this replaces an action's whole set rather than adding to it — a Controls
+/// page knows the list, and adding would make a page that showed two keys and
+/// meant three.
+pub fn apply_event(
+    bindings: &mut Bindings,
+    actions: &[String],
+    event: &dimetric_sim::event::GameEvent,
+) -> Option<Diagnostic> {
+    if event.kind != BIND {
+        return None;
+    }
+    let refused = |why: String| {
+        Some(
+            Diagnostic::new(
+                Code::BINDING_UNKNOWN,
+                format!("{BIND}: {why}; the bindings are unchanged"),
+            )
+            .with_severity(dimetric_core::Severity::Warning)
+            .with_field("kind", BIND.to_string()),
+        )
+    };
+    let dimetric_scene::Value::Map(payload) = &event.payload else {
+        return refused("the payload is not a table".to_string());
+    };
+    let Some(name) = payload
+        .get("action")
+        .and_then(dimetric_scene::Value::as_str)
+    else {
+        return refused("no `action` name in the payload".to_string());
+    };
+    let Some(action) = Action::resolve(name, actions) else {
+        return refused(format!(
+            "no action called `{name}`. The engine has: {}{}",
+            Action::ALL
+                .iter()
+                .map(|a| a.name())
+                .collect::<Vec<_>>()
+                .join(", "),
+            match actions.is_empty() {
+                true => String::new(),
+                false => format!("; this project also declares {}", actions.join(", ")),
+            }
+        ));
+    };
+    let Some(dimetric_scene::Value::List(keys)) = payload.get("keys") else {
+        return refused(
+            "no `keys` list in the payload; pass every key for this action,              because this replaces the set rather than adding to it"
+                .to_string(),
+        );
+    };
+    let mut names = Vec::with_capacity(keys.len());
+    for key in keys {
+        match key.as_str() {
+            Some(name) => names.push(name.to_string()),
+            None => return refused("a `keys` entry is not a string".to_string()),
+        }
+    }
+    bindings.rebind(action, names);
+    None
 }
 
 /// The key the runtime freezes its own simulation on.

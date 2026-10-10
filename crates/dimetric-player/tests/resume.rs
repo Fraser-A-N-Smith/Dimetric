@@ -71,6 +71,7 @@ fn recording_config(suspend: Option<&Path>, record: Option<&Path>) -> SessionCon
         // this test is about one of them.
         profile: None,
         suspend: suspend.map(Path::to_path_buf),
+        date: None,
     }
 }
 

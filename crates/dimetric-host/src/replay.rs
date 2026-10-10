@@ -493,6 +493,45 @@ impl Replay<'_> {
         }
     }
 
+    /// Why this log and this project's declared actions do not go together.
+    ///
+    /// A project may name verbs of its own, and each takes a bit in the
+    /// recorded button field **by position** in the list it declared. A
+    /// recording stores raw bits, so that position is part of what the
+    /// recording means: append an action and every older log still reads
+    /// correctly, reorder or remove one and bit 5 now names something else.
+    ///
+    /// So the log carries the list and this compares it — as a **prefix**,
+    /// which is the rule stated exactly: appending leaves every older
+    /// recording readable, because every action keeps the bit its position
+    /// gave it and the new one is simply zero. A log with no list is the empty
+    /// prefix and is accepted by any project: it was recorded before anything
+    /// was declared, and all its custom bits are zero.
+    ///
+    /// Refused rather than replayed, because the two outcomes are a wrong run
+    /// and a named failure, and only one of them can be investigated.
+    pub fn action_mismatch(&self, declared: &[String]) -> Option<Diagnostic> {
+        if self.log.actions_agree(declared) {
+            return None;
+        }
+        Some(
+            Diagnostic::new(
+                Code::LOG_MISMATCH,
+                format!(
+                    "this log was recorded against the declared actions [{}] and this \
+                     project declares [{}], which does not begin with them. Each action \
+                     takes a button bit by its position, so the recorded buttons would \
+                     mean different verbs — append an action rather than reordering or \
+                     removing one, or replay this log against the project it came from.",
+                    self.log.actions.join(", "),
+                    declared.join(", ")
+                ),
+            )
+            .with_field("recorded", self.log.actions.join(" "))
+            .with_field("declared", declared.join(" ")),
+        )
+    }
+
     /// Run it, with no project, so a script's scene-load request cannot be
     /// honoured.
     ///

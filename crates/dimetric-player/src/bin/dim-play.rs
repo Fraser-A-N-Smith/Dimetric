@@ -33,6 +33,14 @@ struct Args {
     /// Write the session's input log here, so the run can be replayed.
     #[arg(long)]
     record: Option<std::path::PathBuf>,
+    /// The day `app.today()` reports, as `YYYY-MM-DD` in UTC.
+    ///
+    /// The real clock when absent, which is what a player wants. Naming one is
+    /// for a capture or a smoke test: a run whose output moves with the
+    /// calendar cannot be checked twice. Whatever it resolves to goes into
+    /// `--record`, so a replay is told what the recording was told.
+    #[arg(long)]
+    date: Option<String>,
     /// Override `[render] resolution` for this run, as `WIDTHxHEIGHT`. The
     /// project's own is used when this is absent, and overriding it warns:
     /// the simulation still picks against the project's, so a click will not
@@ -229,6 +237,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // the runtime can write; the archive it reads its project from is
             // not, and `Project::writable()` says so.
             suspend: Some(root.clone()),
+            date: args.date.clone(),
         },
     )
     .map_err(|d| d.to_string())?;
@@ -240,9 +249,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // before the window opens so a typo in an action name is reported next to
     // the other startup diagnostics rather than the first time somebody
     // presses the key that does nothing.
-    let (bindings, binding_problems) = Bindings::from_declared(
+    // With the project's own declared actions, so a key or a pad button can be
+    // bound to a verb the engine has never heard of. The session reports what
+    // was wrong with the declaration itself; this is only the binding of it.
+    let (bindings, binding_problems) = Bindings::from_declared_with(
         &project_settings.bindings,
         project_settings.bindings_declared,
+        &session.declared_actions(),
     );
     for d in &binding_problems {
         eprintln!("{d}");
@@ -334,10 +347,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     // Poll rather than Wait: a game draws whether or not anything was typed.
     event_loop.set_control_flow(ControlFlow::Poll);
+    let declared_actions = session.declared_actions();
     let mut app = App {
         clock: Clock::new(session.tick_rate()),
         session,
         bindings,
+        declared_actions,
         held: Held::new(),
         window: None,
         gpu: None,
@@ -383,6 +398,8 @@ struct App {
     session: Session,
     clock: Clock,
     bindings: Bindings,
+    /// The project's own declared actions, for resolving an `input.bind`.
+    declared_actions: Vec<String>,
     held: Held,
     window: Option<Arc<Window>>,
     gpu: Option<Gpu>,
@@ -481,7 +498,11 @@ impl ApplicationHandler for App {
                     MouseButton::Middle => "Mouse2",
                     _ => return,
                 };
-                self.press(name, state == ElementState::Pressed);
+                self.press(
+                    name,
+                    state == ElementState::Pressed,
+                    dimetric_sim::input::Device::Mouse,
+                );
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.repeat {
@@ -493,7 +514,11 @@ impl ApplicationHandler for App {
                 // winit spells key codes the way the W3C does — `KeyW`,
                 // `ArrowUp`, `ShiftLeft` — which is the vocabulary the
                 // bindings table is written in.
-                self.press(&format!("{code:?}"), event.state == ElementState::Pressed);
+                self.press(
+                    &format!("{code:?}"),
+                    event.state == ElementState::Pressed,
+                    dimetric_sim::input::Device::Keyboard,
+                );
             }
             WindowEvent::RedrawRequested => {
                 self.frame();
@@ -550,7 +575,7 @@ impl App {
         gpu.surface.configure(gpu.renderer.device(), &gpu.config);
     }
 
-    fn press(&mut self, key: &str, down: bool) {
+    fn press(&mut self, key: &str, down: bool, device: dimetric_sim::input::Device) {
         // The runtime's own freeze, on the keyboard's Pause/Break key.
         //
         // It used to be on the `pause` *action*, and returned before reaching
@@ -569,7 +594,7 @@ impl App {
                 self.held.release_all();
             }
             dimetric_player::KeyEffect::ToggleFreeze => {}
-            dimetric_player::KeyEffect::Action(action) => self.held.set(action, down),
+            dimetric_player::KeyEffect::Action(action) => self.held.set_from(action, down, device),
             dimetric_player::KeyEffect::Unbound => {}
         }
     }
@@ -594,7 +619,7 @@ impl App {
                 // A pad, if there is one, and the cursor in canvas pixels.
                 // Both read here, between ticks: a device polled inside a tick
                 // would make the tick depend on when the poll happened.
-                self.pads.poll(&mut self.held);
+                self.pads.poll(&self.bindings, &mut self.held);
                 self.held.point_at(dimetric_player::pad::window_to_canvas(
                     (self.cursor.0 as f64, self.cursor.1 as f64),
                     self.window_size(),
@@ -618,6 +643,20 @@ impl App {
             let events = self.session.drain_events();
             if !events.is_empty() {
                 self.session.apply_events(&events);
+                // Rebinding, at the boundary and never inside a tick. The
+                // drained list is read rather than consumed, so the speaker
+                // above and this both see every event — and a game that
+                // emits its saved bindings on launch gets them applied
+                // before the next frame's input is built.
+                for event in &events {
+                    if let Some(d) = dimetric_player::bindings::apply_event(
+                        &mut self.bindings,
+                        &self.declared_actions,
+                        event,
+                    ) {
+                        eprintln!("{d}");
+                    }
+                }
             }
             for d in self.session.take_diagnostics().iter() {
                 eprintln!("{d}");

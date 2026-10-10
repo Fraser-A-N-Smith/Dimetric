@@ -1195,6 +1195,19 @@ type BuiltSim = (
 );
 
 fn build_sim(project: &mut Project, seed: u64) -> Result<BuiltSim, Diagnostics> {
+    build_sim_dated(project, seed, None)
+}
+
+/// The same, telling the sandbox what day it is.
+///
+/// `None` leaves `dimetric_sim::input::FIXED_DATE`, which is what a headless
+/// run has to answer: a fixture whose output moved with the calendar could not
+/// be checked twice.
+fn build_sim_dated(
+    project: &mut Project,
+    seed: u64,
+    date: Option<&str>,
+) -> Result<BuiltSim, Diagnostics> {
     // Import first: clips carry tick counts baked at import, and a simulation
     // handed no clips animates nothing.
     project.import_assets();
@@ -1209,6 +1222,9 @@ fn build_sim(project: &mut Project, seed: u64) -> Result<BuiltSim, Diagnostics> 
     diags.extend(project.settings_diagnostics.clone());
     let mut host = project.script_host().map_err(one)?;
     diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
+    if let Some(date) = date {
+        host.set_date(date);
+    }
     let config = project.sim_config();
     let profile = host.profile_handle();
     Ok((
@@ -1260,8 +1276,33 @@ fn run_command(project: &mut Project, args: RunArgs) -> Result<Output, Diagnosti
         true => log.frames.len() as u64,
         false => 60,
     });
-    let (mut sim, profile_handle, diags) = build_sim(project, seed)?;
+    // The log's date wins over the flag, and the flag over the fixed default.
+    // A replay has to be told what the recording was told, or a run that
+    // offered today's daily descent would offer a different one every day it
+    // was replayed — which is the whole reason the date is in the log.
+    let date = match (&args.input, &args.date) {
+        (Some(_), _) => log.date_or_fixed().to_string(),
+        (None, Some(named)) => named.clone(),
+        (None, None) => dimetric_sim::input::FIXED_DATE.to_string(),
+    };
+    let mut date_warning = None;
+    if !dimetric_host::today::is_valid(&date) {
+        date_warning = Some(Diagnostic::new(
+            Code::BAD_ARGUMENT,
+            format!(
+                "{date:?} is not a date this engine will read; it wants YYYY-MM-DD in \
+                 UTC, so `app.today()` is reporting {} instead",
+                dimetric_sim::input::FIXED_DATE
+            ),
+        ));
+    }
+    let date = match date_warning.is_some() {
+        true => dimetric_sim::input::FIXED_DATE.to_string(),
+        false => date,
+    };
+    let (mut sim, profile_handle, diags) = build_sim_dated(project, seed, Some(&date))?;
     let mut warnings = diags.0;
+    warnings.extend(date_warning);
 
     // A real session reads the profile before the first tick and writes back
     // what it changed. A test session never touches the file, which is the
@@ -1728,6 +1769,12 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     // defaults is not a replay of the run that was recorded.
     let mut host = project.script_host().map_err(one)?;
     diags.extend(Diagnostics(load_project_scripts(&mut host, project)));
+    // What day the recording was told it was. From the log, never from the
+    // clock: a title screen offering today's daily descent writes the date
+    // into a label and picks a seed from it, and both are hashed — so a replay
+    // told today's date would diverge from a recording made yesterday. A log
+    // carrying none was told the fixed date, which is what it was.
+    host.set_date(log.date_or_fixed());
 
     // The suspended run the recorded session continued, if it continued one.
     // Loaded with the project's registry for the same reason a save is written
@@ -1768,8 +1815,15 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     };
     // Before anything runs. A log replayed against the wrong save, or against
     // none, does not diverge — it reproduces a different run, and the two look
-    // identical from the outside.
-    if let Some(d) = replay.resume_mismatch() {
+    // identical from the outside. A log recorded against a different set of
+    // declared actions is the same failure wearing another hat: the recorded
+    // button bits would mean different verbs.
+    let (declared, action_diags) = project.declared_actions();
+    diags.extend(Diagnostics(action_diags));
+    let before_running = replay
+        .resume_mismatch()
+        .or_else(|| replay.action_mismatch(&declared));
+    if let Some(d) = before_running {
         let mut failures = Diagnostics::new();
         failures.push(d);
         failures.extend(diags);

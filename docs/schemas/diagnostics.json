@@ -223,7 +223,7 @@
     {
       "code": "DIM0903",
       "severity": "error",
-      "summary": "An input binding names an action the engine does not have"
+      "summary": "An input binding or a declared action is not one this project can use"
     },
     {
       "code": "DIM0904",

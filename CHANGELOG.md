@@ -14,6 +14,138 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: a control inside a hidden panel no longer catches the pointer
+
+`visible` is a node's own flag and a parent's is never stored on its children,
+so "can this be seen" is a question about the whole chain. The renderer walked
+it; `ui::hit` read a control's own flag and nothing else. A game that closed a
+screen by hiding the screen got rows that were invisible and still on top: a
+click in the middle of the board landed on a row nobody could see, `ui.hovered`
+named it, and the board ignored the click.
+
+`Scene::is_visible` is now the only place that chain is walked — the renderer,
+the hit test and the focus order all ask it. A control inside a hidden ancestor
+never wins a hit test, `ui.focus_next` skips it, focus is **dropped** if the
+control holding it becomes hidden, and `ui.focus(node)` refuses one and returns
+`false` where it returned nothing before. Nothing is latched, so reopening a
+panel brings everything inside it back.
+
+**This can move a state hash, in one case and only one:** a run whose pointer
+was over a control inside a hidden ancestor used to record that control as
+hovered, and now records what is really under the pointer. `ui.hovered` is
+simulation state. A recorded run that never pointed at a hidden control is
+unaffected — which is every fixture here, all of which still pass.
+
+### Added: a script can start a stream over
+
+A named stream is created from the run seed the first time it is asked for and
+kept for the rest of the session — right for a run that draws once from each,
+wrong for a game that plays the same run twice in one launch. A run named by a
+code draws from `floor#KQPRMX`, so the first play was exactly its run and the
+second continued where the first left off while the screen said they were the
+same.
+
+```lua
+rng.reset("floor#KQPRMX")      -- again from the run seed and the name
+rng.seed("floor#KQPRMX", code) -- again from a seed of your own
+```
+
+Both shipped, because they answer different questions. `reset` goes back to the
+*session* seed, so the same code in two launches is the same run only if the
+session seed is; an explicit seed does not depend on it at all, which is what a
+code shared between two players rests on — and what a daily run wants, with the
+date as the seed. `reset(s)` is exactly `seed(s, session_seed)`, and a test
+holds the two to that. A reset is hashed like a draw and survives a rollback.
+
+### Added: a project can declare an input of its own
+
+Nine actions, and a game that uses all nine wants an Undo. An array in
+`[input]`, because the order is part of what a recording means:
+
+```toml
+[input]
+actions = ["undo", "screens"]
+undo = ["KeyZ", "Backspace", "PadLB"]
+```
+
+Read in Lua as `input.pressed("undo")`. Each declared action takes a bit in the
+recorded button field by its **position**, so appending is safe for every log
+already written and reordering is not — a recording carries the list it was made
+against, and a replay refuses a log whose list is not a prefix of the project's
+(`DIM0703`) rather than reading bit 5 as the wrong verb. A log from before any
+declaration carries none and replays against anything, with its custom actions
+down. Sixteen is the cap; a name the engine already owns is refused rather than
+allowed to shadow it; an unrecognised name in `[input]` is still the error it
+was, because `fier = ["Space"]` quietly becoming a verb nothing reads is the
+typo that error exists to catch.
+
+Deviation from the request's shape: an `actions` **array** in `[input]` rather
+than an `[input.actions]` table. It keeps binding syntax uniform for built-in
+and declared actions, and an array is the shape that says the order matters.
+
+### Added: bindings change while the game runs, and a pad is bindable
+
+Keys were read once from `project.toml`; pad buttons were a constant the engine
+kept to itself — `PadSouth` *was* `fire` — so a player who wanted confirm and
+cancel the other way round had no way to say so, and a Controls page could not
+exist.
+
+Keys and pad buttons are now one table, with seventeen `Pad…` names, and
+`event.emit("input.bind", { action = "fire", keys = { "Space", "Enter" } })`
+replaces an action's set at the tick boundary. A key assigned is **taken** from
+whatever else held it, which is what a player expects; an empty list unbinds; a
+project binding one key to two actions now warns instead of silently
+first-winning.
+
+None of it reaches the simulation: a recording stores actions, so a session
+played under any bindings replays identically under any other — which is exactly
+why remapping cannot be done in script.
+
+**One behaviour to know about.** Declaring `[input]` replaces the defaults, and
+the pad used to be outside them. Four cases now: no `[input]` gives keys and
+pad; an empty `[input]` binds nothing, deliberately; keys with no pad button
+keeps the engine's pad, so a controller does not vanish from a project that has
+not written a pad layout; naming any pad button owns all of it.
+
+### Added: a game can know what day it is, and what is in somebody's hands
+
+```lua
+app.today()      -- "2026-10-10", UTC, fixed for the whole session
+input.device()   -- "keyboard", "mouse" or "pad", whichever last moved
+```
+
+Both are **in the recording**, which is what makes them safe. A title screen
+offering today's descent writes the date into a label and picks a seed from it;
+a prompt reading "Space" or showing a pad glyph is text in a `Label`. Both are
+hashed, so a replay told today's date would diverge from a recording made
+yesterday. The date is a header line and the device a frame column, so a replay
+is told what the recording was told.
+
+A run nobody tells gets `2000-01-01`, not today: a headless run is usually a
+fixture, and a fixture whose output moved with the calendar could not be checked
+twice. `dim run --date` and `dim-play --date` name one; a log's own date wins
+over both. UTC, because "one day" has to mean the same span everywhere or the
+daily run is a different run either side of a time zone.
+
+### None of the six moves a recorded hash, and the log format is back-compatible
+
+Three things were added to the input log — a `date` line, an `actions` line and
+a `:pad` column — and every one of them is **omitted when it is the default**,
+so every log already written is byte-for-byte what it was and `LOG_VERSION`
+stays at 1. The device column carries a colon because columns are positional
+and interleaved per player: a bare optional field would be read as the next
+player's buttons in a two-player log.
+
+The device is hashed only when it is **not** `keyboard`. A value equal to the
+default contributing nothing is the same rule an absent node property follows,
+and keyboard is what every log written until now means — so adding a field to
+`PlayerInput` moved no recorded hash. It is hashed when it is anything else,
+and it has to be, or a replay would diverge the moment somebody picked up a pad.
+
+G56 is the one exception, and only in the case named above.
+
+`examples/sorcerer/tests/arena01.hashes` was not re-recorded.
+
 ### Added: a sprite can be sorted at its feet
 
 Within a layer, a `TileLayer`'s tiles and the sprites beside them sort by the

@@ -880,6 +880,35 @@ pub struct LuaHost {
     /// Beside the log lines and deliberately not on `SimState`: a later change
     /// cannot start hashing a field that does not exist. See [`crate::event`].
     events: Rc<RefCell<Vec<crate::event::GameEvent>>>,
+    /// The date this session began, as `YYYY-MM-DD` in UTC.
+    ///
+    /// Beside the suspended flag and supplied the same way: an input the host
+    /// has and the simulation cannot get for itself, because reading a clock
+    /// inside a tick is exactly what I5 forbids.
+    ///
+    /// The difference, and it matters, is that this one goes **into the
+    /// recording**. A title screen offering today's daily run writes the date
+    /// into a label and picks a seed from it, and both of those are hashed —
+    /// so a replay told a different date would diverge. The log carries it and
+    /// a replay is told what the recording was told, which is what makes a
+    /// recording of the title screen replay a week later.
+    date: Rc<RefCell<String>>,
+    /// Actions the project declared of its own, in declaration order.
+    ///
+    /// What lets `input.pressed("undo")` resolve a name the engine has never
+    /// heard of. The host reads the list out of `project.toml` and hands it
+    /// over, because the mapping from a name to a bit has to be the same on
+    /// both sides of the boundary and the simulation cannot reach into the
+    /// runtime to ask.
+    ///
+    /// On the host rather than in `SimState`, with the fonts and the clips and
+    /// for the same reason: it comes from the project rather than the run. What
+    /// is hashed is the bitfield a recording stores; this is the dictionary for
+    /// reading it, and a dictionary in the hash would mean a project that
+    /// renamed a verb could not replay its own logs. A log carries the same
+    /// list so that a replay can *refuse* one recorded against a different
+    /// dictionary — see [`crate::input::InputLog::actions`].
+    actions: Rc<RefCell<Vec<String>>>,
 }
 
 impl LuaHost {
@@ -898,6 +927,8 @@ impl LuaHost {
             suspended: Rc::new(std::cell::Cell::new(false)),
             profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
             fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
+            actions: Rc::new(RefCell::new(Vec::new())),
+            date: Rc::new(RefCell::new(crate::input::FIXED_DATE.to_string())),
             lua,
             scripts: BTreeMap::new(),
             modules: Rc::new(RefCell::new(Modules::default())),
@@ -984,6 +1015,90 @@ impl LuaHost {
         *self.fonts.borrow_mut() = fonts;
     }
 
+    /// Supply the actions the project declared of its own, in order.
+    ///
+    /// Order is the whole contract: each takes a bit in
+    /// [`crate::input::PlayerInput::buttons`] from
+    /// [`crate::input::buttons::CUSTOM_FIRST`] upward by position, and a
+    /// recording stores raw bits. Appending is safe for every log already
+    /// written; reordering is not, which is why a log carries the list and a
+    /// replay checks it.
+    ///
+    /// Past [`crate::input::buttons::MAX_CUSTOM`] the extra names are dropped
+    /// and reported, rather than silently given a bit outside the field.
+    pub fn set_actions(&mut self, actions: Vec<String>) -> Vec<Diagnostic> {
+        let mut problems = Vec::new();
+        let mut kept = Vec::new();
+        for name in actions {
+            // A name the engine already owns would shadow a built-in: a script
+            // asking for "fire" must get the engine's bit, so declaring it
+            // again can only be a mistake.
+            if crate::input::builtin_button(&name).is_some() {
+                problems.push(
+                    Diagnostic::new(
+                        Code::BINDING_UNKNOWN,
+                        format!(
+                            "`{name}` is already an action the engine has, so declaring it \
+                             under `[input] actions` would shadow it; bind it in `[input]` \
+                             instead"
+                        ),
+                    )
+                    .with_field("action", name.clone()),
+                );
+                continue;
+            }
+            if kept.contains(&name) {
+                problems.push(
+                    Diagnostic::new(
+                        Code::BINDING_UNKNOWN,
+                        format!("`{name}` is declared twice under `[input] actions`"),
+                    )
+                    .with_field("action", name.clone()),
+                );
+                continue;
+            }
+            if kept.len() >= crate::input::buttons::MAX_CUSTOM {
+                problems.push(
+                    Diagnostic::new(
+                        Code::BINDING_UNKNOWN,
+                        format!(
+                            "`{name}` is past the {} actions a project may declare; a \
+                             recording stores the buttons as a bitfield and there is no \
+                             bit left for it",
+                            crate::input::buttons::MAX_CUSTOM
+                        ),
+                    )
+                    .with_field("action", name.clone()),
+                );
+                continue;
+            }
+            kept.push(name);
+        }
+        *self.actions.borrow_mut() = kept;
+        problems
+    }
+
+    /// The actions this host will resolve, in order.
+    pub fn actions(&self) -> Vec<String> {
+        self.actions.borrow().clone()
+    }
+
+    /// Tell the sandbox what day it is, as `YYYY-MM-DD` in UTC.
+    ///
+    /// Supplied before the first tick: by the runtime from the clock, and by a
+    /// replay from the log the recording wrote it into. A host that never
+    /// calls this leaves [`crate::input::FIXED_DATE`], which is the answer a
+    /// headless run and a fixture have to give — a run whose output moved with
+    /// the calendar would be a fixture nobody could check.
+    pub fn set_date(&mut self, date: impl Into<String>) {
+        *self.date.borrow_mut() = date.into();
+    }
+
+    /// What day this host will tell a script it is.
+    pub fn date(&self) -> String {
+        self.date.borrow().clone()
+    }
+
     /// Tell the sandbox whether a suspended run is waiting.
     ///
     /// Supplied by the host before the first tick and again whenever it acts on
@@ -1023,6 +1138,8 @@ impl LuaHost {
             log: self.log.clone(),
             profile: self.profile.clone(),
             fonts: self.fonts.clone(),
+            actions: self.actions.clone(),
+            date: self.date.clone(),
             events: self.events.clone(),
             quit: self.quit.clone(),
             suspend: self.suspend.clone(),
@@ -1073,6 +1190,8 @@ pub(crate) struct HostHandles {
     log: Rc<RefCell<Vec<String>>>,
     profile: Rc<RefCell<crate::profile::Profile>>,
     fonts: Rc<RefCell<crate::text::Fonts>>,
+    actions: Rc<RefCell<Vec<String>>>,
+    date: Rc<RefCell<String>>,
     events: Rc<RefCell<Vec<crate::event::GameEvent>>>,
     quit: Rc<std::cell::Cell<bool>>,
     suspend: Rc<std::cell::Cell<Option<crate::suspend::SuspendRequest>>>,
@@ -1202,6 +1321,8 @@ pub fn sandbox_globals() -> Result<Vec<String>, Diagnostic> {
         log: Rc::new(RefCell::new(Vec::new())),
         profile: Rc::new(RefCell::new(crate::profile::Profile::new())),
         fonts: Rc::new(RefCell::new(crate::text::Fonts::new())),
+        actions: Rc::new(RefCell::new(Vec::new())),
+        date: Rc::new(RefCell::new(crate::input::FIXED_DATE.to_string())),
         events: Rc::new(RefCell::new(Vec::new())),
         quit: Rc::new(std::cell::Cell::new(false)),
         suspend: Rc::new(std::cell::Cell::new(None)),
@@ -1354,6 +1475,18 @@ fn install_api(
     app.set(
         "suspended",
         lua.create_function(move |_, ()| Ok(waiting.get()))
+            .map_err(err)?,
+    )
+    .map_err(err)?;
+    // What day it is, as `YYYY-MM-DD` in UTC. Not a clock: it is fixed for the
+    // whole session, read once before the first tick, and carried by a
+    // recording — so a script may derive a daily seed from it and still be
+    // replayable. A tick asking twice gets the same answer, and so does the
+    // same tick replayed next week.
+    let today = shared_state.date.clone();
+    app.set(
+        "today",
+        lua.create_function(move |_, ()| Ok(today.borrow().clone()))
             .map_err(err)?,
     )
     .map_err(err)?;
@@ -1661,13 +1794,19 @@ fn install_api(
             .map_err(err)?,
         )
         .map_err(err)?;
+    // The project's own action names, so `input.pressed("undo")` resolves a
+    // verb the engine has never heard of. Captured per closure because each
+    // takes ownership of what it reads; one `Rc` behind all three.
+    let declared_held = shared_state.actions.clone();
+    let declared_pressed = shared_state.actions.clone();
+    let declared_released = shared_state.actions.clone();
     input
         .set(
             "held",
-            lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+            lua.create_function(move |lua, (button, player): (String, Option<u32>)| {
                 let state = shared(lua)?;
                 let state = state.borrow();
-                let bit = button_bit(&button)?;
+                let bit = button_bit(&button, &declared_held.borrow())?;
                 Ok(state.input.player(player.unwrap_or(0) as usize).held(bit))
             })
             .map_err(err)?,
@@ -1676,10 +1815,10 @@ fn install_api(
     input
         .set(
             "pressed",
-            lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+            lua.create_function(move |lua, (button, player): (String, Option<u32>)| {
                 let state = shared(lua)?;
                 let state = state.borrow();
-                let bit = button_bit(&button)?;
+                let bit = button_bit(&button, &declared_pressed.borrow())?;
                 let index = player.unwrap_or(0) as usize;
                 Ok(state
                     .input
@@ -1692,15 +1831,33 @@ fn install_api(
     input
         .set(
             "released",
-            lua.create_function(|lua, (button, player): (String, Option<u32>)| {
+            lua.create_function(move |lua, (button, player): (String, Option<u32>)| {
                 let state = shared(lua)?;
                 let state = state.borrow();
-                let bit = button_bit(&button)?;
+                let bit = button_bit(&button, &declared_released.borrow())?;
                 let index = player.unwrap_or(0) as usize;
                 Ok(state
                     .previous_input
                     .player(index)
                     .pressed(&state.input.player(index), bit))
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    // Which kind of device last produced input, for prompts that match the
+    // hand on it. Read out of the frame rather than from beside it, so what a
+    // game draws from it is reproduced by a recording.
+    input
+        .set(
+            "device",
+            lua.create_function(|lua, player: Option<u32>| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                Ok(state
+                    .input
+                    .player(player.unwrap_or(0) as usize)
+                    .device
+                    .name())
             })
             .map_err(err)?,
         )
@@ -2872,18 +3029,16 @@ fn read_property(state: &SimState, id: dimetric_core::NodeId, property: &str) ->
 ///
 /// Named rather than numbered, so a script says `input.held("fire")` and the
 /// engine keeps the bit layout to itself.
-fn button_bit(name: &str) -> mlua::Result<u32> {
-    use crate::input::buttons;
-    Ok(match name {
-        "fire" => buttons::FIRE,
-        "alt" => buttons::ALT,
-        "dash" => buttons::DASH,
-        "use" => buttons::USE,
-        "pause" => buttons::PAUSE,
-        other => {
-            return Err(mlua::Error::runtime(format!(
-                "no button called {other:?}; try fire, alt, dash, use or pause"
-            )))
-        }
+fn button_bit(name: &str, declared: &[String]) -> mlua::Result<u32> {
+    crate::input::action_button(name, declared).ok_or_else(|| {
+        // The project's own actions listed too, because a game that declared
+        // `undo` and typed `undu` should be told what it does have rather than
+        // only what the engine does.
+        let mut known: Vec<&str> = vec!["fire", "alt", "dash", "use", "pause"];
+        known.extend(declared.iter().map(String::as_str));
+        mlua::Error::runtime(format!(
+            "no action called {name:?}; this project has: {}",
+            known.join(", ")
+        ))
     })
 }

@@ -26,6 +26,7 @@ pub mod settings;
 pub mod speaker;
 pub mod suspend;
 pub mod template;
+pub mod today;
 
 pub use bus::CommandBus;
 pub use command::{apply, Applied, Command};
@@ -33,3 +34,4 @@ pub use project::{Project, SourceScenes};
 pub use render::{capture, draw_scene, CaptureRequest, CapturedFrame};
 pub use replay::{Divergence, Probe, Replay, ReplayReport};
 pub use run::{Accumulator, RunMode};
+pub use today::today;

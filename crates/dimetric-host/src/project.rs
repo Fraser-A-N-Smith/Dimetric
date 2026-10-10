@@ -482,16 +482,42 @@ impl Project {
     ///   * **node kinds** are what types a write to a property the node
     ///     carries no value for. Without them `node:set("region", …)` on a
     ///     sprite that never authored one stores the raw Lua shape, and the
-    ///     save does not round-trip.
+    ///     save does not round-trip;
+    ///   * **declared actions** are what `input.pressed("undo")` resolves
+    ///     against. A host without them raises on the name, so a project with
+    ///     an action of its own would run under the runtime and fail under
+    ///     `dim run` — which is the same class of bug as the three above.
     ///
     /// Scripts are deliberately not loaded here: `dim script check` wants a
     /// host with the module registry seeded and nothing run, and the caller
     /// knows whether it is loading one script or all of them.
+    ///
+    /// Diagnostics about the declared actions — a name that shadows a built-in,
+    /// a duplicate, one past the cap — come out through
+    /// [`Project::settings_diagnostics`], beside the rest of what the project
+    /// file got wrong, because that is where a caller already looks.
     pub fn script_host(&self) -> Result<dimetric_sim::LuaHost, Diagnostic> {
         let mut host = dimetric_sim::LuaHost::new(self.settings.tick_rate)?;
         host.set_fonts(self.fonts());
         host.set_kinds(self.registry.clone());
+        host.set_actions(self.settings.actions.clone());
         Ok(host)
+    }
+
+    /// The actions this project declared of its own, as the host accepted
+    /// them, and anything wrong with the declaration.
+    ///
+    /// Through a `LuaHost` rather than straight off the settings, so that the
+    /// list a recording is checked against is the list the simulation actually
+    /// resolves — the cap and the refusals apply once, in one place.
+    pub fn declared_actions(&self) -> (Vec<String>, Vec<Diagnostic>) {
+        match dimetric_sim::LuaHost::new(self.settings.tick_rate) {
+            Ok(mut host) => {
+                let problems = host.set_actions(self.settings.actions.clone());
+                (host.actions(), problems)
+            }
+            Err(e) => (Vec::new(), vec![e]),
+        }
     }
 
     /// The internal resolution to render at, and what an override costs.

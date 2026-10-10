@@ -1010,6 +1010,10 @@
       "description": "Run the simulation headlessly",
       "inputSchema": {
         "properties": {
+          "date": {
+            "description": "The day `app.today()` reports, as `YYYY-MM-DD` in UTC",
+            "type": "string"
+          },
           "headless": {
             "description": "Run without a window. Always on, and accepted so that written-down commands keep working: `dim run` is the headless one, and `dim-play` is the window",
             "type": "boolean"

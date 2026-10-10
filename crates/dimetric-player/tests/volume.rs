@@ -63,6 +63,7 @@ fn open(root: &Path) -> (Project, Session) {
             device: dimetric_audio::Device::Silent,
             profile: None,
             suspend: None,
+            date: None,
         },
     )
     .expect("the session opens");

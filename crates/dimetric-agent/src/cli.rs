@@ -413,6 +413,14 @@ pub struct RunArgs {
     /// only checking a bug.
     #[arg(long)]
     pub profile: bool,
+    /// The day `app.today()` reports, as `YYYY-MM-DD` in UTC.
+    ///
+    /// A fixed date by default, not today's, because a headless run is usually
+    /// a fixture and a fixture whose output moved with the calendar could not
+    /// be checked twice. An input log that carries a date wins: a replay has
+    /// to be told what the recording was told.
+    #[arg(long)]
+    pub date: Option<String>,
 }
 
 /// State inspection.

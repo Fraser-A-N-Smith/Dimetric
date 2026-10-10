@@ -166,7 +166,7 @@ codes! {
     // 09xx — project settings
     SETTINGS_UNREADABLE = "DIM0901", Error, "project.toml exists but could not be read or parsed";
     SETTINGS_INVALID    = "DIM0902", Error, "A project setting is out of range or the wrong shape";
-    BINDING_UNKNOWN     = "DIM0903", Error, "An input binding names an action the engine does not have";
+    BINDING_UNKNOWN     = "DIM0903", Error, "An input binding or a declared action is not one this project can use";
     SETTINGS_OVERRIDDEN = "DIM0904", Warning, "A flag overrode a project setting the simulation also depends on";
 
     // 10xx — saved state

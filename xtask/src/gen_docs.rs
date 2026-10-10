@@ -496,6 +496,95 @@ fn render_markdown(
          is why the exemption is a mask written in draw order rather than a second\n\
          picture laid over the first: a lit figure drawn in front of an unlit marker\n\
          clears the exemption behind it, so the figure still dims.\n\n\
+         ### Actions a project declares of its own\n\n\
+         The engine has nine actions — `up`, `down`, `left`, `right`, `fire`,\n\
+         `alt`, `dash`, `use`, `pause` — and a game may want more. An undo for a\n\
+         move made this turn is a verb, not a button on a screen: it should be a\n\
+         key and a pad button like any other.\n\n\
+         ```toml\n\
+         [input]\n\
+         actions = [\"undo\", \"screens\"]   # the verbs this project has of its own\n\
+         fire = [\"Space\", \"PadSouth\"]\n\
+         undo = [\"KeyZ\", \"Backspace\", \"PadLB\"]\n\
+         screens = [\"Tab\"]\n\
+         ```\n\n\
+         A declared action is read in Lua like a built-in: `input.pressed(\"undo\")`,\n\
+         `held`, `released`. It is an **array** rather than a table because the\n\
+         order matters: each declared action takes a bit in the recorded button\n\
+         field by its position, and a recording stores raw bits.\n\n\
+         So **appending is safe** and reordering is not. Append one and every log\n\
+         already recorded still reads correctly, because every action keeps its bit\n\
+         and the new one is simply zero — which is what not-held means. Reorder or\n\
+         remove one and bit 5 names a different verb, so a recording carries the\n\
+         list it was made against and a replay **refuses** a log whose list is not a\n\
+         prefix of the project's (`DIM0703`). A log from before any declaration\n\
+         carries none and replays against anything.\n\n\
+         Declaring has to be explicit: an action name nothing recognises is still an\n\
+         error, because `fier = [\"Space\"]` silently becoming a new verb nothing\n\
+         reads is the typo that diagnostic exists to catch. Sixteen is the cap,\n\
+         declaring a name the engine already owns is refused rather than allowed to\n\
+         shadow it, and both are `DIM0903`.\n\n\
+         ### Keys, pad buttons, and changing them while the game runs\n\n\
+         Keys and pad buttons are **one table**. A pad used to be a constant the\n\
+         engine kept to itself — `PadSouth` *was* `fire` — so a player who wanted\n\
+         confirm and cancel the other way round, which is the other half of the\n\
+         world's convention, had no way to say so. Now a button is a name a binding\n\
+         takes like any key: `PadSouth`, `PadEast`, `PadNorth`, `PadWest`, `PadLB`,\n\
+         `PadRB`, `PadLT`, `PadRT`, `PadSelect`, `PadStart`, `PadMode`,\n\
+         `PadLeftThumb`, `PadRightThumb`, `PadUp`, `PadDown`, `PadLeft`,\n\
+         `PadRight`.\n\n\
+         A project's `[input]` replaces the defaults, so there are four cases and\n\
+         each says what it means: no `[input]` gives the engine's keys **and** pad;\n\
+         an `[input]` with nothing under it binds nothing, deliberately; one with\n\
+         keys and no pad button gives those keys and keeps the engine's pad, so a\n\
+         controller does not vanish from a project that has not written a pad layout\n\
+         yet; and one naming any pad button owns all of it.\n\n\
+         A Controls page changes them while the game runs, through an event:\n\n\
+         ```lua\n\
+         event.emit(\"input.bind\", { action = \"fire\", keys = { \"Space\", \"Enter\" } })\n\
+         ```\n\n\
+         The runtime applies it at the tick boundary. It replaces the action's whole\n\
+         set rather than adding to it, because a Controls page knows the list and a\n\
+         page that showed two keys and meant three would be lying; an empty list\n\
+         unbinds. A key assigned is **taken** from whatever else held it, which is\n\
+         what a player expects, and a project binding one key to two actions is a\n\
+         warning rather than a silent first-wins.\n\n\
+         **None of this reaches the simulation.** A recording stores actions, so a\n\
+         session played under any bindings replays identically under any other —\n\
+         which is exactly why remapping cannot be done in script. A script reading\n\
+         `fire` and deciding it meant `alt` would put the player's preference into\n\
+         the simulation's *reading* of the input, and the same recording would\n\
+         replay differently under another profile. Bindings belong to the host,\n\
+         before the input frame is built. A game emits its saved bindings on launch\n\
+         and on every change, and keeps them in its profile.\n\n\
+         ### What day it is, and what is in somebody's hands\n\n\
+         A tick has no clock and no devices: the only time inside one is the tick\n\
+         count (I5), and whatever a key or a pad did became a button bit long before\n\
+         a script saw it. Both of those are right, and both leave a game unable to\n\
+         do something reasonable — offer a daily run, or show the prompt that matches\n\
+         the hand on the device.\n\n\
+         ```lua\n\
+         app.today()      -- \"2026-10-10\", UTC, fixed for the whole session\n\
+         input.device()   -- \"keyboard\", \"mouse\" or \"pad\", whichever last moved\n\
+         ```\n\n\
+         Both are **in the recording**, which is what makes them safe. A title screen\n\
+         offering today's descent writes the date into a label and picks a seed from\n\
+         it; a prompt reading \"Space\" or showing a pad glyph is text in a `Label`.\n\
+         Both of those are hashed, so a replay told today's date, or told nothing\n\
+         about the pad, would diverge. The date is a line in the log's header and the\n\
+         device is a column in its frames, so a replay is told exactly what the\n\
+         recording was told — and a recording of a title screen still replays next\n\
+         week.\n\n\
+         A run nobody tells gets `2000-01-01` rather than today, because a headless\n\
+         run is usually a fixture and a fixture whose output moved with the calendar\n\
+         could not be checked twice. `dim run --date` and `dim-play --date` name one;\n\
+         an input log's own date wins over both, since a replay has to be told what\n\
+         the recording was told. UTC, not local time: two players on one calendar day\n\
+         have to be offered one seed, and \"one day\" has to mean the same span\n\
+         everywhere.\n\n\
+         For the daily seed itself, `rng.seed(stream, n)` is the one to use rather\n\
+         than `rng.reset`: a date-derived seed should not depend on the build's boot\n\
+         seed.\n\n\
          ### Starting a stream over\n\n\
          Every random value comes from a named stream, created from the run seed the\n\
          first time it is asked for and kept for the rest of the session. That is\n\

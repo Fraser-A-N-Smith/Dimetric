@@ -57,6 +57,14 @@ pub struct SessionConfig {
     /// and in the source for that reason. One field covering both would be the
     /// first place that stopped being true.
     pub suspend: Option<PathBuf>,
+    /// The day `app.today()` reports, as `YYYY-MM-DD` in UTC.
+    ///
+    /// `None` reads the real clock, which is what a player's session wants. A
+    /// caller naming one is a test, a capture or a replay — anything that has
+    /// to produce the same output twice, which a run whose date moved with the
+    /// calendar could not. Whatever this resolves to is written into the
+    /// recording, so a replay is told what the recording was told.
+    pub date: Option<String>,
 }
 
 /// A running game.
@@ -111,6 +119,26 @@ impl Session {
         diagnostics.extend(project.settings_diagnostics.clone());
         let sim_config = project.sim_config();
         let mut host = project.script_host().map_err(|d| Diagnostics(vec![d]))?;
+        // The verbs this project declared of its own, and anything wrong with
+        // the declaration. Into the recording, because each takes a button bit
+        // by its position in the list and a recording stores raw bits — a
+        // replay has to be able to refuse a log recorded against a different
+        // list rather than read bit 5 as the wrong verb.
+        let (actions, action_problems) = project.declared_actions();
+        diagnostics.extend(Diagnostics(action_problems));
+        // What day it is, read once here and never again. A tick may not read
+        // a clock (I5), and a daily run needs a date, so the date is an input
+        // the host supplies — and it goes into the recording, because a title
+        // screen offering today's run writes the date into a label and picks a
+        // seed from it, and both of those are hashed.
+        //
+        // `config.date` when a caller named one, so a test and a captured
+        // frame are reproducible; the real clock otherwise.
+        let date = config
+            .date
+            .clone()
+            .unwrap_or_else(dimetric_host::today::today);
+        host.set_date(&date);
 
         // The profile, before the first tick, into the very table `profile.get`
         // reads. Taken here rather than after `Sim::new` because the host is
@@ -174,7 +202,9 @@ impl Session {
             atlas_changed: false,
             speaker,
             settings: config.settings,
-            log: InputLog::new(config.seed, env!("CARGO_PKG_VERSION"), 1),
+            log: InputLog::new(config.seed, env!("CARGO_PKG_VERSION"), 1)
+                .with_actions(actions)
+                .with_date(date),
             recording: config.record.is_some(),
             record_to: config.record,
             profile,
@@ -490,6 +520,16 @@ impl Session {
             Diagnostics::new(),
         ));
         taken
+    }
+
+    /// The actions this project declared of its own, in order.
+    ///
+    /// What a binding table resolves a name against, and what a recording of
+    /// this session carries. Read off the session rather than off the settings
+    /// so there is one answer: the cap and the refusals have already been
+    /// applied.
+    pub fn declared_actions(&self) -> Vec<String> {
+        self.log.actions.clone()
     }
 
     /// A bus's gain, for a host or a test that wants to see what an event did.

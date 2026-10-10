@@ -396,7 +396,7 @@ message. Codes are never reused for a different meaning.
 | `DIM0802` | error | A command-line argument could not be parsed |
 | `DIM0901` | error | project.toml exists but could not be read or parsed |
 | `DIM0902` | error | A project setting is out of range or the wrong shape |
-| `DIM0903` | error | An input binding names an action the engine does not have |
+| `DIM0903` | error | An input binding or a declared action is not one this project can use |
 | `DIM0904` | warning | A flag overrode a project setting the simulation also depends on |
 | `DIM1001` | error | A save file could not be read or written |
 | `DIM1002` | error | A save was written by a different format or engine version |
@@ -443,7 +443,7 @@ arguments column.
 | `override_set` | `instance`*, `key`*, `target`*, `value`* | Set one override |
 | `prefab_instance` | `id`, `name`*, `parent`*, `pos`, `source`* | Add an instance of another scene |
 | `replay` | `assert`, `from_save`, `hashes`, `input`*, `ticks` | Replay a recorded run and check it |
-| `run` | `headless`, `input`, `profile`, `record`, `seed`, `ticks`, `watch` | Run the simulation headlessly |
+| `run` | `date`, `headless`, `input`, `profile`, `record`, `seed`, `ticks`, `watch` | Run the simulation headlessly |
 | `scene_check` | — | Report the scene's validation diagnostics |
 | `scene_fmt` | `check` | Rewrite the scene in canonical form |
 | `scene_query` | `path`* | Look up one node by path |
@@ -474,7 +474,7 @@ Scripts see exactly these globals and nothing else.
 | Global | What it gives you |
 |---|---|
 | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)`, `request_load(path, carry)`, `carry()` |
-| `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
+| `input` | `move()`, `aim()`, `aim_vector()`, `held(action)`, `pressed(action)`, `released(action)` — the engine's five buttons plus whatever `[input] actions` declared — and `device()`, which is "keyboard", "mouse" or "pad" |
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)` — returns false for a control nothing can see — `focus_next(step)`, `rect(node)`, `measure(font, text)` |
 | `event` | `emit(kind, payload)` — tells the host something. Drained by the runtime, **never** hashed |
@@ -684,6 +684,114 @@ figures — a layer of reachable cells between the floor and the actors — and 
 is why the exemption is a mask written in draw order rather than a second
 picture laid over the first: a lit figure drawn in front of an unlit marker
 clears the exemption behind it, so the figure still dims.
+
+### Actions a project declares of its own
+
+The engine has nine actions — `up`, `down`, `left`, `right`, `fire`,
+`alt`, `dash`, `use`, `pause` — and a game may want more. An undo for a
+move made this turn is a verb, not a button on a screen: it should be a
+key and a pad button like any other.
+
+```toml
+[input]
+actions = ["undo", "screens"]   # the verbs this project has of its own
+fire = ["Space", "PadSouth"]
+undo = ["KeyZ", "Backspace", "PadLB"]
+screens = ["Tab"]
+```
+
+A declared action is read in Lua like a built-in: `input.pressed("undo")`,
+`held`, `released`. It is an **array** rather than a table because the
+order matters: each declared action takes a bit in the recorded button
+field by its position, and a recording stores raw bits.
+
+So **appending is safe** and reordering is not. Append one and every log
+already recorded still reads correctly, because every action keeps its bit
+and the new one is simply zero — which is what not-held means. Reorder or
+remove one and bit 5 names a different verb, so a recording carries the
+list it was made against and a replay **refuses** a log whose list is not a
+prefix of the project's (`DIM0703`). A log from before any declaration
+carries none and replays against anything.
+
+Declaring has to be explicit: an action name nothing recognises is still an
+error, because `fier = ["Space"]` silently becoming a new verb nothing
+reads is the typo that diagnostic exists to catch. Sixteen is the cap,
+declaring a name the engine already owns is refused rather than allowed to
+shadow it, and both are `DIM0903`.
+
+### Keys, pad buttons, and changing them while the game runs
+
+Keys and pad buttons are **one table**. A pad used to be a constant the
+engine kept to itself — `PadSouth` *was* `fire` — so a player who wanted
+confirm and cancel the other way round, which is the other half of the
+world's convention, had no way to say so. Now a button is a name a binding
+takes like any key: `PadSouth`, `PadEast`, `PadNorth`, `PadWest`, `PadLB`,
+`PadRB`, `PadLT`, `PadRT`, `PadSelect`, `PadStart`, `PadMode`,
+`PadLeftThumb`, `PadRightThumb`, `PadUp`, `PadDown`, `PadLeft`,
+`PadRight`.
+
+A project's `[input]` replaces the defaults, so there are four cases and
+each says what it means: no `[input]` gives the engine's keys **and** pad;
+an `[input]` with nothing under it binds nothing, deliberately; one with
+keys and no pad button gives those keys and keeps the engine's pad, so a
+controller does not vanish from a project that has not written a pad layout
+yet; and one naming any pad button owns all of it.
+
+A Controls page changes them while the game runs, through an event:
+
+```lua
+event.emit("input.bind", { action = "fire", keys = { "Space", "Enter" } })
+```
+
+The runtime applies it at the tick boundary. It replaces the action's whole
+set rather than adding to it, because a Controls page knows the list and a
+page that showed two keys and meant three would be lying; an empty list
+unbinds. A key assigned is **taken** from whatever else held it, which is
+what a player expects, and a project binding one key to two actions is a
+warning rather than a silent first-wins.
+
+**None of this reaches the simulation.** A recording stores actions, so a
+session played under any bindings replays identically under any other —
+which is exactly why remapping cannot be done in script. A script reading
+`fire` and deciding it meant `alt` would put the player's preference into
+the simulation's *reading* of the input, and the same recording would
+replay differently under another profile. Bindings belong to the host,
+before the input frame is built. A game emits its saved bindings on launch
+and on every change, and keeps them in its profile.
+
+### What day it is, and what is in somebody's hands
+
+A tick has no clock and no devices: the only time inside one is the tick
+count (I5), and whatever a key or a pad did became a button bit long before
+a script saw it. Both of those are right, and both leave a game unable to
+do something reasonable — offer a daily run, or show the prompt that matches
+the hand on the device.
+
+```lua
+app.today()      -- "2026-10-10", UTC, fixed for the whole session
+input.device()   -- "keyboard", "mouse" or "pad", whichever last moved
+```
+
+Both are **in the recording**, which is what makes them safe. A title screen
+offering today's descent writes the date into a label and picks a seed from
+it; a prompt reading "Space" or showing a pad glyph is text in a `Label`.
+Both of those are hashed, so a replay told today's date, or told nothing
+about the pad, would diverge. The date is a line in the log's header and the
+device is a column in its frames, so a replay is told exactly what the
+recording was told — and a recording of a title screen still replays next
+week.
+
+A run nobody tells gets `2000-01-01` rather than today, because a headless
+run is usually a fixture and a fixture whose output moved with the calendar
+could not be checked twice. `dim run --date` and `dim-play --date` name one;
+an input log's own date wins over both, since a replay has to be told what
+the recording was told. UTC, not local time: two players on one calendar day
+have to be offered one seed, and "one day" has to mean the same span
+everywhere.
+
+For the daily seed itself, `rng.seed(stream, n)` is the one to use rather
+than `rng.reset`: a date-derived seed should not depend on the build's boot
+seed.
 
 ### Starting a stream over
 
