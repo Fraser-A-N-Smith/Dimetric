@@ -45,7 +45,8 @@ pub const GLOBALS: &[Global] = &[
     Global {
         name: "ui",
         about: "`hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, \
-                `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`, `measure(font, text)`",
+                `pointer()`, `focused()`, `focus(node)` — returns false for a control \
+                nothing can see — `focus_next(step)`, `rect(node)`, `measure(font, text)`",
     },
     Global {
         name: "event",

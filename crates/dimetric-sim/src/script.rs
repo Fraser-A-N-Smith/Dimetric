@@ -1794,8 +1794,20 @@ fn install_api(
         lua.create_function(|lua, node: Option<NodeHandle>| {
             let state = shared(lua)?;
             let mut state = state.borrow_mut();
+            // A control nobody can see cannot be focused, by itself or by an
+            // ancestor: focus draws a highlight and takes the keyboard, and
+            // both of those on a closed screen are the hit-test bug wearing
+            // another hat. Clearing focus is always allowed.
+            //
+            // Show it first and focus it second within the same tick and this
+            // passes, because the scene is already updated by then.
+            if let Some(NodeHandle(uid)) = node {
+                if !state.scene.is_visible_uid(uid) {
+                    return Ok(false);
+                }
+            }
             state.ui.focused = node.map(|NodeHandle(uid)| uid);
-            Ok(())
+            Ok(true)
         })
         .map_err(err)?,
     )

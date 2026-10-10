@@ -180,8 +180,12 @@ pub fn update(
             ui.pressed = None;
         }
     }
+    // Focus follows the same rule, and for the same reason it is dropped when
+    // the node dies: a screen closed while one of its rows had focus would
+    // otherwise keep the keyboard inside a panel nobody can see. Hidden rather
+    // than gone, so this is a second condition rather than the same one.
     if let Some(focused) = ui.focused {
-        if !alive(scene_mut, focused) {
+        if !alive(scene_mut, focused) || !scene_mut.is_visible_uid(focused) {
             ui.focused = None;
         }
     }
@@ -202,7 +206,9 @@ pub fn focus_order(scene: &Scene, canvas: Canvas) -> Vec<NodeUid> {
     let mut out = Vec::new();
     for id in scene.walk() {
         let Some(node) = scene.get(id) else { continue };
-        if !rects.contains_key(&id) || !node.visible {
+        // Ancestors included, through the scene's own rule: focus should no
+        // more land on a row inside a closed screen than a click should.
+        if !rects.contains_key(&id) || !scene.is_visible(id) {
             continue;
         }
         if node

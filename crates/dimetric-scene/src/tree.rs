@@ -324,6 +324,40 @@ impl Scene {
         }
     }
 
+    /// Whether a node is visible, itself and all the way up.
+    ///
+    /// `visible` on a node is the node's own flag, and a parent's is never
+    /// stored on its children — so "can this be seen" is a question about the
+    /// chain, not about one field. **This is the one place that chain is
+    /// walked.** The renderer, the UI hit test and the focus order all ask
+    /// here, because when they each had their own copy they disagreed: the
+    /// renderer walked ancestors and the hit test did not, so closing a panel
+    /// by hiding the panel left its rows invisible and still catching clicks.
+    /// A click in the middle of the board landed on a row nobody could see,
+    /// `ui.hovered` named it, and the board ignored the click.
+    ///
+    /// A node that is not in the tree is not visible, which is the useful
+    /// answer rather than a panic: a uid held across a tick may name a node
+    /// that has since gone.
+    pub fn is_visible(&self, id: NodeId) -> bool {
+        let mut cursor = Some(id);
+        while let Some(current) = cursor {
+            let Some(node) = self.nodes.get(current) else {
+                return false;
+            };
+            if !node.visible {
+                return false;
+            }
+            cursor = node.parent;
+        }
+        true
+    }
+
+    /// The same question asked by uid, for a caller holding one across a tick.
+    pub fn is_visible_uid(&self, uid: dimetric_core::NodeUid) -> bool {
+        self.by_uid(uid).is_some_and(|id| self.is_visible(id))
+    }
+
     /// The world position of a node, recomputing on the spot.
     ///
     /// Convenient for one-off queries; use

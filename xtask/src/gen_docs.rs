@@ -496,6 +496,33 @@ fn render_markdown(
          is why the exemption is a mask written in draw order rather than a second\n\
          picture laid over the first: a lit figure drawn in front of an unlit marker\n\
          clears the exemption behind it, so the figure still dims.\n\n\
+         ### Hidden means hidden, for the pointer too\n\n\
+         `visible` is a node's own flag and a parent's is never stored on its\n\
+         children, so \"can this be seen\" is a question about the whole chain. The\n\
+         renderer walked that chain; `ui::hit` read a control's own flag and nothing\n\
+         else. A game that closed a screen by hiding the screen therefore got rows\n\
+         that were invisible and still on top: a click in the middle of the board\n\
+         landed on a row nobody could see, `ui.hovered` named it, and the board\n\
+         ignored the click.\n\n\
+         `Scene::is_visible` is now the one place that chain is walked, and the\n\
+         renderer, the hit test and the focus order all ask it, so they cannot drift\n\
+         apart again. Concretely:\n\n\
+         * a control inside a hidden ancestor never wins a hit test, so `ui.hovered`,\n\
+           `ui.pressed` and `ui.clicked` stop naming it;\n\
+         * `ui.focus_next` skips it, and focus is **dropped** if the control holding\n\
+           it becomes hidden — otherwise the keyboard stays inside a closed panel;\n\
+         * `ui.focus(node)` refuses a control nothing can see and returns `false`.\n\
+           Showing it and focusing it in the same tick works, because the scene is\n\
+           already updated by then. Clearing focus with `ui.focus(nil)` is always\n\
+           allowed.\n\n\
+         Nothing is latched: a child's own `visible` is never touched, so reopening\n\
+         the panel brings everything inside it back.\n\n\
+         This **can** move a state hash, in exactly one case: a run whose pointer was\n\
+         over a control inside a hidden ancestor used to record that control as\n\
+         hovered, and now records whatever is really under the pointer. `ui.hovered`\n\
+         is simulation state, so that difference is hashed. A recorded run that never\n\
+         pointed at a hidden control is unaffected, which is every fixture in this\n\
+         repository.\n\n\
          ### Spawning\n\n\
          `scene.spawn` returns the id the node *will* have and creates nothing yet.\n\
          A node inserted mid-tick would be going into a tree another script may be\n\

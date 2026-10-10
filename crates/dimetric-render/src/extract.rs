@@ -391,17 +391,11 @@ fn texture_rect(
 
 /// A node is drawn only if it and every ancestor is visible.
 fn visible(scene: &Scene, id: dimetric_core::NodeId) -> bool {
-    let mut cursor = Some(id);
-    while let Some(current) = cursor {
-        let Some(node) = scene.get(current) else {
-            return false;
-        };
-        if !node.visible {
-            return false;
-        }
-        cursor = node.parent();
-    }
-    true
+    // Through the scene's own answer rather than a copy of the walk. This walk
+    // *was* the copy, and it was the correct one: the UI hit test read a
+    // control's own `visible` and nothing else, so a hidden panel's rows were
+    // invisible here and still catching clicks there.
+    scene.is_visible(id)
 }
 
 /// Blend this tick's position with last tick's.

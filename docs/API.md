@@ -476,7 +476,7 @@ Scripts see exactly these globals and nothing else.
 | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)`, `request_load(path, carry)`, `carry()` |
 | `input` | `move()`, `aim()`, `aim_vector()`, `held(button)`, `pressed(button)`, `released(button)` |
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
-| `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)`, `focus_next(step)`, `rect(node)`, `measure(font, text)` |
+| `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)` — returns false for a control nothing can see — `focus_next(step)`, `rect(node)`, `measure(font, text)` |
 | `event` | `emit(kind, payload)` — tells the host something. Drained by the runtime, **never** hashed |
 | `app` | `quit()`, `suspend()`, `resume()`, `discard_suspended()`, `suspended()` — asks whatever is running the game to stop, to write the run out and stop, to continue the written one, or to throw it away. Read by the host between ticks, **never** hashed; a headless run and a replay ignore the requests and answer `suspended()` false |
 | `profile` | `get(key)`, `put(key, value)`, `clear(key)` — across runs, and **never** in the state hash |
@@ -684,6 +684,39 @@ figures — a layer of reachable cells between the floor and the actors — and 
 is why the exemption is a mask written in draw order rather than a second
 picture laid over the first: a lit figure drawn in front of an unlit marker
 clears the exemption behind it, so the figure still dims.
+
+### Hidden means hidden, for the pointer too
+
+`visible` is a node's own flag and a parent's is never stored on its
+children, so "can this be seen" is a question about the whole chain. The
+renderer walked that chain; `ui::hit` read a control's own flag and nothing
+else. A game that closed a screen by hiding the screen therefore got rows
+that were invisible and still on top: a click in the middle of the board
+landed on a row nobody could see, `ui.hovered` named it, and the board
+ignored the click.
+
+`Scene::is_visible` is now the one place that chain is walked, and the
+renderer, the hit test and the focus order all ask it, so they cannot drift
+apart again. Concretely:
+
+* a control inside a hidden ancestor never wins a hit test, so `ui.hovered`,
+`ui.pressed` and `ui.clicked` stop naming it;
+* `ui.focus_next` skips it, and focus is **dropped** if the control holding
+it becomes hidden — otherwise the keyboard stays inside a closed panel;
+* `ui.focus(node)` refuses a control nothing can see and returns `false`.
+Showing it and focusing it in the same tick works, because the scene is
+already updated by then. Clearing focus with `ui.focus(nil)` is always
+allowed.
+
+Nothing is latched: a child's own `visible` is never touched, so reopening
+the panel brings everything inside it back.
+
+This **can** move a state hash, in exactly one case: a run whose pointer was
+over a control inside a hidden ancestor used to record that control as
+hovered, and now records whatever is really under the pointer. `ui.hovered`
+is simulation state, so that difference is hashed. A recorded run that never
+pointed at a hidden control is unaffected, which is every fixture in this
+repository.
 
 ### Spawning
 

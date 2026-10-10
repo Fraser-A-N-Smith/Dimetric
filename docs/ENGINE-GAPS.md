@@ -517,6 +517,16 @@ unnamed in both. Suspending is what made it reachable from a game.
 
 ## Still open, and known
 
+**A collider under a hidden parent still collides.** `PhysicsWorld::build`
+skips a node whose own `visible` is false and never reads its ancestors — the
+same shape as the UI hit-test bug that G56 fixed, in the one place where
+fixing it would change what a tick computes. Hiding a parent therefore hides
+its colliders from the eye and not from the broadphase. Left as it is on
+purpose: `visible` is a drawing flag that physics has borrowed, nobody asked
+for this half, and changing what collides would move the hash of any scene
+that leans on the current answer. A game that wants a collider off should say
+so with `monitoring` on an `Area`, or move the node out of the tree.
+
 **A comment in a `.meta` does not survive the next import.** `write_metas`
 compares the file against `ImportSettings::to_text()` and rewrites it whenever
 they differ, and `to_text` hand-writes the keys it knows about — so a comment

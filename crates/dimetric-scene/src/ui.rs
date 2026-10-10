@@ -206,6 +206,20 @@ fn rect_of(node: &crate::node::Node, parent: Rect) -> Rect {
 /// so this walks the layout backwards and takes the first hit. Ties are broken
 /// by tree order rather than by anything about the geometry, which is what
 /// makes the answer the same on every machine.
+///
+/// # Hidden means hidden, all the way up
+///
+/// This used to read a control's **own** `visible` and nothing else, where the
+/// renderer walks every ancestor. The two disagreed, and a game that closed a
+/// screen by hiding the screen got rows that were invisible and still on top:
+/// a click in the middle of the board landed on a row nobody could see,
+/// `ui.hovered` named it, and the board ignored the click. The alternative
+/// offered was hiding every child by hand when a panel closes, which is a
+/// second copy of the engine's own visibility rule, written in Lua, in every
+/// panel.
+///
+/// [`Scene::is_visible`] is now the only place that chain is walked, so the
+/// renderer and this cannot drift apart again.
 pub fn hit(scene: &Scene, layout: &Layout, point: Vec2Fx) -> Option<NodeId> {
     let mut found = None;
     for id in scene.walk() {
@@ -213,7 +227,7 @@ pub fn hit(scene: &Scene, layout: &Layout, point: Vec2Fx) -> Option<NodeId> {
             continue;
         };
         let Some(node) = scene.get(id) else { continue };
-        if !node.visible {
+        if !scene.is_visible(id) {
             continue;
         }
         // A control that does not take input is scenery: a panel behind a row
