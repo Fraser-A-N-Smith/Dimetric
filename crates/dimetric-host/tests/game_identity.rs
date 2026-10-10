@@ -49,7 +49,7 @@ fn build(root: &std::path::Path, name: Option<&str>) -> Built {
         PackageRequest {
             platform: package::platform("linux").expect("linux"),
             scene: "main.dim".to_string(),
-            seed: 0,
+            seed: dimetric_host::package::BootSeed::Fixed(0),
             out: Some(root.join("out")),
             runtime: None,
             name: name.map(str::to_string),

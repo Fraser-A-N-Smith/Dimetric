@@ -62,7 +62,9 @@ pub const GLOBALS: &[Global] = &[
                 write the run out and stop, to continue the written one, or to \
                 throw it away. Read by the host between ticks, **never** \
                 hashed; a headless run and a replay ignore the requests and \
-                answer `suspended()` false",
+                answer `suspended()` false. Also `today()`, the day the session \
+                began, and `seed()`, the run seed it is playing — both come from \
+                outside and both travel in the recording",
     },
     Global {
         name: "profile",

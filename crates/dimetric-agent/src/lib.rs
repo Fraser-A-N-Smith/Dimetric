@@ -1906,12 +1906,25 @@ fn build_command(
         format!("{scene}.dim")
     };
 
+    // Refused before anything is copied, rather than built with a seed nobody
+    // meant: `--seed lanch` would otherwise ship a game pinned to run zero.
+    let boot_seed = package::BootSeed::parse(&args.seed).ok_or_else(|| {
+        one(Diagnostic::new(
+            Code::BAD_ARGUMENT,
+            format!(
+                "--seed {:?} is neither a whole number nor `launch`",
+                args.seed
+            ),
+        )
+        .with_field("seed", args.seed.clone()))
+    })?;
+
     let staged = package::stage(
         project,
         package::PackageRequest {
             platform,
             scene: scene.clone(),
-            seed: args.seed,
+            seed: boot_seed,
             out: args.out.as_ref().map(std::path::PathBuf::from),
             runtime: args.runtime.as_ref().map(std::path::PathBuf::from),
             name: args.name.clone(),

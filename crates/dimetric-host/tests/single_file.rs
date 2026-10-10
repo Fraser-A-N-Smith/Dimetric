@@ -157,7 +157,7 @@ fn build(dir: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
         package::PackageRequest {
             platform: package::platform("linux").expect("linux"),
             scene: "main.dim".to_string(),
-            seed: 11,
+            seed: dimetric_host::package::BootSeed::Fixed(11),
             out: Some(out.clone()),
             runtime: Some(runtime),
             name: None,

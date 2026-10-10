@@ -27,9 +27,18 @@ struct Args {
     /// Scene to open, relative to the project root. Defaults to the first one.
     #[arg(long)]
     scene: Option<String>,
-    /// Run seed.
-    #[arg(long, default_value_t = 0)]
-    seed: u64,
+    /// Run seed, pinning the run this launch plays.
+    ///
+    /// Absent means the game's manifest decides — a number for every launch,
+    /// or a new one each launch when the manifest says `seed = "launch"`. An
+    /// unpackaged project with no manifest gets zero, as it always has.
+    ///
+    /// `Option` rather than a defaulted number because `--seed 0` has to be
+    /// distinguishable from not passing it: against a `launch`-seeded build the
+    /// first means "run zero, pinned" and the second means "a new run", and a
+    /// capture or a bug report needs to be able to say the first.
+    #[arg(long)]
+    seed: Option<u64>,
     /// Write the session's input log here, so the run can be replayed.
     #[arg(long)]
     record: Option<std::path::PathBuf>,
@@ -160,9 +169,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (None, None) => first_scene(&root)?,
     };
     // An explicit --seed wins; otherwise the manifest's, otherwise zero.
-    let seed = match (args.seed, &manifest) {
-        (0, Some(manifest)) => dimetric_host::package::boot_seed(manifest).unwrap_or(0),
-        (seed, _) => seed,
+    //
+    // `seed = "launch"` in the manifest is read from outside at startup, which
+    // is what makes a new run from the title screen a different run each time
+    // somebody launches the game. Safe for one reason: the number is settled
+    // here, once, and written into the recording, exactly as the date is — so a
+    // launch-seeded session replays to the run it recorded rather than to
+    // whatever the clock says at replay time.
+    let declared = manifest.as_deref().map(|manifest| {
+        dimetric_host::package::boot_seed(manifest).unwrap_or_else(|| {
+            // Said out loud rather than invented. A manifest with a seed this
+            // build cannot read is a game that would quietly always play run
+            // zero.
+            eprintln!(
+                "warning[{}]: the game's manifest names a seed this build cannot read; \
+                 playing run 0",
+                dimetric_core::Code::SETTINGS_INVALID.0
+            );
+            dimetric_host::package::BootSeed::Fixed(0)
+        })
+    });
+    let seed = match (args.seed, declared) {
+        (Some(seed), _) => seed,
+        (None, Some(declared)) => declared.resolve(),
+        (None, None) => 0,
     };
 
     let mut project = match appended {
@@ -260,6 +290,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for d in &binding_problems {
         eprintln!("{d}");
     }
+    // The whole table, once, before the first tick, so a Controls page can
+    // draw every row from `input.bindings(action)` on launch rather than
+    // keeping a second copy of `project.toml` in Lua. Every change after this
+    // is a row at a time.
+    session.note_bindings(binding_rows(&bindings, &session.declared_actions()));
 
     // No window at all: step the session and draw one frame offscreen. This
     // runs before the event loop exists, so it works on a machine with no
@@ -292,31 +327,85 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let mut held = Held::new();
+        let mut bindings = bindings;
+        let declared_actions = session.declared_actions();
+        let mut capture: Option<dimetric_player::bindings::Capture> = None;
         for tick in 0..ticks {
-            // Through `key_effect`, which is what the window uses too, so a key
-            // cannot mean one thing in a photograph and another in play. The
-            // comment here used to claim it went through the window's own
-            // `press`; it did not, and that is how the `pause` key came to
-            // photograph correctly and play wrongly.
+            // Through `bindings::press_with_capture`, which is what the window
+            // uses too, so a key cannot mean one thing in a photograph and
+            // another in play. The comment here used to claim it went through
+            // the window's own `press`; it did not, and that is how the `pause`
+            // key came to photograph correctly and play wrongly.
             //
             // The freeze key is ignored: a capture that froze itself would be a
             // photograph of a stopped game, and nobody drives it from `--keys`.
-            let press_scripted = |tick: u64, down: bool, held: &mut Held| {
+            let mut press_scripted = |tick: u64,
+                                      down: bool,
+                                      held: &mut Held,
+                                      bindings: &mut Bindings,
+                                      capture: &mut Option<dimetric_player::bindings::Capture>,
+                                      session: &mut Session| {
                 for (at, key) in &scripted {
                     if *at != tick {
                         continue;
                     }
-                    if let dimetric_player::KeyEffect::Action(action) =
-                        dimetric_player::key_effect(&bindings, key)
-                    {
-                        held.set(action, down);
+                    match dimetric_player::bindings::press_with_capture(
+                        bindings, capture, key, down,
+                    ) {
+                        dimetric_player::bindings::Pressed::Captured { result, action } => {
+                            settle(session, result, action)
+                        }
+                        dimetric_player::bindings::Pressed::Effect(
+                            dimetric_player::KeyEffect::Action(action),
+                        ) => held.set(action, down),
+                        _ => {}
                     }
                 }
             };
-            press_scripted(tick, true, &mut held);
+            press_scripted(
+                tick,
+                true,
+                &mut held,
+                &mut bindings,
+                &mut capture,
+                &mut session,
+            );
             let input = held.player_input();
             session.step(&mut project, input);
-            press_scripted(tick, false, &mut held);
+            press_scripted(
+                tick,
+                false,
+                &mut held,
+                &mut bindings,
+                &mut capture,
+                &mut session,
+            );
+            // The same drain the window does, and for the same reason: a
+            // scripted run that ignored a game's own events would photograph a
+            // game nobody can play. A volume, a rebind and a capture all
+            // arrive here.
+            let events = session.drain_events();
+            if !events.is_empty() {
+                session.apply_events(&events);
+                for event in &events {
+                    if let Some(d) = dimetric_player::bindings::apply_event(
+                        &mut bindings,
+                        &declared_actions,
+                        event,
+                    ) {
+                        eprintln!("{d}");
+                    }
+                    match dimetric_player::bindings::read_capture_event(&declared_actions, event) {
+                        Some(Ok(asked)) => {
+                            held.release_all();
+                            capture = Some(asked);
+                        }
+                        Some(Err(d)) => eprintln!("{d}"),
+                        None => {}
+                    }
+                }
+            }
+            session.note_capture(None, capture.is_some());
             if session.take_atlas_change() {
                 renderer.set_atlas(session.atlas());
             }
@@ -339,6 +428,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             viewport.0,
             viewport.1
         );
+        // `--record` means the same thing on both paths. It used to be written
+        // only by the window, so a scripted run asked to record produced a
+        // picture and no log — which is the one thing that would have made the
+        // scripted run checkable.
+        match session.finish() {
+            Ok(Some(path)) => eprintln!("recorded {}", path.display()),
+            Ok(None) => {}
+            Err(d) => eprintln!("{d}"),
+        }
         return Ok(());
     }
 
@@ -353,6 +451,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         session,
         bindings,
         declared_actions,
+        capture: None,
         held: Held::new(),
         window: None,
         gpu: None,
@@ -400,6 +499,12 @@ struct App {
     bindings: Bindings,
     /// The project's own declared actions, for resolving an `input.bind`.
     declared_actions: Vec<String>,
+    /// The capture a Controls page asked for, while it is live.
+    ///
+    /// While this is set the next key, mouse button or pad button pressed is
+    /// **taken**: it binds, and it is not delivered as input. A player
+    /// assigning Space to something should not also fire.
+    capture: Option<dimetric_player::bindings::Capture>,
     held: Held,
     window: Option<Arc<Window>>,
     gpu: Option<Gpu>,
@@ -588,7 +693,22 @@ impl App {
         // So the action belongs to the game and the freeze belongs to whoever is
         // debugging. A key outside the bindings table cannot be taken by a
         // project, and nobody binds Pause/Break.
-        match dimetric_player::key_effect(&self.bindings, key) {
+        // A live capture takes the press, through the same decision the
+        // scripted `--keys` run makes — see `bindings::press_with_capture`.
+        let effect = match dimetric_player::bindings::press_with_capture(
+            &mut self.bindings,
+            &mut self.capture,
+            key,
+            down,
+        ) {
+            dimetric_player::bindings::Pressed::Ignored => return,
+            dimetric_player::bindings::Pressed::Captured { result, action } => {
+                settle(&mut self.session, result, action);
+                return;
+            }
+            dimetric_player::bindings::Pressed::Effect(effect) => effect,
+        };
+        match effect {
             dimetric_player::KeyEffect::ToggleFreeze if down => {
                 self.paused = !self.paused;
                 self.held.release_all();
@@ -656,7 +776,28 @@ impl App {
                     ) {
                         eprintln!("{d}");
                     }
+                    // A Controls page asking for the next key pressed. The
+                    // answer goes back through the frame, because the page
+                    // writes it into a label and a label is hashed.
+                    match dimetric_player::bindings::read_capture_event(
+                        &self.declared_actions,
+                        event,
+                    ) {
+                        Some(Ok(capture)) => {
+                            // Everything held is let go first. A player who
+                            // asked to rebind while holding a key would
+                            // otherwise have it stuck down for as long as the
+                            // capture lasts, because the release is taken too.
+                            self.held.release_all();
+                            self.capture = Some(capture);
+                        }
+                        Some(Err(d)) => eprintln!("{d}"),
+                        None => {}
+                    }
                 }
+                // Whether a capture is still waiting, every tick, so a page
+                // can take its prompt down on the tick one ends.
+                self.session.note_capture(None, self.capture.is_some());
             }
             for d in self.session.take_diagnostics().iter() {
                 eprintln!("{d}");
@@ -734,6 +875,47 @@ impl App {
         // wgpu 30 presents through the queue rather than the texture.
         gpu.renderer.queue().present(frame);
     }
+}
+
+/// Tell the simulation what a capture settled on.
+///
+/// Both drivers report the same way: the bound row so a page can redraw it,
+/// and the name so a page can write it into a label. A cancelled capture
+/// reports no name, which together with `capturing` stopping is how a page
+/// tells "bound" from "cancelled".
+fn settle(session: &mut Session, result: dimetric_player::bindings::Captured, action: String) {
+    let name = match result {
+        dimetric_player::bindings::Captured::Bound(name) => Some(name),
+        dimetric_player::bindings::Captured::Cancelled => None,
+    };
+    if let Some(name) = &name {
+        session.note_bindings(vec![(action, vec![name.clone()])]);
+    }
+    session.note_capture(name, false);
+}
+
+/// Every action and what it is bound to, for the simulation to read back.
+///
+/// Built from the actions rather than from the pairs, so an action bound to
+/// nothing is reported as bound to nothing — a Controls page needs a row for
+/// it either way, and an action missing from the table is indistinguishable
+/// from one the host never mentioned.
+fn binding_rows(bindings: &Bindings, declared: &[String]) -> Vec<(String, Vec<String>)> {
+    dimetric_player::Action::ALL
+        .iter()
+        .copied()
+        .chain((0..declared.len()).map(dimetric_player::Action::Custom))
+        .map(|action| {
+            (
+                action.label(declared),
+                bindings
+                    .keys_for(action)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+            )
+        })
+        .collect()
 }
 
 fn parse_size(text: &str) -> Result<(u32, u32), String> {

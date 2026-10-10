@@ -57,14 +57,95 @@ pub fn platform(name: &str) -> Option<Platform> {
         .find(|p| p.name == name || p.triple == name)
 }
 
+/// What run a shipped game starts from.
+///
+/// A packaged game boots with the seed in its manifest, and every stream a
+/// script draws from is derived from that one number — so a fixed seed means
+/// the first run of every launch of the same build is identical, and the second
+/// is identical to the second. For a roguelike whose title screen offers a new
+/// run, that is the same three essences every time somebody quits and comes
+/// back.
+///
+/// Nothing a script can read differs between two launches: `app.today()` is the
+/// only thing from outside and it holds still for a day, which is the Daily
+/// Descent and deliberately not this.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BootSeed {
+    /// This number, every launch. What a fixture, a capture and a bug report
+    /// want, and still the default.
+    Fixed(u64),
+    /// A different number each launch, read from outside at startup.
+    ///
+    /// Safe for exactly one reason: the seed goes into the recording, the same
+    /// way `--date` does. A session's log carries the seed it ran on, so a
+    /// launch-seeded session replays to the run it recorded rather than to
+    /// whatever the clock says at replay time.
+    Launch,
+}
+
+impl Default for BootSeed {
+    fn default() -> BootSeed {
+        BootSeed::Fixed(0)
+    }
+}
+
+impl BootSeed {
+    /// The spelling a manifest uses.
+    pub fn parse(text: &str) -> Option<BootSeed> {
+        match text {
+            "launch" => Some(BootSeed::Launch),
+            number => number.parse().ok().map(BootSeed::Fixed),
+        }
+    }
+
+    /// Settle on a number for this launch.
+    ///
+    /// Reads the clock for [`BootSeed::Launch`], which is the one place in the
+    /// engine that is allowed to and the reason this returns a `u64` rather
+    /// than being read twice: the answer is settled once, before the first
+    /// tick, and written into the recording.
+    ///
+    /// Nanoseconds and the process id, through BLAKE3. The nanoseconds are what
+    /// make two launches differ and the hash is what stops the *low bits*
+    /// marching in lockstep between launches a moment apart — a seed is a whole
+    /// number to `Rng::new`, and two seeds differing in one low bit should not
+    /// look related. The process id covers the case of two launches inside one
+    /// clock tick, which a coarse platform clock can produce.
+    pub fn resolve(self) -> u64 {
+        match self {
+            BootSeed::Fixed(seed) => seed,
+            BootSeed::Launch => {
+                let nanos = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                let mut bytes = Vec::with_capacity(20);
+                bytes.extend_from_slice(&nanos.to_le_bytes());
+                bytes.extend_from_slice(&std::process::id().to_le_bytes());
+                let digest = blake3::hash(&bytes);
+                u64::from_le_bytes(digest.as_bytes()[..8].try_into().expect("8 bytes"))
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for BootSeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BootSeed::Fixed(seed) => write!(f, "{seed}"),
+            BootSeed::Launch => write!(f, "launch"),
+        }
+    }
+}
+
 /// What to stage.
 pub struct PackageRequest {
     /// Platform to stage for.
     pub platform: Platform,
     /// Scene the game boots into, relative to the project root.
     pub scene: String,
-    /// Run seed the game starts from.
-    pub seed: u64,
+    /// Run seed the game starts from, or `launch` for a new one each time.
+    pub seed: BootSeed,
     /// Where to put it. Defaults to `build/<platform>` under the project.
     pub out: Option<PathBuf>,
     /// A runtime executable to copy in, if one has been built.
@@ -317,7 +398,12 @@ fn manifest_text(request: &PackageRequest, name: &str, icon: Option<&str>) -> St
         env!("CARGO_PKG_VERSION"),
         request.platform.triple,
         request.scene,
-        request.seed,
+        // A number bare and `launch` quoted, which is what `BootSeed::parse`
+        // reads back and what a person opening the manifest would expect.
+        match request.seed {
+            BootSeed::Fixed(seed) => seed.to_string(),
+            BootSeed::Launch => "\"launch\"".to_string(),
+        },
     );
     // Omitted rather than written empty, so a game with no icon and a game
     // whose icon could not be read produce the same manifest — there is one
@@ -403,8 +489,12 @@ pub fn boot_scene(manifest: &str) -> Option<String> {
 }
 
 /// The seed a staged game's manifest names.
-pub fn boot_seed(manifest: &str) -> Option<u64> {
-    field(manifest, "seed")?.parse().ok()
+///
+/// `None` when the manifest says nothing, or says something this build cannot
+/// read — the caller decides what to do about that, and `dim-play` reports it
+/// rather than inventing a run.
+pub fn boot_seed(manifest: &str) -> Option<BootSeed> {
+    BootSeed::parse(&field(manifest, "seed")?)
 }
 
 fn field(manifest: &str, key: &str) -> Option<String> {

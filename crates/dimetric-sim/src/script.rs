@@ -1490,6 +1490,24 @@ fn install_api(
             .map_err(err)?,
     )
     .map_err(err)?;
+    // The run seed this session is playing, for a run summary and a bug
+    // report. Out of the state rather than from the host, because that *is*
+    // where it lives: every named stream is derived from it, and a log records
+    // it, so a player who says "seed 4815162342" has said enough to reproduce
+    // what they saw.
+    //
+    // Signed on the way out, because Lua integers are. The number is a 64-bit
+    // pattern either way and `string.format("%x", …)` prints what a log wrote.
+    app.set(
+        "seed",
+        lua.create_function(|lua, ()| {
+            let state = shared(lua)?;
+            let state = state.borrow();
+            Ok(state.rng.seed() as i64)
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
     env.set("app", app).map_err(err)?;
 
     // fx: fixed-point construction and the trig the sandbox withholds.
@@ -1858,6 +1876,54 @@ fn install_api(
                     .player(player.unwrap_or(0) as usize)
                     .device
                     .name())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    // What a Controls page needs that `input.*` could not say.
+    //
+    // A key bound to nothing never reaches a script and a key bound to
+    // something arrives as that something, so there was no moment at which a
+    // script could learn "the player pressed F". Both of these read the frame
+    // rather than asking the host, because what a page does with them is write
+    // a label — and a label is hashed.
+    input
+        .set(
+            "captured",
+            lua.create_function(|lua, ()| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                Ok(state.input.captured.clone())
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    input
+        .set(
+            "capturing",
+            lua.create_function(|lua, ()| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                Ok(state.input.capturing)
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
+    // The keys an action is bound to right now, so a page can draw every row
+    // on launch without keeping a second copy of `project.toml` in Lua.
+    //
+    // A table, in the order the host reported, which is the order a row should
+    // show them in. Empty for an action nothing is bound to, and for every
+    // action when the host never said — a headless run or a replay of a log
+    // written before this existed.
+    input
+        .set(
+            "bindings",
+            lua.create_function(|lua, action: String| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                let keys = state.bindings.get(&action).cloned().unwrap_or_default();
+                lua.create_sequence_from(keys)
             })
             .map_err(err)?,
         )

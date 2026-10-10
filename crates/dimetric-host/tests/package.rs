@@ -61,7 +61,7 @@ fn stage_sorcerer(out: &std::path::Path, runtime: Option<std::path::PathBuf>) ->
         PackageRequest {
             platform: package::platform("linux").expect("linux is a target"),
             scene: "arena01.dim".to_string(),
-            seed: 42,
+            seed: dimetric_host::package::BootSeed::Fixed(42),
             out: Some(out.to_path_buf()),
             runtime,
             name: None,
@@ -152,7 +152,10 @@ fn the_manifest_says_what_to_boot() {
         package::boot_scene(&manifest).as_deref(),
         Some("arena01.dim")
     );
-    assert_eq!(package::boot_seed(&manifest), Some(42));
+    assert_eq!(
+        package::boot_seed(&manifest),
+        Some(package::BootSeed::Fixed(42))
+    );
     assert!(manifest.contains("x86_64-unknown-linux-gnu"));
     let _ = std::fs::remove_dir_all(&out);
 }
@@ -225,7 +228,7 @@ fn a_windows_build_names_its_executable_with_an_extension() {
         PackageRequest {
             platform: package::platform("windows").expect("windows is a target"),
             scene: "arena01.dim".to_string(),
-            seed: 0,
+            seed: dimetric_host::package::BootSeed::Fixed(0),
             out: Some(out.clone()),
             runtime: Some(fake.clone()),
             name: None,
@@ -246,7 +249,7 @@ fn a_scene_the_project_does_not_have_is_refused_before_anything_is_copied() {
         PackageRequest {
             platform: package::platform("linux").unwrap(),
             scene: "nope.dim".to_string(),
-            seed: 0,
+            seed: dimetric_host::package::BootSeed::Fixed(0),
             out: Some(out.clone()),
             runtime: None,
             name: None,

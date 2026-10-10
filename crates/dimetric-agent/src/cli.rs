@@ -564,9 +564,15 @@ pub struct BuildArgs {
     /// and pass it here.
     #[arg(long)]
     pub runtime: Option<String>,
-    /// Seed the packaged game starts from.
-    #[arg(long, default_value_t = 0)]
-    pub seed: u64,
+    /// Seed the packaged game starts from, or `launch` for a new one each time.
+    ///
+    /// A number pins every launch to one run, which is what a fixture and a
+    /// bug report want and is still the default. `launch` makes the runtime
+    /// read a seed from outside at startup, so a player who quits, relaunches
+    /// and presses New Run is not shown the run they were shown last time.
+    /// `--seed N` passed to the runtime still wins over either.
+    #[arg(long, default_value = "0")]
+    pub seed: String,
     /// What the game calls itself, overriding `[game] name` in `project.toml`.
     ///
     /// For a build that ships under a different name from the one the project
