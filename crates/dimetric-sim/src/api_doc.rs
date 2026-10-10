@@ -78,7 +78,9 @@ pub const GLOBALS: &[Global] = &[
     },
     Global {
         name: "rng",
-        about: "`range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)`",
+        about: "`range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)`, \
+                `reset(stream)` — start it again from the run seed — \
+                `seed(stream, n)` — start it from a seed of your own",
     },
     Global {
         name: "vec2",

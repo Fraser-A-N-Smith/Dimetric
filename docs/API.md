@@ -482,7 +482,7 @@ Scripts see exactly these globals and nothing else.
 | `profile` | `get(key)`, `put(key, value)`, `clear(key)` — across runs, and **never** in the state hash |
 | `camera` | `to_world(canvas_point)`, `to_canvas(world_point)`, `center()` — the view's inverse, in fixed point |
 | `tick` | `count()`, `dt()`, `rate` |
-| `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)` |
+| `rng` | `range(stream, lo, hi)`, `chance(stream, n, d)`, `unit(stream)`, `reset(stream)` — start it again from the run seed — `seed(stream, n)` — start it from a seed of your own |
 | `vec2` | `vec2(x, y)`, building a fixed-point vector |
 | `color` | `rgba(r, g, b, a)`, `rgb(r, g, b)`, `parse("#rrggbbaa")` — channels are bytes, and a colour is state like any other property |
 | `fx` | `new`, `parse`, `sin`, `cos`, `from_angle` |
@@ -684,6 +684,39 @@ figures — a layer of reachable cells between the floor and the actors — and 
 is why the exemption is a mask written in draw order rather than a second
 picture laid over the first: a lit figure drawn in front of an unlit marker
 clears the exemption behind it, so the figure still dims.
+
+### Starting a stream over
+
+Every random value comes from a named stream, created from the run seed the
+first time it is asked for and kept for the rest of the session. That is
+right for a run that draws once from each and wrong for a game that plays
+the same run twice in one launch — a run named by a code draws from
+`floor#KQPRMX` instead of `floor`, so the first play is exactly its run and
+the second continues where the first left off while the screen says they are
+the same.
+
+```lua
+rng.reset("floor#KQPRMX")      -- again from the run seed and the name
+rng.seed("floor#KQPRMX", code) -- again from a seed of your own
+```
+
+`reset` reconstructs the stream exactly as if it had never been drawn from —
+not by rewinding, because there is no record of how many draws to undo and
+there should not be. `seed` is the same with a seed the game chose, which is
+what makes a code portable **between** launches: `reset` goes back to the
+*session* seed, so the same code in two launches is the same run only if the
+session seed is, where an explicit seed does not depend on it at all. The
+seed is a 64-bit pattern with nothing reserved, zero included; Lua integers
+are signed, so `-1` and `0xFFFFFFFFFFFFFFFF` name one stream.
+
+A reset is a **change to simulation state and is hashed**, like a draw. That
+is what makes it replayable rather than a back door around the log: a reset
+the hash could not see would let a replay diverge from the run it recorded
+with nothing to notice. It survives a snapshot and a rollback for the same
+reason — the stream's whole state is in the snapshot.
+
+Resetting one stream leaves every other where it was, which is what naming
+streams is for.
 
 ### Hidden means hidden, for the pointer too
 

@@ -211,6 +211,35 @@ impl RngStreams {
             .or_insert_with(|| Rng::named(seed, name))
     }
 
+    /// Start a named stream again from `(seed, name)`.
+    ///
+    /// A stream is created on first use and kept for the rest of the session,
+    /// which is right for a run that draws once from each — and wrong for a
+    /// game that plays the same run twice in one launch. A run named by a code
+    /// draws from `floor#KQPRMX` instead of `floor`, so the *first* time a code
+    /// is played it is exactly its run and the second time it continues where
+    /// the first left off and is a different run. The screen says they are the
+    /// same.
+    ///
+    /// Exactly as if the stream had never been drawn from, which is why this
+    /// reconstructs rather than rewinding: there is no record of how many draws
+    /// to undo, and there should not be.
+    ///
+    /// The seed is a 64-bit pattern and nothing is reserved, so every value is
+    /// a usable seed — including zero.
+    pub fn seed_stream(&mut self, name: &str, seed: u64) {
+        self.streams
+            .insert(name.to_string(), Rng::named(seed, name));
+    }
+
+    /// Start a named stream again from this run's own seed.
+    ///
+    /// [`seed_stream`](RngStreams::seed_stream) with the session seed, which is
+    /// the common case said plainly: put this stream back where it began.
+    pub fn reset_stream(&mut self, name: &str) {
+        self.seed_stream(name, self.seed);
+    }
+
     /// Every live stream, in name order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Rng)> {
         self.streams.iter().map(|(k, v)| (k.as_str(), v))

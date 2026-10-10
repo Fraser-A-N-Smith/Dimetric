@@ -2353,6 +2353,43 @@ fn install_api(
         .map_err(err)?,
     )
     .map_err(err)?;
+    // Starting a stream over. A draw like any other: it is a change to
+    // simulation state, it is hashed, and a replay that resets replays it.
+    //
+    // A stream is created on first use and kept for the rest of the session,
+    // which is right for a run that draws once from each and wrong for a game
+    // that plays the same run twice in one launch — the second play continues
+    // where the first left off while the screen says they are the same run.
+    rng.set(
+        "reset",
+        lua.create_function(|lua, stream: String| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            state.rng.reset_stream(&stream);
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    // The same, from a seed the game chose rather than the session's. What
+    // makes a run code portable: `reset` reconstructs from the *session* seed,
+    // so the same code in two launches is the same run only if the session
+    // seed is, and this does not depend on it at all.
+    //
+    // Lua integers are 64-bit and signed; the seed is a 64-bit pattern, so the
+    // conversion is a reinterpretation and `-1` and `0xFFFFFFFFFFFFFFFF` name
+    // one stream. Nothing is reserved, zero included.
+    rng.set(
+        "seed",
+        lua.create_function(|lua, (stream, seed): (String, i64)| {
+            let state = shared(lua)?;
+            let mut state = state.borrow_mut();
+            state.rng.seed_stream(&stream, seed as u64);
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
     env.set("rng", rng).map_err(err)?;
 
     // log: collected, never printed from inside a tick. Printing from in here
