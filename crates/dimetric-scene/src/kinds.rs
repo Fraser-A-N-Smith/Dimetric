@@ -418,6 +418,22 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 boolean(false),
                 "Whether keyboard or pad focus can land on this control.",
             ),
+            // No default on purpose. A declared default is materialised into
+            // every node's props at parse and every prop is hashed, so giving
+            // this one would change the hash of every scene with a control in
+            // it. Absent reads as false in the one place that asks.
+            prop(
+                "clip_children",
+                PropertyType::Bool,
+                None,
+                "Whether descendants are drawn and clicked only inside this \
+                 control's rectangle. Absent and false both clip nothing. Nested \
+                 clips intersect, and the hit test agrees with the drawing — a \
+                 row scrolled out of a list is neither visible nor clickable. \
+                 Applies to UI drawing, which is what a control's rectangle \
+                 measures; a world-space node parented into the UI tree is not \
+                 clipped by it.",
+            ),
         ];
         props.extend(extra);
         props

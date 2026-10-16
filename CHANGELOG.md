@@ -43,6 +43,58 @@ run that *does* rebind now hashes differently from the same run before this
 change, which is the point of the fix. **Input log: no format change**;
 `LOG_VERSION` stays 1 and the rows use the `bind` lines G53 already wrote.
 
+### Added: a control can clip what is inside it
+
+G64. The renderer had no clip rectangle of any kind, so anything that
+overflowed its control overflowed onto the screen: a caption wider than its
+button, a list longer than its viewport. `docs/ENGINE-GAPS.md` declined scroll
+containers and then singled this out as the piece worth reconsidering —
+"a renderer capability a game genuinely cannot build from Lua ... a small,
+bounded thing with no layout policy in it". It came back, and it is built.
+
+```toml
+[[node]]
+kind = "Panel"
+name = "View"
+clip_children = true
+```
+
+Descendants are drawn and clicked only inside that control's rectangle, and
+nested clips intersect — a row inside a scrolled list inside a dialog is held
+to the part of the list that is inside the dialog. **The hit test agrees with
+the drawing**, which is the whole point: a row scrolled out of the top of a
+list is neither visible nor clickable, and a click where it used to be falls
+through. The same disagreement about a *hidden* panel once meant a click in the
+middle of the board landed on a row nobody could see, so the clip chain has one
+door, `ui::clips`, that the renderer and the hit test both read.
+
+This is the half of a scroll container a game cannot build for itself. The
+offset already worked — a `VBox`'s `offset_top` is an ordinary control
+property, so it is in the hashed state and replays — and what was missing was
+somewhere for the drawing to stop. A `ScrollContainer` node is still declined.
+
+Implemented by cutting the quad and its UV on the CPU rather than setting a
+scissor rectangle. A scissor has to be set per draw call, so every distinct
+clip would break the batch and a scrollable list would cost a draw call per
+nesting level; every UI quad is axis-aligned and unrotated, so the cut is
+pixel-identical, keeps the clipped list in one batch, needs no change to the
+GPU backend, and can be tested on a machine with no graphics hardware.
+
+The limit, stated plainly: the rectangle is in canvas pixels, so it bounds UI
+drawing — controls, their textures and labels inside the UI tree. A world-space
+node parented into a clipping control still draws at its world position and is
+not clipped.
+
+**Hash: moves no recorded hash.** `clip_children` carries no declared default,
+deliberately: a declared default is materialised into every node's props at
+parse and every prop is hashed, so giving this one would have changed the hash
+of every scene with a control in it. Absent reads as false, which is what every
+scene written until now means, and a test asserts that a scene asking for
+nothing is clipped by nothing. A scene that *does* clip can move a hash, in
+exactly one way and only for that scene: `ui.hovered` names what a clipped-away
+control no longer takes. That is the same narrow movement G56 had, and it is the
+fix rather than a side effect. **Input log: no format change.**
+
 ### Added: a script can read the mouse wheel
 
 G61. `PlayerInput` carried buttons, a stick, an aim and a pointer, and nothing

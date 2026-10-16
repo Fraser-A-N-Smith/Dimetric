@@ -121,6 +121,7 @@ A control that reacts to the pointer. Its caption is a Label child.
 | `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
 | `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
 | `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `clip_children` | `bool` | — | Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it. |
 | `state` | `int` | `0` | Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect. |
 | `modulate` | `color` | `"#303040ff"` | Fill colour when idle. |
 | `modulate_hover` | `color` | `"#00000000"` | Fill when hovered. Transparent means lighten the fill. |
@@ -171,6 +172,7 @@ A rectangle in UI space, positioned by anchors and offsets. Draws nothing itself
 | `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
 | `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
 | `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `clip_children` | `bool` | — | Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it. |
 | `state` | `int` | `0` | Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect. |
 
 ### `HBox`
@@ -189,6 +191,7 @@ Stacks its control children left to right. A child keeps its own width and fills
 | `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
 | `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
 | `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `clip_children` | `bool` | — | Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it. |
 | `spacing` | `scalar` | `0.0` | Pixels between one child and the next. |
 | `padding` | `scalar` | `0.0` | Pixels between the container's edge and its children. |
 
@@ -252,6 +255,7 @@ A control filled with a colour.
 | `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
 | `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
 | `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `clip_children` | `bool` | — | Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it. |
 | `state` | `int` | `0` | Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect. |
 | `modulate` | `color` | `"#000000a0"` | Fill colour. |
 
@@ -301,6 +305,7 @@ A control that draws a texture at its own rectangle.
 | `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
 | `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
 | `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `clip_children` | `bool` | — | Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it. |
 | `state` | `int` | `0` | Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect. |
 | `texture` | `asset-ref` | **required** | Texture to draw. |
 | `region` | `rect` | — | Sub-rectangle of the texture, in pixels. Whole texture when absent. |
@@ -341,6 +346,7 @@ Stacks its control children top to bottom. A child keeps its own height and fill
 | `offset_bottom` | `scalar` | `0.0` | Pixels from the bottom anchor. |
 | `catches_input` | `bool` | `true` | Whether a pointer over this control hits it. False makes it scenery. |
 | `focusable` | `bool` | `false` | Whether keyboard or pad focus can land on this control. |
+| `clip_children` | `bool` | — | Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it. |
 | `spacing` | `scalar` | `0.0` | Pixels between one child and the next. |
 | `padding` | `scalar` | `0.0` | Pixels between the container's edge and its children. |
 
@@ -1355,6 +1361,43 @@ Focus is tracked, not driven. `ui.focus_next(step)` walks the focusable
 controls in tree order, and *which key* walks a menu is the game's decision —
 binding it here would mean the engine deciding that pressing Down in a menu
 can never also move the player.
+
+#### Clipping
+
+`clip_children = true` on any control confines its descendants to its own
+rectangle. Nested clips intersect, so a row inside a scrolled list inside a
+dialog is held to the part of the list that is inside the dialog.
+
+```toml
+[[node]]
+id = "n_view0000"
+kind = "Panel"
+name = "View"
+clip_children = true
+```
+
+**The hit test agrees with the drawing.** A row scrolled out of the top of a
+list is neither visible nor clickable, and a click where it used to be falls
+through to whatever is behind. That agreement is the whole point: the same
+disagreement about a *hidden* panel once meant a click in the middle of the
+board landed on a row nobody could see, so there is one door —
+`dimetric_scene::ui::clips` — that the renderer and the hit test both read.
+
+This is the piece of a scroll container that a game cannot build for itself.
+The scroll *offset* already works: a `VBox`'s `offset_top` is an ordinary
+control property, so it is in the hashed state and replays. What was missing
+was somewhere for the drawing to stop. A `ScrollContainer` node is still
+declined, for the reason `docs/ENGINE-GAPS.md` gives — a clip says where
+drawing stops, a container says where children go, and the second is layout
+policy.
+
+**It bounds UI drawing.** The rectangle is in canvas pixels, so it applies to
+controls, their textures and labels inside the UI tree. A world-space node
+parented into a clipping control still draws at its world position under the
+camera's projection and is not clipped by it.
+
+A control's own flag never clips the control itself, only what is inside it —
+a panel clipped to its own rectangle would be a no-op at best.
 
 ### A table read back from script state is a copy
 

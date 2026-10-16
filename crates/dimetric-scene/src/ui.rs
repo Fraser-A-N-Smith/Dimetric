@@ -200,6 +200,78 @@ fn rect_of(node: &crate::node::Node, parent: Rect) -> Rect {
     }
 }
 
+/// Which rectangle each node is confined to, where something confines it.
+///
+/// Keyed by node, and an entry only where an ancestor actually clips — so a UI
+/// that uses no clipping produces an empty map and pays nothing. The value is
+/// the intersection of every clipping ancestor's rectangle, which is what makes
+/// nested clips nest: a row inside a scrolled list inside a dialog is confined
+/// to the part of the list that is inside the dialog.
+pub type Clips = BTreeMap<NodeId, Rect>;
+/// Work out what clips what.
+///
+/// # Why this is a second map and not a field on the layout
+///
+/// Because the renderer and the hit test both need it and must not compute it
+/// separately. That is the lesson of the hidden-panel bug: the UI hit test read
+/// a control's own `visible` where the renderer walked every ancestor, the two
+/// disagreed, and a click landed on a row nobody could see. [`Scene::is_visible`]
+/// is now the only place that chain is walked, and this is the same door for
+/// this chain.
+///
+/// A node's own `clip_children` does **not** clip the node — it clips what is
+/// inside it. A panel that clipped itself to itself would be a no-op on a good
+/// day and a vanished panel on a bad one.
+///
+/// Every node is considered, not only controls: a `Label` parented into the UI
+/// tree is drawn by the UI pass and is not a control, and a caption that
+/// overflowed the button it belongs to is exactly what a clip is for.
+pub fn clips(scene: &Scene, layout: &Layout) -> Clips {
+    let mut out: Clips = BTreeMap::new();
+    // Depth-first, so a parent's answer is already in `out` when its children
+    // are reached. The same property `layout` relies on.
+    for id in scene.walk() {
+        let Some(node) = scene.get(id) else { continue };
+        let Some(parent_id) = node.parent() else {
+            continue;
+        };
+        // What the parent was already confined to, and what the parent itself
+        // adds by asking for its children to be clipped.
+        let inherited = out.get(&parent_id).copied();
+        let added = match scene.get(parent_id).is_some_and(clips_children) {
+            true => layout.get(&parent_id).copied(),
+            false => None,
+        };
+        let confined = match (inherited, added) {
+            (Some(outer), Some(inner)) => {
+                // No overlap at all is an empty rectangle rather than no
+                // entry: nothing inside is visible, and "no entry" would mean
+                // the opposite.
+                Some(outer.intersection(inner).unwrap_or(Rect {
+                    pos: outer.pos,
+                    size: Vec2Fx::ZERO,
+                }))
+            }
+            (Some(only), None) | (None, Some(only)) => Some(only),
+            (None, None) => None,
+        };
+        if let Some(rect) = confined {
+            out.insert(id, rect);
+        }
+    }
+    out
+}
+
+/// Whether this node confines its descendants to its own rectangle.
+///
+/// Absent reads as false, which is what every scene written before clipping
+/// existed means — and is why the property carries no declared default.
+fn clips_children(node: &crate::node::Node) -> bool {
+    node.get("clip_children")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 /// The topmost control containing a point, if any.
 ///
 /// Later siblings sit on top of earlier ones — the same order they draw in —
@@ -220,7 +292,23 @@ fn rect_of(node: &crate::node::Node, parent: Rect) -> Rect {
 ///
 /// [`Scene::is_visible`] is now the only place that chain is walked, so the
 /// renderer and this cannot drift apart again.
+///
+/// # Clipped means unclickable, too
+///
+/// A control confined by a clipping ancestor is hit only within the part of it
+/// that is actually inside — so a row scrolled out of the top of a list is
+/// neither drawn nor clickable. This is the same agreement the visibility rule
+/// needed and the same bug if it is missing: a row the player cannot see
+/// taking the click meant for the board behind it.
 pub fn hit(scene: &Scene, layout: &Layout, point: Vec2Fx) -> Option<NodeId> {
+    hit_clipped(scene, layout, &clips(scene, layout), point)
+}
+
+/// [`hit`], with the clip map already worked out.
+///
+/// For a caller that has one — the simulation lays out and clips once per tick
+/// and would otherwise walk the tree twice for the same answer.
+pub fn hit_clipped(scene: &Scene, layout: &Layout, clips: &Clips, point: Vec2Fx) -> Option<NodeId> {
     let mut found = None;
     for id in scene.walk() {
         let Some(rect) = layout.get(&id) else {
@@ -236,7 +324,16 @@ pub fn hit(scene: &Scene, layout: &Layout, point: Vec2Fx) -> Option<NodeId> {
             .get("catches_input")
             .and_then(Value::as_bool)
             .unwrap_or(true);
-        if catches && rect.contains(point) {
+        // Only the part of it that is inside whatever clips it. A control
+        // clipped away to nothing is hit nowhere.
+        let reachable = match clips.get(&id) {
+            Some(clip) => match rect.intersection(*clip) {
+                Some(visible) => visible,
+                None => continue,
+            },
+            None => *rect,
+        };
+        if catches && reachable.contains(point) {
             found = Some(id);
         }
     }

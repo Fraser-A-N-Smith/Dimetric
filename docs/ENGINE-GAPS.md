@@ -206,6 +206,26 @@ genuinely cannot build from Lua: a scroll offset is already expressible today
 is actually missing from a scrollable list is a scissor rect. That is a small,
 bounded thing with no layout policy in it. A `ScrollContainer` node is not.
 
+It came back, and it was built: `clip_children = true` on any control. The
+prediction above held — it is one boolean, one map in `ui::clips`, and a trim in
+extraction, with no layout policy and no new node kind. The containers are still
+declined, and the distinction is the same one: a clip says *where drawing stops*
+and a container says *where children go*.
+
+What actually ships differs from the scissor rect in one way worth recording.
+A scissor has to be set per draw call, so every distinct clip in a frame would
+break the batch and a scrollable list would cost a draw call per nesting level.
+Every UI quad is axis-aligned and unrotated, so the quad and its UV are cut on
+the CPU instead: pixel-identical output, the whole clipped list in one batch, no
+change to the GPU backend, and testable on a machine with no graphics hardware,
+which the scissor would not have been.
+
+The limit, stated plainly: a clip rectangle is in canvas pixels, so it bounds UI
+drawing — controls, their textures, and labels inside the UI tree. A world-space
+node parented into a clipping control still draws at its world position under
+the camera's projection, and is not clipped. Clipping world drawing to a screen
+rectangle is a different feature and nothing has asked for it.
+
 ## Open: probably game-specific
 
 **No way for one script to call a function on another.** Damage is written into

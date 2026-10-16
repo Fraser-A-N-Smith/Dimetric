@@ -194,6 +194,11 @@ pub fn extract_at(
     // three buttons, which is exactly that bug.
     //
     // Depth-first also puts a caption after the button it sits on, for free.
+    //
+    // The clip map is built alongside, from the same layout, because the hit
+    // test reads the same one — see `dimetric_scene::ui::clips`. It is empty
+    // for a UI that clips nothing, which is most of them.
+    let ui_clips = dimetric_scene::ui::clips(scene, &ui_layout);
     let mut ui = Vec::new();
     for (order, id) in scene.walk().into_iter().enumerate() {
         let Some(node) = scene.get(id) else { continue };
@@ -201,6 +206,10 @@ pub fn extract_at(
             continue;
         }
         let depth = Fx::from_int(order as i32);
+        // Whatever confines this node, before anything is drawn for it, so
+        // every producer below is trimmed the same way without knowing.
+        let clip = ui_clips.get(&id).copied();
+        let first = ui.len();
         if let Some(rect) = ui_layout.get(&id) {
             match node.kind.as_str() {
                 "Panel" | "Button" => panel(node, *rect, depth, atlas, &mut ui),
@@ -212,14 +221,15 @@ pub fn extract_at(
                 "TextureRect" => texture_rect(node, *rect, depth, atlas, &mut ui),
                 _ => {}
             }
-            continue;
-        }
-        // A label parented into the UI tree draws in canvas pixels, from its
-        // parent control's top-left corner.
-        if node.base == "Label" {
+        } else if node.base == "Label" {
+            // A label parented into the UI tree draws in canvas pixels, from
+            // its parent control's top-left corner.
             if let Some(parent) = node.parent().and_then(|p| ui_layout.get(&p)) {
                 label(node, parent.pos, depth, atlas, &mut ui);
             }
+        }
+        if let Some(clip) = clip {
+            clip_items(&mut ui, first, clip);
         }
     }
     let ui_batches = crate::batch::build(&mut ui);
@@ -246,6 +256,73 @@ pub fn extract_at(
         canvas,
         camera: *camera,
     }
+}
+
+/// Trim items added to `out` from `first` onward to a clip rectangle.
+///
+/// # Why the quad is cut rather than a scissor set
+///
+/// A scissor rectangle is the obvious answer and is what `docs/ENGINE-GAPS.md`
+/// asked for, but it has to be set per draw call — so every distinct clip in a
+/// frame breaks the batch, and a scrollable list of a hundred rows would cost a
+/// draw call per nesting level instead of none. Every UI quad is axis-aligned
+/// and unrotated (a panel, a texture rectangle and a glyph all pass
+/// `Angle::ZERO`), so cutting the quad and its UV on the CPU gives pixel-identical
+/// output, keeps the whole clipped list in one batch, needs no change to the GPU
+/// backend at all, and — the part that matters most here — can be tested on a
+/// machine with no graphics hardware, which is what the rest of this module is
+/// for.
+///
+/// An item entirely outside is dropped. One straddling an edge keeps the part
+/// inside, with its UV interpolated by exactly the fraction that was trimmed,
+/// so half a glyph is half a glyph and not a squashed whole one.
+fn clip_items(out: &mut Vec<DrawItem>, first: usize, clip: Rect) {
+    let mut write = first;
+    for read in first..out.len() {
+        let item = out[read];
+        // A glyph's position is the label's origin plus a typographic advance
+        // that the shader adds after projection; in the UI pass the canvas
+        // projection is a scale and a translate, so the two add up to where it
+        // actually lands. A panel's offset is zero and this is its centre.
+        let center = item.pos + item.screen_offset;
+        let rect = Rect::from_center(center, item.size / Fx::from_int(2));
+        let Some(kept) = rect.intersection(clip) else {
+            continue;
+        };
+        if kept.size.x <= Fx::ZERO || kept.size.y <= Fx::ZERO {
+            continue;
+        }
+        let mut item = item;
+        if kept != rect {
+            // How much came off each edge, as a fraction of the original. The
+            // divisions are by the item's own extent, which is non-zero here
+            // because an empty quad was dropped above.
+            let frac = |cut: Fx, whole: Fx| cut.to_f64() / whole.to_f64();
+            let left = frac(kept.min().x - rect.min().x, rect.size.x) as f32;
+            let right = frac(rect.max().x - kept.max().x, rect.size.x) as f32;
+            let top = frac(kept.min().y - rect.min().y, rect.size.y) as f32;
+            let bottom = frac(rect.max().y - kept.max().y, rect.size.y) as f32;
+            let [u0, v0, u1, v1] = item.uv;
+            // Interpolated between the two edges rather than offset from one,
+            // so a flipped item — whose u_min is greater than its u_max — is
+            // trimmed on the side the player sees trimmed.
+            let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+            item.uv = [
+                lerp(u0, u1, left),
+                lerp(v0, v1, top),
+                lerp(u1, u0, right),
+                lerp(v1, v0, bottom),
+            ];
+            item.size = kept.size;
+            // The centre moves by half of whatever was asymmetric about the
+            // trim. Written as "the kept centre, less the offset the shader
+            // will add back" so a glyph keeps its advance.
+            item.pos = kept.center() - item.screen_offset;
+        }
+        out[write] = item;
+        write += 1;
+    }
+    out.truncate(write);
 }
 
 /// Scale a colour's channels by `num/den`, keeping its alpha.

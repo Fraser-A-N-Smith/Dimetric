@@ -28,7 +28,7 @@
 //! the tick it started in.
 
 use dimetric_core::{HashState, NodeUid, StateHasher, Vec2Fx};
-use dimetric_scene::ui::{hit, layout, Canvas};
+use dimetric_scene::ui::{clips, hit_clipped, layout, Canvas};
 use dimetric_scene::{Scene, Value};
 
 use crate::input::{buttons, InputFrame};
@@ -128,7 +128,13 @@ pub fn update(
     let before = previous.player(0);
 
     let rects = layout(scene_mut, canvas);
-    let over = hit(scene_mut, &rects, now.pointer);
+    // Clipped out is unclickable, and through the same map the renderer trims
+    // its draw items with: a row scrolled out of a list must be neither
+    // visible nor clickable, which is the agreement the hidden-panel bug was
+    // about. Computed here and handed in rather than left to `hit` to work out
+    // for itself, so an idle tick walks the tree once for this and not twice.
+    let clipped = clips(scene_mut, &rects);
+    let over = hit_clipped(scene_mut, &rects, &clipped, now.pointer);
     ui.hovered = over.and_then(|id| scene_mut.get(id)).map(|n| n.uid);
     ui.captured = over.is_some();
 

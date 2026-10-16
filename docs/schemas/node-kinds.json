@@ -234,6 +234,13 @@
           "type": "bool"
         },
         {
+          "default": null,
+          "doc": "Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it.",
+          "name": "clip_children",
+          "required": false,
+          "type": "bool"
+        },
+        {
           "default": "0",
           "doc": "Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect.",
           "name": "state",
@@ -455,6 +462,13 @@
           "type": "bool"
         },
         {
+          "default": null,
+          "doc": "Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it.",
+          "name": "clip_children",
+          "required": false,
+          "type": "bool"
+        },
+        {
           "default": "0",
           "doc": "Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect.",
           "name": "state",
@@ -534,6 +548,13 @@
           "default": "false",
           "doc": "Whether keyboard or pad focus can land on this control.",
           "name": "focusable",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": null,
+          "doc": "Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it.",
+          "name": "clip_children",
           "required": false,
           "type": "bool"
         },
@@ -735,6 +756,13 @@
           "default": "false",
           "doc": "Whether keyboard or pad focus can land on this control.",
           "name": "focusable",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": null,
+          "doc": "Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it.",
+          "name": "clip_children",
           "required": false,
           "type": "bool"
         },
@@ -953,6 +981,13 @@
           "type": "bool"
         },
         {
+          "default": null,
+          "doc": "Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it.",
+          "name": "clip_children",
+          "required": false,
+          "type": "bool"
+        },
+        {
           "default": "0",
           "doc": "Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect.",
           "name": "state",
@@ -1143,6 +1178,13 @@
           "default": "false",
           "doc": "Whether keyboard or pad focus can land on this control.",
           "name": "focusable",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": null,
+          "doc": "Whether descendants are drawn and clicked only inside this control's rectangle. Absent and false both clip nothing. Nested clips intersect, and the hit test agrees with the drawing — a row scrolled out of a list is neither visible nor clickable. Applies to UI drawing, which is what a control's rectangle measures; a world-space node parented into the UI tree is not clipped by it.",
+          "name": "clip_children",
           "required": false,
           "type": "bool"
         },

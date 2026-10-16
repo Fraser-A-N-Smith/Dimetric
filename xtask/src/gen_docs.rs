@@ -1064,6 +1064,36 @@ fn render_markdown(
          controls in tree order, and *which key* walks a menu is the game\'s decision —\n\
          binding it here would mean the engine deciding that pressing Down in a menu\n\
          can never also move the player.\n\n\
+         #### Clipping\n\n\
+         `clip_children = true` on any control confines its descendants to its own\n\
+         rectangle. Nested clips intersect, so a row inside a scrolled list inside a\n\
+         dialog is held to the part of the list that is inside the dialog.\n\n\
+         ```toml\n\
+         [[node]]\n\
+         id = \"n_view0000\"\n\
+         kind = \"Panel\"\n\
+         name = \"View\"\n\
+         clip_children = true\n\
+         ```\n\n\
+         **The hit test agrees with the drawing.** A row scrolled out of the top of a\n\
+         list is neither visible nor clickable, and a click where it used to be falls\n\
+         through to whatever is behind. That agreement is the whole point: the same\n\
+         disagreement about a *hidden* panel once meant a click in the middle of the\n\
+         board landed on a row nobody could see, so there is one door —\n\
+         `dimetric_scene::ui::clips` — that the renderer and the hit test both read.\n\n\
+         This is the piece of a scroll container that a game cannot build for itself.\n\
+         The scroll *offset* already works: a `VBox`\'s `offset_top` is an ordinary\n\
+         control property, so it is in the hashed state and replays. What was missing\n\
+         was somewhere for the drawing to stop. A `ScrollContainer` node is still\n\
+         declined, for the reason `docs/ENGINE-GAPS.md` gives — a clip says where\n\
+         drawing stops, a container says where children go, and the second is layout\n\
+         policy.\n\n\
+         **It bounds UI drawing.** The rectangle is in canvas pixels, so it applies to\n\
+         controls, their textures and labels inside the UI tree. A world-space node\n\
+         parented into a clipping control still draws at its world position under the\n\
+         camera\'s projection and is not clipped by it.\n\n\
+         A control\'s own flag never clips the control itself, only what is inside it —\n\
+         a panel clipped to its own rectangle would be a no-op at best.\n\n\
          ### A table read back from script state is a copy\n\n\
          A script variable holding a table is converted to a *fresh* Lua table on every\n\
          read. So this does nothing:\n\n\
