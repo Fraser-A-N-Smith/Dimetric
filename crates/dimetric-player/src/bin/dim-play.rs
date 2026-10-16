@@ -12,7 +12,7 @@ use dimetric_host::Project;
 use dimetric_player::{Bindings, Clock, Held, Session, SessionConfig};
 use dimetric_render::{Renderer, Target};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
@@ -374,7 +374,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut capture,
                 &mut session,
             );
-            let input = held.player_input();
+            let input = held.take_player_input();
             session.step(&mut project, input);
             press_scripted(
                 tick,
@@ -588,6 +588,25 @@ impl ApplicationHandler for App {
                 // I3-exempt: a cursor position is a render-boundary quantity.
                 self.cursor = (position.x as f32, position.y as f32);
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                // Vertical only, and positive away from the player, which is
+                // the sign both of winit's shapes already use. A horizontal
+                // wheel is not carried: a second axis is a second field in
+                // every frame and every log line, and nothing has asked.
+                //
+                // I3-exempt: this is the input boundary, where the platform's
+                // floats arrive. `turn_wheel_by` keeps the remainder and only
+                // whole notches reach a frame.
+                let notches = match delta {
+                    MouseScrollDelta::LineDelta(_, lines) => lines,
+                    // A trackpad, or a wheel the platform reports precisely.
+                    // The divisor is the line height every toolkit uses for
+                    // this; it is a feel constant, not a measurement, and it
+                    // never reaches the simulation.
+                    MouseScrollDelta::PixelDelta(position) => position.y as f32 / 120.0,
+                };
+                self.held.turn_wheel_by(notches);
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 let name = match button {
                     MouseButton::Left => "Mouse0",
@@ -738,7 +757,7 @@ impl App {
                     self.window_size(),
                     self.session.canvas(),
                 ));
-                let input = self.held.player_input();
+                let input = self.held.take_player_input();
                 self.session.step(&mut self.project, input);
                 // Between ticks, like a scene load: the tick finished over the
                 // state it started with and the host acts afterwards (I8). A

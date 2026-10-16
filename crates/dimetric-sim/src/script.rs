@@ -1894,6 +1894,25 @@ fn install_api(
             .map_err(err)?,
         )
         .map_err(err)?;
+    // Whole wheel notches since the last tick, positive away from the player.
+    // Out of the frame for the same reason the device is: a wheel moves what a
+    // label shows — a zoom level, a selected unit's name — and a label is
+    // hashed, so a wheel read from beside the frame would make that text
+    // depend on something a recording does not carry.
+    //
+    // Not an action. A notch has no duration, so there is nothing `input.held`
+    // could answer about one; a game that wants a verb reads the sign.
+    input
+        .set(
+            "wheel",
+            lua.create_function(|lua, player: Option<u32>| {
+                let state = shared(lua)?;
+                let state = state.borrow();
+                Ok(state.input.player(player.unwrap_or(0) as usize).wheel)
+            })
+            .map_err(err)?,
+        )
+        .map_err(err)?;
     // What a Controls page needs that `input.*` could not say.
     //
     // A key bound to nothing never reaches a script and a key bound to

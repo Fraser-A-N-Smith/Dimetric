@@ -9,6 +9,7 @@ use dimetric_core::{Angle, Vec2Fx};
 use dimetric_player::bindings::{quantize_stick, Action, Held, STICK_DEAD_ZONE};
 use dimetric_player::pad::window_to_canvas;
 use dimetric_scene::ui::Canvas;
+use dimetric_sim::input::Device;
 
 #[test]
 fn a_resting_stick_reads_as_exactly_centred() {
@@ -296,4 +297,120 @@ fn a_project_can_deliberately_bind_nothing() {
     assert!(problems.is_empty());
     assert_eq!(bindings.action("KeyW"), None);
     assert_eq!(bindings.pairs().count(), 0);
+}
+
+#[test]
+fn whole_wheel_notches_reach_the_frame_and_are_consumed_by_it() {
+    // The wheel is "notches since the last tick", so a frame has to take them.
+    // A frame that left them behind would hand the same notch to every tick
+    // until the player scrolled again, and a camera bound to it would never
+    // stop zooming.
+    let mut held = Held::new();
+    assert_eq!(held.player_input().wheel, 0);
+
+    held.turn_wheel(1);
+    held.turn_wheel(2);
+    assert_eq!(
+        held.player_input().wheel,
+        3,
+        "notches between two ticks add up rather than the last one winning"
+    );
+    assert_eq!(held.take_player_input().wheel, 3);
+    assert_eq!(
+        held.take_player_input().wheel,
+        0,
+        "and the next tick starts from a still wheel"
+    );
+
+    held.turn_wheel(-2);
+    assert_eq!(held.take_player_input().wheel, -2, "either direction");
+}
+
+#[test]
+fn turning_the_wheel_says_the_mouse_did_something() {
+    let mut held = Held::new();
+    assert_eq!(held.player_input().device, Device::Keyboard);
+    held.turn_wheel(1);
+    assert_eq!(held.player_input().device, Device::Mouse);
+
+    // But a platform reporting a zero delta is not somebody's hand moving. A
+    // wheel that pinned the device on `mouse` for ever would starve a pad
+    // player of pad prompts, which is the bug `point_at` and `push_stick`
+    // already guard against.
+    let mut still = Held::new();
+    still.turn_wheel(0);
+    still.turn_wheel_by(0.0);
+    assert_eq!(still.player_input().device, Device::Keyboard);
+}
+
+#[test]
+fn a_trackpads_fractions_add_up_to_notches_and_lose_nothing() {
+    // A mouse reports whole lines; a trackpad reports pixels and a precise
+    // wheel reports fractions. Rounding each event would either invent notches
+    // nobody turned or swallow a slow scroll entirely, so the remainder is
+    // carried.
+    let mut held = Held::new();
+    for _ in 0..3 {
+        held.turn_wheel_by(0.3);
+    }
+    assert_eq!(
+        held.player_input().wheel,
+        0,
+        "nine tenths of a notch is not a notch"
+    );
+    held.turn_wheel_by(0.3);
+    assert_eq!(
+        held.take_player_input().wheel,
+        1,
+        "and the tenth tenth is, so a slow scroll is not lost"
+    );
+
+    // Nor doubled: the fraction left over is one fifth, not six fifths.
+    for _ in 0..3 {
+        held.turn_wheel_by(0.3);
+    }
+    assert_eq!(held.take_player_input().wheel, 1);
+
+    // A big delta is several notches at once, which is what a fast flick is.
+    // On a fresh wheel, because the one above is still owed a tenth of a notch
+    // -- which is the whole point of carrying the remainder, and would make
+    // the arithmetic here about two things at once.
+    let mut flick = Held::new();
+    flick.turn_wheel_by(-3.5);
+    assert_eq!(flick.take_player_input().wheel, -3);
+    flick.turn_wheel_by(-0.5);
+    assert_eq!(
+        flick.take_player_input().wheel,
+        -1,
+        "and the halves meet, in the same direction"
+    );
+}
+
+#[test]
+fn a_nonsense_delta_is_ignored_rather_than_poisoning_the_count() {
+    // A platform that reports a NaN would otherwise make every later notch
+    // NaN, and the cast of that into an integer is a number nobody chose.
+    let mut held = Held::new();
+    held.turn_wheel_by(f32::NAN);
+    held.turn_wheel_by(f32::INFINITY);
+    held.turn_wheel_by(1.0);
+    assert_eq!(held.take_player_input().wheel, 1);
+}
+
+#[test]
+fn losing_focus_drops_a_notch_nobody_will_see() {
+    // A notch turned at the moment somebody alt-tabs belongs to the window
+    // they left. Holding it for their return would scroll the game on the
+    // frame it regains focus, which is the same reason held keys are released.
+    let mut held = Held::new();
+    held.turn_wheel(2);
+    held.turn_wheel_by(0.5);
+    held.release_all();
+    assert_eq!(held.take_player_input().wheel, 0);
+    held.turn_wheel_by(0.5);
+    assert_eq!(
+        held.take_player_input().wheel,
+        0,
+        "and the half-notch went with it, so the first notch back needs a full turn"
+    );
 }

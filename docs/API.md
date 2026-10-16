@@ -474,7 +474,7 @@ Scripts see exactly these globals and nothing else.
 | Global | What it gives you |
 |---|---|
 | `scene` | `find(path)`, `by_id(id)`, `tagged(tag)`, `near(at, radius, tag)`, `nearest(at, radius, tag)`, `spawn(prefab, at, parent)`, `request_load(path, carry)`, `carry()` |
-| `input` | `move()`, `aim()`, `aim_vector()`, `held(action)`, `pressed(action)`, `released(action)` — the engine's five buttons plus whatever `[input] actions` declared — and `device()`, which is "keyboard", "mouse" or "pad" |
+| `input` | `move()`, `aim()`, `aim_vector()`, `held(action)`, `pressed(action)`, `released(action)` — the engine's five buttons plus whatever `[input] actions` declared — `device()`, which is "keyboard", "mouse" or "pad", and `wheel()`, whole mouse wheel notches since the last tick, positive away from the player and 0 when it did not turn |
 | `tiles` | `get(layer, x, y)`, `set(layer, x, y, tile)`, `fill(layer, x, y, w, h, tile)`, `bounds(layer)` — writes land at the end of the tick |
 | `ui` | `hovered(node)`, `pressed(node)`, `clicked(node)`, `captured()`, `pointer()`, `focused()`, `focus(node)` — returns false for a control nothing can see — `focus_next(step)`, `rect(node)`, `measure(font, text)` |
 | `event` | `emit(kind, payload)` — tells the host something. Drained by the runtime, **never** hashed |
@@ -819,6 +819,7 @@ the hand on the device.
 ```lua
 app.today()      -- "2026-10-10", UTC, fixed for the whole session
 input.device()   -- "keyboard", "mouse" or "pad", whichever last moved
+input.wheel()    -- whole notches since the last tick, 0 when still
 ```
 
 Both are **in the recording**, which is what makes them safe. A title screen
@@ -841,6 +842,32 @@ everywhere.
 For the daily seed itself, `rng.seed(stream, n)` is the one to use rather
 than `rng.reset`: a date-derived seed should not depend on the build's boot
 seed.
+
+**The wheel** is the third of these and arrived last. `Device::Mouse` always
+meant "a move, a button or a wheel", so a turn of it marked the device and
+was then thrown away: the one piece of mouse input with nowhere to go. It is
+in the frame for the same reason the other two are — a wheel moves a zoom
+level or a selected unit's name, and that is text in a `Label` — and it is a
+column in the log's frames, omitted when the wheel did not turn.
+
+Whole **notches**, positive away from the player, and that matters. A mouse
+reports lines, a trackpad reports pixels, and both report floats at whatever
+resolution the platform likes; passing that through would put a host's scroll
+settings into the simulation and break I3 on the way in. The runtime
+accumulates the fractions and hands over integers, so a slow trackpad scroll
+eventually becomes one notch rather than being rounded away, and a fast flick
+is several rather than one. `input.wheel()` is per-tick, so several notches
+between two ticks add up instead of the last one winning.
+
+A notch is **not** a bindable action. `WheelUp` and `WheelDown` were offered
+and are not here: an action is held and released, and a notch has no
+duration, so there would be nothing for `input.held` to answer about one and
+the engine would owe a new rule about how long a wheel press lasts. A game
+that wants a verb reads the sign, which is as expressive and invents
+nothing.
+
+There is no horizontal wheel. A second axis is a second field in every frame
+and a second column in every log line, and nothing has asked for one.
 
 ### A different run each launch
 

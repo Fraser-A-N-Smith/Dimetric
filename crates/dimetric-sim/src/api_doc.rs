@@ -36,8 +36,10 @@ pub const GLOBALS: &[Global] = &[
         name: "input",
         about: "`move()`, `aim()`, `aim_vector()`, `held(action)`, `pressed(action)`, \
                 `released(action)` — the engine's five buttons plus whatever \
-                `[input] actions` declared — and `device()`, which is \
-                \"keyboard\", \"mouse\" or \"pad\"",
+                `[input] actions` declared — `device()`, which is \
+                \"keyboard\", \"mouse\" or \"pad\", and `wheel()`, whole mouse \
+                wheel notches since the last tick, positive away from the \
+                player and 0 when it did not turn",
     },
     Global {
         name: "tiles",

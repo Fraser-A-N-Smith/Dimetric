@@ -43,6 +43,48 @@ run that *does* rebind now hashes differently from the same run before this
 change, which is the point of the fix. **Input log: no format change**;
 `LOG_VERSION` stays 1 and the rows use the `bind` lines G53 already wrote.
 
+### Added: a script can read the mouse wheel
+
+G61. `PlayerInput` carried buttons, a stick, an aim and a pointer, and nothing
+of the wheel — while `Device::Mouse` was documented as "a move, a button or a
+wheel", so a turn of it marked the device and was then thrown away. It was the
+one piece of mouse input with nowhere to go, and a zoom control, a
+selected-unit cycle and a scrollable list all want it.
+
+```lua
+input.wheel()        -- whole notches since the last tick, 0 when still
+input.wheel(player)  -- as every other input reader takes a player
+```
+
+Positive away from the player. Whole **notches**, not a platform delta: a mouse
+reports lines, a trackpad reports pixels, and both report floats at whatever
+resolution the platform likes, so passing that through would put a host's
+scroll settings into the simulation and break I3 on the way in. The runtime
+accumulates the fractions and hands over integers, which means a slow trackpad
+scroll eventually becomes one notch rather than being rounded away, and a fast
+flick is several rather than one. Several notches between two ticks add up
+instead of the last one winning.
+
+`WheelUp` and `WheelDown` as bindable names were offered and are **not** here;
+`docs/ENGINE-GAPS.md` says why. An action is held and released and a notch has
+no duration, so the engine would owe a new rule about how long a wheel press
+lasts. A game that wants a verb reads the sign. There is no horizontal wheel
+either, for want of anybody asking.
+
+**Hash: moves no recorded hash.** The wheel contributes nothing when it is
+zero, which is the rule `device` already follows and is what a still wheel
+means in every frame of every log written until now. A run that *does* scroll
+hashes differently from one that does not, and it must: the wheel moves what a
+label shows.
+
+**Input log: the format gains an optional column, and `LOG_VERSION` stays 1.**
+A turned wheel writes ` w3` or ` w-1` after the player's other columns,
+omitted entirely when it did not turn — so every log already written is
+byte-for-byte what it was, and an older log reads as a still wheel, which is
+what it was. The `w` sigil does the job the device's colon does: columns are
+positional and interleaved per player, so a bare trailing number would be read
+as the next player's buttons, and `w` is not a hex digit.
+
 ### Added: a run can be written out without stopping
 
 G62. `app.suspend()` was the only way to put a run on disk and it quits, so a

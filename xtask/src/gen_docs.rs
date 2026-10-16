@@ -605,6 +605,7 @@ fn render_markdown(
          ```lua\n\
          app.today()      -- \"2026-10-10\", UTC, fixed for the whole session\n\
          input.device()   -- \"keyboard\", \"mouse\" or \"pad\", whichever last moved\n\
+         input.wheel()    -- whole notches since the last tick, 0 when still\n\
          ```\n\n\
          Both are **in the recording**, which is what makes them safe. A title screen\n\
          offering today's descent writes the date into a label and picks a seed from\n\
@@ -624,6 +625,28 @@ fn render_markdown(
          For the daily seed itself, `rng.seed(stream, n)` is the one to use rather\n\
          than `rng.reset`: a date-derived seed should not depend on the build's boot\n\
          seed.\n\n\
+         **The wheel** is the third of these and arrived last. `Device::Mouse` always\n\
+         meant \"a move, a button or a wheel\", so a turn of it marked the device and\n\
+         was then thrown away: the one piece of mouse input with nowhere to go. It is\n\
+         in the frame for the same reason the other two are — a wheel moves a zoom\n\
+         level or a selected unit's name, and that is text in a `Label` — and it is a\n\
+         column in the log's frames, omitted when the wheel did not turn.\n\n\
+         Whole **notches**, positive away from the player, and that matters. A mouse\n\
+         reports lines, a trackpad reports pixels, and both report floats at whatever\n\
+         resolution the platform likes; passing that through would put a host's scroll\n\
+         settings into the simulation and break I3 on the way in. The runtime\n\
+         accumulates the fractions and hands over integers, so a slow trackpad scroll\n\
+         eventually becomes one notch rather than being rounded away, and a fast flick\n\
+         is several rather than one. `input.wheel()` is per-tick, so several notches\n\
+         between two ticks add up instead of the last one winning.\n\n\
+         A notch is **not** a bindable action. `WheelUp` and `WheelDown` were offered\n\
+         and are not here: an action is held and released, and a notch has no\n\
+         duration, so there would be nothing for `input.held` to answer about one and\n\
+         the engine would owe a new rule about how long a wheel press lasts. A game\n\
+         that wants a verb reads the sign, which is as expressive and invents\n\
+         nothing.\n\n\
+         There is no horizontal wheel. A second axis is a second field in every frame\n\
+         and a second column in every log line, and nothing has asked for one.\n\n\
          ### A different run each launch\n\n\
          A packaged game boots with the seed in its manifest, and every stream a\n\
          script draws from is derived from that one number — so the first run of\n\

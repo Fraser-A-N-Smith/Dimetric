@@ -158,6 +158,29 @@ pub struct PlayerInput {
     /// For prompts that match the hand on the device. See [`Device`] for why it
     /// travels in the frame.
     pub device: Device,
+    /// Whole wheel notches since the last tick, positive away from the player.
+    ///
+    /// `0` when the wheel did not move, which is almost every tick.
+    ///
+    /// # Why notches and not a delta
+    ///
+    /// A mouse reports lines and a trackpad reports pixels, in floats, at
+    /// whatever resolution the platform feels like. Passing that through would
+    /// put a host's scroll resolution into the simulation and break I3 on the
+    /// way in. So the host accumulates and hands over *whole notches* — an
+    /// integer, exactly representable, the same number on every machine that
+    /// scrolled the same amount.
+    ///
+    /// # Why it is in the frame
+    ///
+    /// Same reason as [`PlayerInput::device`]. A wheel moves what a label
+    /// shows — a zoom level, a selected unit's name — and a label is hashed, so
+    /// a wheel read from beside the frame would make that text depend on
+    /// something a recording does not carry.
+    ///
+    /// Not a button. A notch has no duration, so there is nothing for
+    /// `input.held` to answer; a game that wants a verb reads the sign.
+    pub wheel: i32,
 }
 
 impl PlayerInput {
@@ -197,6 +220,13 @@ impl PlayerInput {
             .vec2(self.pointer);
         if self.device != Device::default() {
             h.tag("device").str(self.device.name());
+        }
+        // Nothing when the wheel did not move, which is the same rule the
+        // device follows and for the same reason: every frame recorded before
+        // the wheel existed hashes exactly as it did, because a still wheel is
+        // what those frames meant.
+        if self.wheel != 0 {
+            h.tag("wheel").u64(self.wheel as i64 as u64);
         }
     }
 }
@@ -490,7 +520,7 @@ impl InputLog {
         }
         let _ = writeln!(
             out,
-            "# tick  then buttons move_x move_y aim pointer_x pointer_y, per player"
+            "# tick  then buttons move_x move_y aim pointer_x pointer_y [:device] [wN], per player"
         );
         for (offset, frame) in self.frames.iter().enumerate() {
             let tick = self.from_tick + offset as u64;
@@ -544,6 +574,17 @@ impl InputLog {
                 // look at the next token and know whose it is.
                 if p.device != Device::default() {
                     let _ = write!(out, " :{}", p.device.name());
+                }
+                // The wheel, and only when it turned. A `w` sigil for the same
+                // reason the device has a colon: columns are positional and
+                // interleaved per player, so a bare trailing number would be
+                // read as the next player's buttons in a two-player log. `w`
+                // is not a hex digit, so it can never be mistaken for one.
+                //
+                // Omitted when zero, which keeps every frame in every log
+                // written until now byte-for-byte what it was.
+                if p.wheel != 0 {
+                    let _ = write!(out, " w{}", p.wheel);
                 }
             }
             out.push('\n');
@@ -671,12 +712,25 @@ impl InputLog {
                             }
                             None => Device::default(),
                         };
+                        // `w3`, `w-1`, if this player's frame carries one.
+                        // Peeked rather than taken, exactly as the device is.
+                        let wheel = match parts.peek().and_then(|t| t.strip_prefix('w')) {
+                            Some(notches) => {
+                                let wheel: i32 = notches.parse().map_err(|_| {
+                                    LogError::Malformed(number + 1, raw.to_string())
+                                })?;
+                                parts.next();
+                                wheel
+                            }
+                            None => 0,
+                        };
                         players.push(PlayerInput {
                             buttons,
                             move_dir: Vec2Fx::new(x, y),
                             aim,
                             pointer: Vec2Fx::new(px, py),
                             device,
+                            wheel,
                         });
                     }
                     frames.push(InputFrame {

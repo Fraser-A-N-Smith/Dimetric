@@ -515,6 +515,37 @@ inside a hook is state in Lua. So instead of a hook:
 The same hazard already applied to a hot reload and to a rollback, and had gone
 unnamed in both. Suspending is what made it reachable from a game.
 
+## Asked for by the tactical roguelike, and answered with a smaller thing
+
+**`WheelUp` and `WheelDown` as bindable action names.** Offered alongside
+`input.wheel()`, which was built. The names were not.
+
+An action in this engine is held and released: `input.held` answers a level and
+`input.pressed` answers an edge, and both are derived from a button bit that
+stays set while a key is down. A wheel notch has no duration at all. Making it
+bindable would mean the engine deciding how long a synthetic wheel press lasts
+— one tick, presumably — and that is a new rule about a new kind of button,
+with its own answer for `held` that is true for exactly one tick and never
+agrees with anything else in the table.
+
+`input.wheel()` gives a game the same expressiveness for the same effort. A
+Controls page that wants "wheel cycles the selected unit" reads the sign, which
+is one line of Lua and no new concept:
+
+```lua
+if input.wheel() > 0 then self:next_unit() end
+```
+
+What would make the case properly is a *player* wanting to bind their own
+action to the wheel, so that the choice lives in a profile rather than in the
+script. That is a real ask and this is not an argument against it; it is an
+argument that it needs the one-tick press rule written down first, and nothing
+has needed it yet.
+
+**No horizontal wheel.** A second axis is a second field in every input frame
+and a second column in every log line, paid for by every game whether it tilts
+a wheel or not. Nothing has asked.
+
 ## Still open, and known
 
 **Reading your own bindings puts them in the hash.** G53 promised that a

@@ -502,6 +502,25 @@ pub struct Held {
     /// game draws from it is reproduced by a recording — see
     /// [`dimetric_sim::input::Device`].
     device: Device,
+    /// Whole wheel notches turned since the last frame was built.
+    ///
+    /// Accumulated here rather than passed straight through, because a frame
+    /// is a tick's worth of input and a wheel can turn several times between
+    /// two ticks — a notch dropped on the floor is a zoom step a player made
+    /// and did not get.
+    wheel: i32,
+    /// The fraction of a notch left over from a trackpad or a precise wheel.
+    ///
+    /// A mouse reports whole lines, but a trackpad reports pixels and a
+    /// high-resolution wheel reports fractions, so rounding each event to the
+    /// nearest notch would either invent notches nobody turned or swallow a
+    /// slow scroll entirely. The remainder is kept here and carried into the
+    /// next event instead, so a run of small deltas eventually becomes a
+    /// notch and nothing is lost or doubled.
+    ///
+    /// I3-exempt: this is the host side of the render/input boundary, where
+    /// the platform's floats arrive. Only whole notches cross into a frame.
+    wheel_fraction: f32,
 }
 
 impl Held {
@@ -593,10 +612,53 @@ impl Held {
         self.stick = stick;
     }
 
+    /// Turn the wheel by whole notches.
+    ///
+    /// For a driver whose platform already counts in notches, and for a test.
+    /// Turning it is the mouse doing something, so the device follows — but
+    /// only for a real turn, so a platform that reports a zero delta cannot
+    /// pin the device on `mouse` and starve a pad player of pad prompts.
+    pub fn turn_wheel(&mut self, notches: i32) {
+        if notches != 0 {
+            self.device = Device::Mouse;
+        }
+        self.wheel += notches;
+    }
+
+    /// Turn the wheel by a platform's own fractional delta.
+    ///
+    /// Positive away from the player, in notches, where a trackpad or a
+    /// precise wheel may report a fraction of one. Whole notches are passed on
+    /// and the remainder is kept for the next event, so a slow scroll adds up
+    /// to one notch instead of being rounded away, and a fast one is not
+    /// counted twice.
+    ///
+    /// I3-exempt, and the only float in the input path: this is the boundary
+    /// where the platform's numbers arrive, and what leaves it is an integer.
+    pub fn turn_wheel_by(&mut self, delta: f32) {
+        if !delta.is_finite() || delta == 0.0 {
+            return;
+        }
+        self.device = Device::Mouse;
+        self.wheel_fraction += delta;
+        // Toward zero, so the sign of a remainder matches the sign of the
+        // scroll and a reversal does not have to work off a debt in the other
+        // direction.
+        let whole = self.wheel_fraction.trunc();
+        self.wheel_fraction -= whole;
+        self.wheel += whole as i32;
+    }
+
     /// Release everything. Used when the window loses focus, so a key held at
     /// the moment someone alt-tabs does not stay held forever.
+    ///
+    /// The wheel is cleared too. A notch turned at the moment somebody
+    /// alt-tabs belongs to the window they left, and holding it for their
+    /// return would scroll the game on the frame it regains focus.
     pub fn release_all(&mut self) {
         self.actions.clear();
+        self.wheel = 0;
+        self.wheel_fraction = 0.0;
     }
 
     /// The input a tick reads.
@@ -632,7 +694,27 @@ impl Held {
             aim: self.aim,
             pointer: self.pointer,
             device: self.device,
+            wheel: self.wheel,
         }
+    }
+
+    /// The frame for one tick, consuming what only lasts for one.
+    ///
+    /// **The door a driver uses.** [`Held::player_input`] is a peek: it reads
+    /// the same values and leaves the wheel alone, which is what a test wants
+    /// and what anything asking "what is held right now" wants. A tick is a
+    /// different question — the wheel is *notches since the last tick*, so a
+    /// frame that did not take them would hand the same notch to every tick
+    /// until the player scrolled again, and the camera would never stop
+    /// zooming.
+    ///
+    /// One call rather than a build and a clear the driver has to remember to
+    /// pair. Two copies of a pair is how this round's other two defects
+    /// happened.
+    pub fn take_player_input(&mut self) -> PlayerInput {
+        let input = self.player_input();
+        self.wheel = 0;
+        input
     }
 }
 
