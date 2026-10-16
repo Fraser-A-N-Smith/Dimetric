@@ -43,6 +43,77 @@ run that *does* rebind now hashes differently from the same run before this
 change, which is the point of the fix. **Input log: no format change**;
 `LOG_VERSION` stays 1 and the rows use the `bind` lines G53 already wrote.
 
+### Removed: `Light2D.cast_shadows`, which nothing ever read
+
+G66. It was declared in the kind table with a default of `false`, documented in
+`docs/API.md` as "Cast shadows from nearby collider geometry", and read by
+nothing at all: `extract.rs` built a light from radius, energy, colour,
+direction and cone, and `light.wgsl` had no occluder in it and no way to receive
+one. A game could set it, watch it survive a save and a load, and get no
+shadows — which is worse than the feature's absence, because the documentation
+promised it.
+
+Removed rather than built. The round before this one had already declined
+shadows cast by walls, and nothing has come back to ask again; building it
+properly is a round's work on its own, with a GPU golden for each case since
+none of it can be checked headlessly. `docs/ENGINE-GAPS.md` records what it
+would take and what has to be settled first — chiefly *what* occludes, since
+"collider geometry" is not unambiguous while `PhysicsWorld::build` reads
+own-visible rather than the whole ancestor chain.
+
+> **Hash: this moves recorded hashes, and projects with recorded runs must
+> re-record them.** A declared *default* is materialised into every node's
+> props at parse and every prop is hashed, so removing one changes the hash of
+> every scene containing a `Light2D`. In this repository that is two replay
+> fixtures (`script-colours`, `script-schema-write`) and the example project,
+> all three re-recorded here. Nothing observable changed: every probe in all
+> three still passes against the new hashes, which is the evidence that the
+> movement is the property leaving the prop map and nothing else. The example
+> diverges first at tick 42, which is when a bolt prefab carrying the light is
+> first spawned — before that there is no light in the scene and no difference.
+
+**Input log: no format change.**
+
+### Added: a light can be a pool on the floor instead of a circle on the screen
+
+G67. Every light was drawn as an axis-aligned screen-space quad, under a comment
+saying why: so a radial light stays a circle instead of being sheared into an
+ellipse. That is right for a light in the air — a glowing projectile is a ball,
+and a ball looks like a circle from any angle — and wrong for a torch on the
+floor. Under the 2:1 shear a screen circle reaches twice as many tiles north as
+east, so a torch lit a diamond-shaped room in a shape with nothing to do with
+the room.
+
+```toml
+radius = 48.0
+ground = true
+```
+
+The radius is then measured in world units and projected with the floor, so
+under `Isometric` the light is the 2:1 ellipse a lit patch of floor actually is
+and reaches the same number of tiles in every direction. Under `TopDown` the
+projection is the identity and there is nothing for the flag to change. Absent
+and `false` both keep the screen circle.
+
+The falloff and the cone stay correct in world units without the fragment
+shader inverting anything: the vertex shader hands it the *unprojected* offset,
+and since the clip position and that offset are both affine in the same corner,
+what gets interpolated is the world-space offset of the screen point being
+shaded. The projection itself comes from `view_proj` with `w = 0`, which is
+exactly its linear part, zoom included — so no new uniform was needed, and the
+per-instance flag went into a slot that was already padding.
+
+Measured rather than asserted, with a software adapter: a ground light under
+`Isometric` comes out twice as wide as it is tall, a screen light stays round
+under both projections, a ground light under `TopDown` is pixel-identical to a
+screen one, and the lit region reaches the same fraction of its radius on both
+axes.
+
+**Hash: moves no recorded hash.** `ground` carries no declared default, so
+absent means exactly today's behaviour, and it is presentation that never
+reaches the simulation. (The hash movement in this release is G66's, above.)
+**Input log: no format change.**
+
 ### Added: text on the board can be drawn at a readable size
 
 G65. A world `Label` was drawn at the board's zoom, with no `scale` and no way

@@ -617,6 +617,44 @@ has needed it yet.
 and a second column in every log line, paid for by every game whether it tilts
 a wheel or not. Nothing has asked.
 
+## A declared property that nothing read
+
+**`Light2D.cast_shadows`.** Declared in the kind table with a default of
+`false`, documented in `docs/API.md` as "Cast shadows from nearby collider
+geometry", and read by nothing at all. `extract.rs`'s `light()` built a
+`LightItem` from radius, energy, colour, direction and cone; `light.wgsl` had no
+occluder in it and no way to receive one. A game could set the property, see it
+survive a save and a load, and get no shadows — which is worse than the feature's
+absence, because the documentation promised it.
+
+**Removed, rather than built.** The alternative was building shadow casting, and
+the round before this one had already declined "shadows cast by walls" as
+out of scope; nothing has come back to ask again. Building it properly is a
+round's work on its own — occluder geometry uploaded per light, either a 1D
+shadow map or a fragment-shader march against the tile grid, and a GPU golden
+for each, since none of it can be checked headlessly. Leaving a dead property
+declared so that a future round might fill it in is the worst of the three
+options: it is a promise in the generated documentation that the engine does not
+keep.
+
+If it is ever built, the property comes back with it, and the decision about
+*what* occludes — a named `TileLayer`'s opaque cells, or collider geometry as
+the old doc line claimed — is the first thing to settle, because the two have
+different answers for a wall a script has hidden. Note that `PhysicsWorld::build`
+reads own-visible rather than the whole ancestor chain (recorded further down
+this file), so "collider geometry" is not quite the unambiguous phrase it looks.
+
+**This moved recorded hashes, and that is worth being precise about.** A
+declared *default* is materialised into every node's props at parse and every
+prop is hashed, so removing one changes the hash of every scene containing a
+`Light2D`. Two replay fixtures and the example project carry one, and all three
+were re-recorded. Nothing observable changed: every probe in all three still
+passes on the new hashes, which is the evidence that the movement is the
+property's disappearance from the prop map and nothing else. The same mechanism
+caught out a round two before this one, from the other direction — adding
+defaulted properties to builtin kinds — and it is why every property added since
+is declared with no default.
+
 ## Still open, and known
 
 **Reading your own bindings puts them in the hash.** G53 promised that a

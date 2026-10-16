@@ -688,9 +688,9 @@
           "type": "angle"
         },
         {
-          "default": "false",
-          "doc": "Cast shadows from nearby collider geometry.",
-          "name": "cast_shadows",
+          "default": null,
+          "doc": "Whether the radius is measured on the floor and projected with it. Absent and false both draw a circle on the screen, which is what every scene written before this did. Under `Isometric` a ground light is the 2:1 ellipse a pool of light on a floor actually is, and its falloff is measured in world units — so a torch reaches the same number of tiles in every direction. A light in the air, like a glowing projectile, wants the screen circle.",
+          "name": "ground",
           "required": false,
           "type": "bool"
         }

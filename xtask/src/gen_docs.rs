@@ -479,6 +479,36 @@ fn render_markdown(
          A dim scene with **no lights in it** dims. It used to not: the composite only\n\
          applied the ambient when the frame also carried at least one light, so a\n\
          region at dusk with no torches was drawn as if it were noon.\n\n\
+         #### A pool on the floor, or a circle on the screen\n\n\
+         A light\'s quad is axis-aligned in screen space, so a radial light is a circle\n\
+         however the board is projected. That is right for a light in the **air** — a\n\
+         glowing projectile is a ball, and a ball looks like a circle from any angle —\n\
+         and wrong for a torch on the **floor**: under the 2:1 shear a screen circle\n\
+         reaches twice as many tiles north as east, so a torch lights a\n\
+         diamond-shaped room in a shape that has nothing to do with the room.\n\n\
+         ```toml\n\
+         [[node]]\n\
+         kind = \"Light2D\"\n\
+         name = \"Torch\"\n\
+         radius = 48.0\n\
+         ground = true\n\
+         ```\n\n\
+         `ground = true` measures the radius in world units and projects it with the\n\
+         floor, so under `Isometric` the light is the 2:1 ellipse a lit patch of floor\n\
+         actually is and reaches the same number of tiles in every direction. Under\n\
+         `TopDown` the projection is the identity and there is nothing for the flag to\n\
+         change. Absent and `false` both keep the screen circle, which is what every\n\
+         scene written before this had.\n\n\
+         The falloff and the cone are measured in world units for a ground light,\n\
+         because the vertex shader hands the fragment shader the *unprojected* offset:\n\
+         the quad and that offset are both affine in the same corner, so what the\n\
+         fragment shader interpolates is the world-space offset of the screen point it\n\
+         is shading, and nothing has to be inverted.\n\n\
+         **`cast_shadows` is gone.** It was declared, documented here, and read by\n\
+         nothing: no occluder reached the shader and there was no way to give it one. A\n\
+         property a game can set and that cannot work is worse than an absent feature,\n\
+         because the documentation promised it. `docs/ENGINE-GAPS.md` records what\n\
+         building it would take and what has to be settled first.\n\n\
          #### Keeping what a player reads out of the light\n\n\
          The multiply covers the whole world, which is right for the floor, the walls\n\
          and the figures and wrong for everything a player *reads*: a health bar over a\n\

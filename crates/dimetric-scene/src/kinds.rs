@@ -826,11 +826,20 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 None,
                 "Cone width, for a cone light.",
             ),
+            // No default on purpose: a declared default is materialised into
+            // every node's props at parse and every prop is hashed, so giving
+            // this one would change the hash of every scene with a light in it.
             prop(
-                "cast_shadows",
+                "ground",
                 PropertyType::Bool,
-                boolean(false),
-                "Cast shadows from nearby collider geometry.",
+                None,
+                "Whether the radius is measured on the floor and projected with it. \
+                 Absent and false both draw a circle on the screen, which is what \
+                 every scene written before this did. Under `Isometric` a ground \
+                 light is the 2:1 ellipse a pool of light on a floor actually is, \
+                 and its falloff is measured in world units — so a torch reaches \
+                 the same number of tiles in every direction. A light in the air, \
+                 like a glowing projectile, wants the screen circle.",
             ),
         ],
     ));

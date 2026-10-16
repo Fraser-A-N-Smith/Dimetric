@@ -38,6 +38,16 @@ pub struct LightItem {
     pub direction: Angle,
     /// Half-width of the cone. `None` for a radial light.
     pub cone: Option<Angle>,
+    /// Whether the radius is measured on the floor and projected with it.
+    ///
+    /// False draws an axis-aligned circle on the screen, which is what every
+    /// light did before this existed and is right for one in the air — a
+    /// glowing projectile is a ball, and a ball looks like a circle from any
+    /// angle. True is a pool of light on the floor: under `Isometric` the
+    /// radius goes through the same 2:1 shear the floor does, so the light
+    /// reaches the same number of tiles in every direction instead of reaching
+    /// twice as far north as east.
+    pub ground: bool,
 }
 
 /// Everything one frame needs to draw.
@@ -244,6 +254,10 @@ pub fn extract_at(
             l.pos.y.to_raw(),
             l.radius.to_raw(),
             (l.color.r, l.color.g, l.color.b, l.color.a),
+            // So two lights alike in every other respect still have a defined
+            // order. Additive blending is commutative, but a golden image
+            // wants the list to be the same every time it is built.
+            l.ground,
         )
     });
 
@@ -1170,6 +1184,7 @@ fn light(node: &dimetric_scene::Node, pos: Vec2Fx) -> Option<LightItem> {
             .and_then(Value::as_angle)
             .unwrap_or(Angle::ZERO),
         cone,
+        ground: node.get("ground").and_then(Value::as_bool).unwrap_or(false),
     })
 }
 

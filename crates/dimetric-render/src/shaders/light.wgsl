@@ -23,6 +23,8 @@ struct Instance {
     // light is expressed without a second pipeline.
     @location(4) direction: vec2<f32>,
     @location(5) cone_cos: f32,
+    // 1.0 when the radius is world geometry and projects with the floor.
+    @location(6) ground: f32,
 };
 
 struct VertexOut {
@@ -42,13 +44,32 @@ fn vs_main(@builtin(vertex_index) vertex: u32, instance: Instance) -> VertexOut 
     );
     let local = (corner - vec2<f32>(0.5, 0.5)) * (instance.radius * 2.0);
 
-    // Axis-aligned, so a radial light stays a circle on screen instead of
-    // being sheared into an ellipse.
     var out: VertexOut;
     let center = camera.view_proj * vec4<f32>(instance.center, 0.0, 1.0);
-    out.clip_position = center + vec4<f32>(local * camera.pixel_scale.xy, 0.0, 0.0);
+    if (instance.ground > 0.5) {
+        // A pool of light on the floor. The quad's offset is world geometry, so
+        // it goes through the same projection the floor does -- `view_proj` with
+        // w = 0, which is exactly its linear part, zoom included. Under the 2:1
+        // shear that makes the circle the ellipse a lit patch of floor actually
+        // is, and it needs no extra uniform: the matrix is already bound.
+        let projected = camera.view_proj * vec4<f32>(local, 0.0, 0.0);
+        out.clip_position = center + vec4<f32>(projected.xy, 0.0, 0.0);
+    } else {
+        // Axis-aligned, so a light in the air stays a circle on screen instead
+        // of being sheared into an ellipse. A glowing projectile is a ball, and
+        // a ball looks like a circle from any angle.
+        out.clip_position = center + vec4<f32>(local * camera.pixel_scale.xy, 0.0, 0.0);
+    }
     // Carried in units of the radius, so the fragment shader needs no uniform
     // to know how far out it is.
+    //
+    // Deliberately the *unprojected* corner, in both branches. The clip
+    // position and this are both affine in `corner`, so what the fragment
+    // shader interpolates is the world-space offset of the screen point it is
+    // shading -- which means the falloff and the cone are measured in world
+    // units for a ground light without the fragment shader inverting anything.
+    // A torch then reaches the same number of tiles in every direction, rather
+    // than twice as far north as east.
     out.offset = (corner - vec2<f32>(0.5, 0.5)) * 2.0;
     out.color = instance.color;
     out.energy = instance.energy;

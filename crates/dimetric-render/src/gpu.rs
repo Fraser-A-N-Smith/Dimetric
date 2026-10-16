@@ -86,7 +86,11 @@ struct LightInstance {
     color: [f32; 4],
     direction: [f32; 2],
     cone_cos: f32,
-    _padding: f32,
+    /// 1.0 when the radius is world geometry and projects with the floor.
+    ///
+    /// The slot this occupies was padding, so a ground light costs nothing in
+    /// bandwidth; the alignment the padding was there for is unchanged.
+    ground: f32,
 }
 
 /// Where a frame is being drawn.
@@ -829,7 +833,10 @@ impl Renderer {
                         Some(angle) => half_angle_cosine(angle),
                         None => -1.0,
                     },
-                    _padding: 0.0,
+                    ground: match light.ground {
+                        true => 1.0,
+                        false => 0.0,
+                    },
                 }
             })
             .collect();
@@ -1301,7 +1308,8 @@ fn light_pipeline(
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![
                     0 => Float32x2, 1 => Float32, 2 => Float32,
-                    3 => Float32x4, 4 => Float32x2, 5 => Float32
+                    3 => Float32x4, 4 => Float32x2, 5 => Float32,
+                    6 => Float32
                 ],
             })],
             compilation_options: Default::default(),

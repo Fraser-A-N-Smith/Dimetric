@@ -228,7 +228,7 @@ A light contributing to the additive light buffer.
 | `energy` | `scalar` | `1.0` | Brightness multiplier. |
 | `shape` | `enum(Radial | Cone)` | `"Radial"` | Radial fills the radius; cone is limited to cone_angle. |
 | `cone_angle` | `angle` | — | Cone width, for a cone light. |
-| `cast_shadows` | `bool` | `false` | Cast shadows from nearby collider geometry. |
+| `ground` | `bool` | — | Whether the radius is measured on the floor and projected with it. Absent and false both draw a circle on the screen, which is what every scene written before this did. Under `Isometric` a ground light is the 2:1 ellipse a pool of light on a floor actually is, and its falloff is measured in world units — so a torch reaches the same number of tiles in every direction. A light in the air, like a glowing projectile, wants the screen circle. |
 
 ### `Node`
 
@@ -673,6 +673,42 @@ a player sees. Every capture now reports the ambient it drew under.
 A dim scene with **no lights in it** dims. It used to not: the composite only
 applied the ambient when the frame also carried at least one light, so a
 region at dusk with no torches was drawn as if it were noon.
+
+#### A pool on the floor, or a circle on the screen
+
+A light's quad is axis-aligned in screen space, so a radial light is a circle
+however the board is projected. That is right for a light in the **air** — a
+glowing projectile is a ball, and a ball looks like a circle from any angle —
+and wrong for a torch on the **floor**: under the 2:1 shear a screen circle
+reaches twice as many tiles north as east, so a torch lights a
+diamond-shaped room in a shape that has nothing to do with the room.
+
+```toml
+[[node]]
+kind = "Light2D"
+name = "Torch"
+radius = 48.0
+ground = true
+```
+
+`ground = true` measures the radius in world units and projects it with the
+floor, so under `Isometric` the light is the 2:1 ellipse a lit patch of floor
+actually is and reaches the same number of tiles in every direction. Under
+`TopDown` the projection is the identity and there is nothing for the flag to
+change. Absent and `false` both keep the screen circle, which is what every
+scene written before this had.
+
+The falloff and the cone are measured in world units for a ground light,
+because the vertex shader hands the fragment shader the *unprojected* offset:
+the quad and that offset are both affine in the same corner, so what the
+fragment shader interpolates is the world-space offset of the screen point it
+is shading, and nothing has to be inverted.
+
+**`cast_shadows` is gone.** It was declared, documented here, and read by
+nothing: no occluder reached the shader and there was no way to give it one. A
+property a game can set and that cannot work is worse than an absent feature,
+because the documentation promised it. `docs/ENGINE-GAPS.md` records what
+building it would take and what has to be settled first.
 
 #### Keeping what a player reads out of the light
 
