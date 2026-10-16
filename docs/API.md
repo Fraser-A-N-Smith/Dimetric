@@ -126,6 +126,8 @@ A control that reacts to the pointer. Its caption is a Label child.
 | `modulate` | `color` | `"#303040ff"` | Fill colour when idle. |
 | `modulate_hover` | `color` | `"#00000000"` | Fill when hovered. Transparent means lighten the fill. |
 | `modulate_pressed` | `color` | `"#00000000"` | Fill when held. Transparent means darken the fill. |
+| `texture` | `asset-ref` | — | Texture to fill with instead of a flat colour. The state colour becomes its tint, so one image serves idle, hover and pressed. |
+| `slice` | `rect` | — | Nine-patch margins in texture pixels, as `[left, top, right, bottom]`. Corners are drawn unscaled, edges stretch along one axis and the middle along both, so a frame keeps its corners at any size. Absent stretches the whole texture, which is what every scene written before this did. A `Rect` because that is four related numbers and the engine has no other four-number type; they are margins, not a rectangle, and are truncated to whole texels exactly as `region` is. Margins larger than the control shrink in proportion rather than overlapping, and `flip_h`/`flip_v` do not apply to a sliced texture. |
 
 ### `Camera2D`
 
@@ -309,6 +311,7 @@ A control that draws a texture at its own rectangle.
 | `state` | `int` | `0` | Written by the engine: 0 idle, 1 hovered, 2 pressed. Setting it has no effect. |
 | `texture` | `asset-ref` | **required** | Texture to draw. |
 | `region` | `rect` | — | Sub-rectangle of the texture, in pixels. Whole texture when absent. |
+| `slice` | `rect` | — | Nine-patch margins in texture pixels, as `[left, top, right, bottom]`. Corners are drawn unscaled, edges stretch along one axis and the middle along both, so a frame keeps its corners at any size. Absent stretches the whole texture, which is what every scene written before this did. A `Rect` because that is four related numbers and the engine has no other four-number type; they are margins, not a rectangle, and are truncated to whole texels exactly as `region` is. Margins larger than the control shrink in proportion rather than overlapping, and `flip_h`/`flip_v` do not apply to a sliced texture. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
 | `animation` | `string` | `""` | Clip to play, when the texture is an imported animation. Empty means the first. |
 | `playing` | `bool` | `true` | Whether the clip advances. |
@@ -1361,6 +1364,53 @@ Focus is tracked, not driven. `ui.focus_next(step)` walks the focusable
 controls in tree order, and *which key* walks a menu is the game's decision —
 binding it here would mean the engine deciding that pressing Down in a menu
 can never also move the player.
+
+#### Frames, and skinned buttons
+
+A `TextureRect` stretches its whole texture over its rectangle, which is right
+for an icon and wrong for a border: a one-pixel outline stretched to a dialog
+becomes a smear. `slice` is the nine-patch — four margins in texture pixels,
+as `[left, top, right, bottom]`.
+
+```toml
+[[node]]
+id = "n_card0000"
+kind = "TextureRect"
+name = "Card"
+texture = "asset:ui/frame"
+slice = [4.0, 4.0, 4.0, 4.0]
+```
+
+The four corners are drawn at their texture size, the four edges stretch along
+one axis, and the middle stretches along both — so a frame keeps its corners at
+any size. Nine quads out of one node, all sharing its sort key, so a frame
+costs the same single draw call the flat rectangle it replaces did.
+
+A `Button` takes `texture` and `slice` too, and its state colour becomes the
+tint — so one image serves idle, hover and pressed with nothing else said. This
+is the half a prefab of nine `TextureRect` children cannot do: only the engine
+writes `state`, and nothing in a scene can read a parent's property, so a
+button skinned out of child nodes would need a script each to recolour them.
+
+It is a `Rect` because four margins are four related numbers and the engine has
+no other four-number type. They are margins, not a rectangle, and they are
+truncated to whole texels exactly as `region` is, since a margin indexes
+texels. An all-zero slice reads as no slice.
+
+Margins larger than the control **shrink in proportion** rather than
+overlapping, so a frame stays a frame as it collapses instead of drawing its
+right edge through its left one. A band with no extent — a control exactly as
+tall as its two corners — is skipped rather than drawn empty.
+
+`flip_h` and `flip_v` do **not** apply to a sliced texture. Mirroring a
+nine-patch has two defensible answers — swap the margins and mirror each cell,
+or mirror the whole thing including which corner is which — border art is
+symmetric in practice, and picking one would be the engine guessing. A game
+that wants a mirrored frame swaps the margins itself.
+
+What this is not is a theme. Three colours on a button rather than a theme
+lookup is a choice made deliberately: a project that wants one palette puts it
+in a prefab and instances it, which is a mechanism the engine already has.
 
 #### Clipping
 

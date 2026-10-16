@@ -267,6 +267,20 @@
           "name": "modulate_pressed",
           "required": false,
           "type": "color"
+        },
+        {
+          "default": null,
+          "doc": "Texture to fill with instead of a flat colour. The state colour becomes its tint, so one image serves idle, hover and pressed.",
+          "name": "texture",
+          "required": false,
+          "type": "asset-ref"
+        },
+        {
+          "default": null,
+          "doc": "Nine-patch margins in texture pixels, as `[left, top, right, bottom]`. Corners are drawn unscaled, edges stretch along one axis and the middle along both, so a frame keeps its corners at any size. Absent stretches the whole texture, which is what every scene written before this did. A `Rect` because that is four related numbers and the engine has no other four-number type; they are margins, not a rectangle, and are truncated to whole texels exactly as `region` is. Margins larger than the control shrink in proportion rather than overlapping, and `flip_h`/`flip_v` do not apply to a sliced texture.",
+          "name": "slice",
+          "required": false,
+          "type": "rect"
         }
       ]
     },
@@ -1005,6 +1019,13 @@
           "default": null,
           "doc": "Sub-rectangle of the texture, in pixels. Whole texture when absent.",
           "name": "region",
+          "required": false,
+          "type": "rect"
+        },
+        {
+          "default": null,
+          "doc": "Nine-patch margins in texture pixels, as `[left, top, right, bottom]`. Corners are drawn unscaled, edges stretch along one axis and the middle along both, so a frame keeps its corners at any size. Absent stretches the whole texture, which is what every scene written before this did. A `Rect` because that is four related numbers and the engine has no other four-number type; they are margins, not a rectangle, and are truncated to whole texels exactly as `region` is. Margins larger than the control shrink in proportion rather than overlapping, and `flip_h`/`flip_v` do not apply to a sliced texture.",
+          "name": "slice",
           "required": false,
           "type": "rect"
         },

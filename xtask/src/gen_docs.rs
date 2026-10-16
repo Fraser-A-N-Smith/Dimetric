@@ -1064,6 +1064,44 @@ fn render_markdown(
          controls in tree order, and *which key* walks a menu is the game\'s decision —\n\
          binding it here would mean the engine deciding that pressing Down in a menu\n\
          can never also move the player.\n\n\
+         #### Frames, and skinned buttons\n\n\
+         A `TextureRect` stretches its whole texture over its rectangle, which is right\n\
+         for an icon and wrong for a border: a one-pixel outline stretched to a dialog\n\
+         becomes a smear. `slice` is the nine-patch — four margins in texture pixels,\n\
+         as `[left, top, right, bottom]`.\n\n\
+         ```toml\n\
+         [[node]]\n\
+         id = \"n_card0000\"\n\
+         kind = \"TextureRect\"\n\
+         name = \"Card\"\n\
+         texture = \"asset:ui/frame\"\n\
+         slice = [4.0, 4.0, 4.0, 4.0]\n\
+         ```\n\n\
+         The four corners are drawn at their texture size, the four edges stretch along\n\
+         one axis, and the middle stretches along both — so a frame keeps its corners at\n\
+         any size. Nine quads out of one node, all sharing its sort key, so a frame\n\
+         costs the same single draw call the flat rectangle it replaces did.\n\n\
+         A `Button` takes `texture` and `slice` too, and its state colour becomes the\n\
+         tint — so one image serves idle, hover and pressed with nothing else said. This\n\
+         is the half a prefab of nine `TextureRect` children cannot do: only the engine\n\
+         writes `state`, and nothing in a scene can read a parent\'s property, so a\n\
+         button skinned out of child nodes would need a script each to recolour them.\n\n\
+         It is a `Rect` because four margins are four related numbers and the engine has\n\
+         no other four-number type. They are margins, not a rectangle, and they are\n\
+         truncated to whole texels exactly as `region` is, since a margin indexes\n\
+         texels. An all-zero slice reads as no slice.\n\n\
+         Margins larger than the control **shrink in proportion** rather than\n\
+         overlapping, so a frame stays a frame as it collapses instead of drawing its\n\
+         right edge through its left one. A band with no extent — a control exactly as\n\
+         tall as its two corners — is skipped rather than drawn empty.\n\n\
+         `flip_h` and `flip_v` do **not** apply to a sliced texture. Mirroring a\n\
+         nine-patch has two defensible answers — swap the margins and mirror each cell,\n\
+         or mirror the whole thing including which corner is which — border art is\n\
+         symmetric in practice, and picking one would be the engine guessing. A game\n\
+         that wants a mirrored frame swaps the margins itself.\n\n\
+         What this is not is a theme. Three colours on a button rather than a theme\n\
+         lookup is a choice made deliberately: a project that wants one palette puts it\n\
+         in a prefab and instances it, which is a mechanism the engine already has.\n\n\
          #### Clipping\n\n\
          `clip_children = true` on any control confines its descendants to its own\n\
          rectangle. Nested clips intersect, so a row inside a scrolled list inside a\n\

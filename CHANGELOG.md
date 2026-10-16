@@ -43,6 +43,59 @@ run that *does* rebind now hashes differently from the same run before this
 change, which is the point of the fix. **Input log: no format change**;
 `LOG_VERSION` stays 1 and the rows use the `bind` lines G53 already wrote.
 
+### Added: a panel can have a frame instead of being a flat rectangle
+
+G63. `Panel` and `Button` drew one flat fill and `TextureRect` stretched its
+whole texture over its rectangle, so a bordered window, a card or a tooltip had
+no shape in the engine at all — a one-pixel outline stretched to a dialog's
+size becomes a smear.
+
+```toml
+texture = "asset:ui/frame"
+slice = [4.0, 4.0, 4.0, 4.0]   # left, top, right, bottom, in texture pixels
+```
+
+Corners at their texture size, edges stretched along one axis, the middle along
+both. Nine quads out of one node, all sharing its sort key, so a frame costs
+the same single draw call the flat rectangle it replaces did. `Button` takes
+`texture` and `slice` as well, and its state colour becomes the tint, so one
+image serves idle, hover and pressed.
+
+`docs/ENGINE-GAPS.md` declined nine-patch panels once, as "layout convenience
+and visual polish" alongside scroll and grid containers. The containers stay
+declined; the first half of that phrase was wrong about this one, which has no
+layout in it at all.
+
+A game *can* approximate it today with nine `TextureRect` children, each with
+its own `region` and anchors — worth stating precisely rather than waving away,
+because it is the strongest argument against building this. What it costs is
+nine nodes per panel: nine entries in the UI layout map, nine walks of the hit
+test, and nine nodes' worth of properties in the scene's hash, paid by every
+panel in the game. And it stops short of a `Button`, whose fill changes with a
+`state` only the engine writes and no scene can read from a parent — so a
+skinned button built from child nodes needs a script each. That is the half
+that cannot be worked around, and it is why `Button` gained the properties too.
+
+Margins larger than the control shrink in proportion rather than overlapping,
+so a frame stays a frame as it collapses. A band with no extent is skipped
+rather than drawn empty. An all-zero slice reads as no slice. `flip_h` and
+`flip_v` do not apply to a sliced texture, and the generated documentation says
+so: mirroring a nine-patch has two defensible answers, border art is symmetric
+in practice, and picking one would be the engine guessing.
+
+It is a `Rect` because four margins are four related numbers and the engine has
+no other four-number type. They are margins, not a rectangle, and are truncated
+to whole texels exactly as `region` is.
+
+What this is **not** is a theme or a style resource. Three colours on a button
+rather than a theme lookup is an existing deliberate choice, and a project that
+wants one palette puts it in a prefab and instances it.
+
+**Hash: moves no recorded hash.** Neither `slice` nor `Button.texture` carries
+a declared default, for the usual reason: a declared default is materialised
+into every node's props at parse and every prop is hashed. Absent means today's
+behaviour. **Input log: no format change.**
+
 ### Added: a control can clip what is inside it
 
 G64. The renderer had no clip rectangle of any kind, so anything that

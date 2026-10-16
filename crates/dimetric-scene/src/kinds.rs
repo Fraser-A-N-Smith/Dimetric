@@ -500,6 +500,25 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                     None,
                     "Sub-rectangle of the texture, in pixels. Whole texture when absent.",
                 ),
+                // No default on purpose, like `region`: a declared default is
+                // materialised into every node's props at parse and every prop
+                // is hashed, so giving this one would change the hash of every
+                // scene with a `TextureRect` in it.
+                prop(
+                    "slice",
+                    PropertyType::Rect,
+                    None,
+                    "Nine-patch margins in texture pixels, as `[left, top, right, bottom]`. \
+                     Corners are drawn unscaled, edges stretch along one axis and the \
+                     middle along both, so a frame keeps its corners at any size. \
+                     Absent stretches the whole texture, which is what every scene \
+                     written before this did. A `Rect` because that is four related \
+                     numbers and the engine has no other four-number type; they are \
+                     margins, not a rectangle, and are truncated to whole texels \
+                     exactly as `region` is. Margins larger than the control shrink \
+                     in proportion rather than overlapping, and `flip_h`/`flip_v` do \
+                     not apply to a sliced texture.",
+                ),
                 prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
                 prop(
                     "animation",
@@ -575,6 +594,34 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                     PropertyType::Color,
                     color("#00000000"),
                     "Fill when held. Transparent means darken the fill.",
+                ),
+                // The one piece of skinning a prefab of child nodes cannot do.
+                // Nine `TextureRect` children give a panel a frame, but they
+                // cannot change with the button's `state` -- only the engine
+                // writes that, and nothing in a scene can read a parent's
+                // property -- so a skinned button would need a script each.
+                // Here the state colour is simply the tint.
+                prop(
+                    "texture",
+                    PropertyType::AssetRef,
+                    None,
+                    "Texture to fill with instead of a flat colour. The state colour \
+                     becomes its tint, so one image serves idle, hover and pressed.",
+                ),
+                prop(
+                    "slice",
+                    PropertyType::Rect,
+                    None,
+                    "Nine-patch margins in texture pixels, as `[left, top, right, bottom]`. \
+                     Corners are drawn unscaled, edges stretch along one axis and the \
+                     middle along both, so a frame keeps its corners at any size. \
+                     Absent stretches the whole texture, which is what every scene \
+                     written before this did. A `Rect` because that is four related \
+                     numbers and the engine has no other four-number type; they are \
+                     margins, not a rectangle, and are truncated to whole texels \
+                     exactly as `region` is. Margins larger than the control shrink \
+                     in proportion rather than overlapping, and `flip_h`/`flip_v` do \
+                     not apply to a sliced texture.",
                 ),
             ]),
         )

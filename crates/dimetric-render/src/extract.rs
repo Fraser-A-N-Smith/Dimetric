@@ -258,6 +258,168 @@ pub fn extract_at(
     }
 }
 
+/// Nine-patch margins, in whole texture pixels.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Slice {
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+}
+
+/// Read a node's `slice`, if it has one worth having.
+///
+/// A `Rect` because four margins are four related numbers and the engine has no
+/// other four-number type — read as `[left, top, right, bottom]` and truncated
+/// to whole texels exactly as `region` is, since a margin indexes texels.
+///
+/// All-zero reads as absent: it would draw the whole texture as one middle cell,
+/// which is what no slice already does, with eight empty quads for company.
+fn slice_of(node: &dimetric_scene::Node) -> Option<Slice> {
+    let Some(Value::Rect(r)) = node.get("slice") else {
+        return None;
+    };
+    let whole = |v: Fx| v.to_int_trunc().max(0) as u32;
+    let slice = Slice {
+        left: whole(r.pos.x),
+        top: whole(r.pos.y),
+        right: whole(r.size.x),
+        bottom: whole(r.size.y),
+    };
+    match slice {
+        Slice {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        } => None,
+        other => Some(other),
+    }
+}
+
+/// One axis of a nine-patch: where each of the three bands starts and how wide
+/// it is, in the source and in the destination.
+///
+/// The ends keep their texture size and the middle takes what is left. When
+/// what is left is negative — a control narrower than its own two corners —
+/// both ends shrink in proportion rather than overlapping, which keeps a frame
+/// recognisable as it collapses instead of drawing its right edge through its
+/// left one.
+fn bands(start: Fx, extent: Fx, source: u32, near: u32, far: u32) -> [(Fx, Fx, u32, u32); 3] {
+    let (mut near_px, mut far_px) = (near, far);
+    // Fixed point throughout, so two players at different window sizes extract
+    // the same quads; the canvas makes the destination the same number anyway.
+    let ends = Fx::from_int((near + far) as i32);
+    if ends > extent && ends > Fx::ZERO {
+        // Scaled by the same ratio, in whole texels, so the two ends keep their
+        // relative weight. Integer arithmetic on the numerator first: the ratio
+        // is always below one here.
+        let shrink = |v: u32| {
+            let scaled = Fx::from_int(v as i32) * extent / ends;
+            scaled.to_int_trunc().max(0) as u32
+        };
+        near_px = shrink(near);
+        far_px = shrink(far);
+    }
+    let near_fx = Fx::from_int(near_px as i32);
+    let far_fx = Fx::from_int(far_px as i32);
+    let middle = (extent - near_fx - far_fx).max(Fx::ZERO);
+    let source_middle = source.saturating_sub(near).saturating_sub(far);
+    [
+        // Destination start, destination extent, source start, source extent.
+        (start, near_fx, 0, near),
+        (start + near_fx, middle, near, source_middle),
+        (
+            start + near_fx + middle,
+            far_fx,
+            source.saturating_sub(far),
+            far,
+        ),
+    ]
+}
+
+/// Push up to nine quads covering `rect` with a sliced texture.
+///
+/// Corners at their texture size, edges stretched along one axis, the middle
+/// along both. A band with no extent in either the source or the destination is
+/// skipped, so a texture with no middle row, or a control exactly as tall as its
+/// two corners, costs nothing rather than drawing a degenerate quad the batcher
+/// would have to carry.
+///
+/// Every quad shares the node's sort key, so a frame batches as one draw with
+/// everything around it. That is the whole reason this is nine quads from one
+/// node and not nine nodes: nine `TextureRect` children would also need nine
+/// entries in the UI layout, nine walks of the hit test, and nine nodes' worth
+/// of properties in every scene's hash.
+///
+/// # `flip_h` and `flip_v` do not apply
+///
+/// Not an oversight, and not silent either — it is in the generated
+/// documentation. Mirroring a nine-patch is a question with two answers: swap
+/// the left and right margins and mirror each cell, or mirror the whole thing
+/// including which corner is which. Border art is symmetric in practice, so
+/// nobody needs either, and picking one would be the engine guessing. A game
+/// that wants a mirrored frame flips the margins itself, which says exactly
+/// what it means.
+#[allow(clippy::too_many_arguments)]
+fn nine_patch(
+    rect: Rect,
+    region: crate::atlas::Region,
+    slice: Slice,
+    key: SortKey,
+    blend: Blend,
+    modulate: Color,
+    node: NodeUid,
+    out: &mut Vec<DrawItem>,
+) {
+    let columns = bands(
+        rect.pos.x,
+        rect.size.x,
+        region.size.0,
+        slice.left,
+        slice.right,
+    );
+    let rows = bands(
+        rect.pos.y,
+        rect.size.y,
+        region.size.1,
+        slice.top,
+        slice.bottom,
+    );
+    for (y, height, source_y, source_height) in rows {
+        if height <= Fx::ZERO || source_height == 0 {
+            continue;
+        }
+        for (x, width, source_x, source_width) in columns {
+            if width <= Fx::ZERO || source_width == 0 {
+                continue;
+            }
+            let cell = region.sub(source_x, source_y, source_width, source_height);
+            let size = Vec2Fx::new(width, height);
+            out.push(DrawItem {
+                key,
+                atlas: 0,
+                blend,
+                shader: 0,
+                pos: Rect {
+                    pos: Vec2Fx::new(x, y),
+                    size,
+                }
+                .center(),
+                screen_offset: Vec2Fx::ZERO,
+                size,
+                rotation: Angle::ZERO,
+                uv: cell.uv,
+                modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
+                node,
+                // Never in the mask pass: the UI is composited after the
+                // multiply and has never been lit.
+                lit: false,
+            });
+        }
+    }
+}
+
 /// Trim items added to `out` from `first` onward to a clip rectangle.
 ///
 /// # Why the quad is cut rather than a scissor set
@@ -346,11 +508,26 @@ fn panel(
     if rect.size.x <= Fx::ZERO || rect.size.y <= Fx::ZERO {
         return;
     }
+    // A skinned button fills with a texture instead of the white texel, and the
+    // state colour below becomes its tint — so one image serves idle, hover and
+    // pressed without the scene saying anything else. This is the piece nine
+    // `TextureRect` children cannot do: only the engine writes `state`, and
+    // nothing in a scene can read a parent's property, so a skinned button
+    // built out of child nodes would need a script each to recolour them.
+    let skin = node
+        .get("texture")
+        .and_then(Value::as_ref_value)
+        .map(|r| r.target().to_string())
+        .and_then(|key| {
+            atlas
+                .region(&key)
+                .or_else(|| atlas.region(PLACEHOLDER_NAME))
+        });
     // The atlas carries a one-pixel white square for exactly this: a solid
     // fill is a sprite whose texture is a single opaque texel, which keeps
     // panels in the same batch as everything else instead of needing a
     // pipeline that draws untextured quads.
-    let Some(region) = atlas.region(crate::atlas::SOLID_NAME) else {
+    let Some(region) = skin.or_else(|| atlas.region(crate::atlas::SOLID_NAME)) else {
         return;
     };
     // A button carries three colours and the simulation says which applies,
@@ -381,16 +558,35 @@ fn panel(
             _ => fill,
         },
     };
+    // The walk index, not a position: UI is ordered by the tree, not by where
+    // it sits in a world it is not in.
+    let sort = SortKey::new(
+        node.layer,
+        node.z,
+        depth,
+        crate::batch::batch_group(0, 0, Blend::Alpha),
+        node.uid,
+    );
+    // A sliced skin is nine quads, so the button's corners keep their size at
+    // any width. Only meaningful with a texture: slicing the one white texel
+    // would be nine quads of the same colour.
+    if skin.is_some() {
+        if let Some(slice) = slice_of(node) {
+            nine_patch(
+                rect,
+                region,
+                slice,
+                sort,
+                Blend::Alpha,
+                modulate,
+                node.uid,
+                out,
+            );
+            return;
+        }
+    }
     out.push(DrawItem {
-        // The walk index, not a position: UI is ordered by the tree, not by
-        // where it sits in a world it is not in.
-        key: SortKey::new(
-            node.layer,
-            node.z,
-            depth,
-            crate::batch::batch_group(0, 0, Blend::Alpha),
-            node.uid,
-        ),
+        key: sort,
         atlas: 0,
         blend: Blend::Alpha,
         shader: 0,
@@ -434,16 +630,33 @@ fn texture_rect(
     let Some(painted) = painted(node, &key, atlas) else {
         return;
     };
-    out.push(DrawItem {
-        // The walk index, not a position, exactly as a panel does: the UI is
-        // ordered by the tree, and the hit test agrees with the tree.
-        key: SortKey::new(
-            node.layer,
-            node.z,
-            depth,
-            crate::batch::batch_group(0, 0, painted.blend),
+    // The walk index, not a position, exactly as a panel does: the UI is
+    // ordered by the tree, and the hit test agrees with the tree.
+    let sort = SortKey::new(
+        node.layer,
+        node.z,
+        depth,
+        crate::batch::batch_group(0, 0, painted.blend),
+        node.uid,
+    );
+    // A frame, a window, a card: nine quads from the one node, so the corners
+    // keep their size while the middle stretches. `painted.region` rather than
+    // `painted.uv`, so `flip_h` and `flip_v` do not apply -- see `nine_patch`.
+    if let Some(slice) = slice_of(node) {
+        nine_patch(
+            rect,
+            painted.region,
+            slice,
+            sort,
+            painted.blend,
+            painted.modulate,
             node.uid,
-        ),
+            out,
+        );
+        return;
+    }
+    out.push(DrawItem {
+        key: sort,
         atlas: 0,
         blend: painted.blend,
         shader: 0,

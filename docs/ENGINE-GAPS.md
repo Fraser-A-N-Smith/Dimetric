@@ -179,7 +179,9 @@ is whether a Lua A* over `tiles.get` is actually too slow at twenty actors on a
 per cell read.
 
 **Scroll containers, grid containers and nine-patch panels.** Declined;
-`ui.measure` built.
+`ui.measure` built. Two of the three later came back and were built — see the
+note at the end of this entry on clipping, and the one after it on the slice.
+The containers themselves stay declined.
 
 `CONTRIBUTING.md` lists "a custom UI toolkit" as a permanent non-goal and M12
 then built one, which is a fair thing to point at. The distinction that makes
@@ -219,6 +221,33 @@ Every UI quad is axis-aligned and unrotated, so the quad and its UV are cut on
 the CPU instead: pixel-identical output, the whole clipped list in one batch, no
 change to the GPU backend, and testable on a machine with no graphics hardware,
 which the scissor would not have been.
+
+The **nine-patch** came back too, and was built as `TextureRect.slice` — four
+margins in texture pixels, with the same four on a `Button`'s fill. The original
+decline called it "layout convenience and visual polish", and the first half of
+that was wrong: a slice has no layout in it at all. It is nine quads out of the
+function that already produced one, sharing the node's sort key so a frame costs
+the same single draw call the flat rectangle it replaces did.
+
+A game *can* approximate it today, which is the strongest argument against
+building it and is worth stating precisely rather than waving away. Nine
+`TextureRect` children, each with its own `region` and anchors, give a panel a
+frame with no engine change. What that costs is nine nodes per panel: nine
+entries in the UI layout map, nine walks of the hit test, and nine nodes' worth
+of properties in the scene's hash, paid by every panel in the game to save sixty
+lines in the renderer.
+
+And it stops short of a `Button`. A button's fill changes with its `state`,
+which only the engine writes, and nothing in a scene can read a parent's
+property — so a button skinned out of child nodes needs a script each to
+recolour them. That is the half that cannot be worked around, and it is why
+`Button` gained `texture` and `slice` rather than only `TextureRect`.
+
+What is *not* built: a theme, a style resource, or anything that would let one
+declaration skin every button in a game. Three colours on a button rather than a
+theme lookup was a deliberate choice already recorded in `kinds.rs`, and a
+project that wants one palette puts it in a prefab and instances it. A nine-patch
+is a property of a node; a theme is a second system.
 
 The limit, stated plainly: a clip rectangle is in canvas pixels, so it bounds UI
 drawing — controls, their textures, and labels inside the UI tree. A world-space
