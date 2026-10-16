@@ -426,12 +426,60 @@ impl Bindings {
     /// in a table claims it. [`Bindings::action`] answers with the first
     /// match, so leaving a duplicate behind would be a row that showed F and
     /// did nothing.
-    pub fn rebind(&mut self, action: Action, keys: Vec<String>) {
+    ///
+    /// # Why it says what it changed
+    ///
+    /// Returns every action whose key set is now different: the one bound,
+    /// first, and then each one a key was taken from, in the order the table
+    /// held them. The caller has to report those rows back to the simulation,
+    /// and it cannot work out the second group for itself — the theft happens
+    /// in here, and a page that was told only about the action it bound would
+    /// still be showing F against Confirm *and* against whatever used to have
+    /// it. That is a row that reads wrongly and a key the player cannot find
+    /// again, and it is the defect this return value exists to make
+    /// impossible to forget.
+    ///
+    /// An action stripped of its last key is in the list with an empty set,
+    /// which is the honest answer: the page needs to draw that row blank.
+    pub fn rebind(&mut self, action: Action, keys: Vec<String>) -> Vec<Action> {
+        // Gathered before the retain, because afterwards there is nothing left
+        // to say who held the key. Deduped by hand rather than through a set:
+        // the order is the table's, and a `HashSet` here would make what the
+        // host reports depend on iteration order (I4 in spirit — this is not
+        // the simulation, but the rows it produces are hashed).
+        let mut changed = vec![action];
+        for (key, held_by) in &self.pairs {
+            if *held_by != action && keys.contains(key) && !changed.contains(held_by) {
+                changed.push(*held_by);
+            }
+        }
         self.pairs
             .retain(|(key, a)| *a != action && !keys.contains(key));
         for key in keys {
             self.pairs.push((key, action));
         }
+        changed
+    }
+
+    /// The rows for a set of actions, as the simulation reads them back.
+    ///
+    /// The label a project would recognise and the keys the table now holds,
+    /// which is exactly the shape [`crate::Session::note_bindings`] takes.
+    /// Here rather than at each call site so that a bind event, a capture and
+    /// the whole table reported at launch all build a row the same way.
+    pub fn rows(&self, actions: &[Action], declared: &[String]) -> Vec<Row> {
+        actions
+            .iter()
+            .map(|action| {
+                (
+                    action.label(declared),
+                    self.keys_for(*action)
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -588,15 +636,35 @@ impl Held {
     }
 }
 
+/// An action's name and every key now bound to it.
+///
+/// What [`crate::Session::note_bindings`] takes and what a game reads back
+/// through `input.bindings(action)`. Named because it travels through four
+/// signatures and reads better than its shape does.
+pub type Row = (String, Vec<String>);
+
 /// The event kind a game rebinds an action with.
 pub const BIND: &str = "input.bind";
 
 /// Apply an `input.bind` event, if that is what it is.
 ///
-/// Returns whether the event was this kind — read rather than consumed, so
-/// another consumer of the same drained list still finds its own kinds. The
-/// same shape `Speaker::apply_event` has for `audio.bus_volume`, and for the
-/// same reason.
+/// `Some(Ok(rows))` when the table changed and those rows must be reported
+/// back to the simulation, `Some(Err(d))` when the event was this kind and
+/// could not be read, `None` when it was not this kind — read rather than
+/// consumed, so another consumer of the same drained list still finds its own
+/// kinds. The same shape [`read_capture_event`] has, and `Speaker::apply_event`
+/// has for `audio.bus_volume`, for the same reason.
+///
+/// # Why it hands the rows back
+///
+/// Changing the table is only half the job. A game reads its bindings through
+/// `input.bindings(action)`, which is simulation state fed from the input
+/// frame, so a change the host makes and does not report is a change the game
+/// cannot see: a Controls page kept drawing the row it had, a key taken from
+/// another action was still shown against it, and the bindings a launch
+/// applied from a saved profile were invisible until something else happened
+/// to report them. The rows are the other half, and returning them rather
+/// than leaving the caller to guess is what stops the two drivers drifting.
 ///
 /// ```text
 /// event.emit("input.bind", { action = "fire", keys = { "Space", "Enter" } })
@@ -618,19 +686,17 @@ pub fn apply_event(
     bindings: &mut Bindings,
     actions: &[String],
     event: &dimetric_sim::event::GameEvent,
-) -> Option<Diagnostic> {
+) -> Option<Result<Vec<Row>, Diagnostic>> {
     if event.kind != BIND {
         return None;
     }
     let refused = |why: String| {
-        Some(
-            Diagnostic::new(
-                Code::BINDING_UNKNOWN,
-                format!("{BIND}: {why}; the bindings are unchanged"),
-            )
-            .with_severity(dimetric_core::Severity::Warning)
-            .with_field("kind", BIND.to_string()),
+        Some(Err(Diagnostic::new(
+            Code::BINDING_UNKNOWN,
+            format!("{BIND}: {why}; the bindings are unchanged"),
         )
+        .with_severity(dimetric_core::Severity::Warning)
+        .with_field("kind", BIND.to_string())))
     };
     let dimetric_scene::Value::Map(payload) = &event.payload else {
         return refused("the payload is not a table".to_string());
@@ -668,8 +734,8 @@ pub fn apply_event(
             None => return refused("a `keys` entry is not a string".to_string()),
         }
     }
-    bindings.rebind(action, names);
-    None
+    let changed = bindings.rebind(action, names);
+    Some(Ok(bindings.rows(&changed, actions)))
 }
 
 /// The event kind a game asks for a key capture with.
@@ -693,7 +759,18 @@ pub struct Capture {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Captured {
     /// This key or button, now bound.
-    Bound(String),
+    Bound {
+        /// The name the player pressed, for a page to write into a label.
+        key: String,
+        /// Every row the binding changed, for a page to redraw.
+        ///
+        /// More than one when the key was taken from something else, which a
+        /// capture does by design — binding F to Confirm means F confirms, so
+        /// whatever had F lost it and its row is now different. Reporting only
+        /// the captured action left that other row showing a key it no longer
+        /// had.
+        rows: Vec<Row>,
+    },
     /// The player pressed the cancel key and nothing was bound.
     Cancelled,
 }
@@ -765,13 +842,23 @@ pub fn read_capture_event(
 ///
 /// Binding through [`Bindings::rebind`] like everything else, so the key is
 /// taken from whatever else held it and a Controls page's row means what it
-/// shows.
-pub fn settle_capture(bindings: &mut Bindings, capture: &Capture, key: &str) -> Captured {
+/// shows — and so that the theft is *reported*, which is what the rows in
+/// [`Captured::Bound`] carry. `declared` is here only to label a
+/// project-declared action in those rows.
+pub fn settle_capture(
+    bindings: &mut Bindings,
+    declared: &[String],
+    capture: &Capture,
+    key: &str,
+) -> Captured {
     if key == CANCEL_CAPTURE_KEY {
         return Captured::Cancelled;
     }
-    bindings.rebind(capture.action, vec![key.to_string()]);
-    Captured::Bound(key.to_string())
+    let changed = bindings.rebind(capture.action, vec![key.to_string()]);
+    Captured::Bound {
+        key: key.to_string(),
+        rows: bindings.rows(&changed, declared),
+    }
 }
 
 /// The key the runtime freezes its own simulation on.
@@ -800,12 +887,12 @@ pub enum KeyEffect {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Pressed {
     /// A capture took it. Nothing was delivered as input.
-    Captured {
-        /// What it settled on.
-        result: Captured,
-        /// The action's name as the game spelt it, for the frame to carry.
-        action: String,
-    },
+    ///
+    /// The action's own name used to ride along here, for the caller to build
+    /// a row from. It no longer does: [`Captured::Bound`] carries the rows
+    /// themselves, because the caller could not have worked out the row for an
+    /// action the key was *taken* from.
+    Captured(Captured),
     /// No capture was live, so the key means what the bindings say.
     Effect(KeyEffect),
     /// A capture was live and this was a release, which it has no use for.
@@ -825,6 +912,7 @@ pub enum Pressed {
 /// wrongly; one function is the fix that does not come undone.
 pub fn press_with_capture(
     bindings: &mut Bindings,
+    declared: &[String],
     capture: &mut Option<Capture>,
     key: &str,
     down: bool,
@@ -836,11 +924,7 @@ pub fn press_with_capture(
             return Pressed::Ignored;
         }
         let live = capture.take().expect("just checked");
-        let result = settle_capture(bindings, &live, key);
-        return Pressed::Captured {
-            result,
-            action: live.name,
-        };
+        return Pressed::Captured(settle_capture(bindings, declared, &live, key));
     }
     Pressed::Effect(key_effect(bindings, key))
 }
@@ -861,4 +945,83 @@ pub fn key_effect(bindings: &Bindings, key: &str) -> KeyEffect {
         Some(action) => KeyEffect::Action(action),
         None => KeyEffect::Unbound,
     }
+}
+
+/// Apply everything in a frame's drained event list that the input layer owns,
+/// and report back what it changed.
+///
+/// # Why this is one function and not two copies
+///
+/// The same reason [`press_with_capture`] is. Both drivers — the window and the
+/// scripted `--keys` run behind `--capture` — had their own copy of this block,
+/// and the copies had already drifted twice.
+///
+/// The first drift is the one that made this round's work necessary: both
+/// copies changed the bindings table and neither told the simulation, so a
+/// Controls page drew rows the host had already moved on from, a key taken
+/// from another action was still shown against it, and bindings restored from
+/// a saved profile on launch never arrived at all. `input.bindings(action)`
+/// reads the input frame, and nothing was putting them in it.
+///
+/// The second was quieter. [`crate::Session::note_capture`] has to be called
+/// every tick, because the frame field it fills is *taken* on each step: the
+/// windowed driver called it only on frames that happened to carry an event,
+/// so a page's "press a key for Act" prompt came down one tick after it went
+/// up while the capture was still live. The scripted driver called it
+/// unconditionally and behaved correctly, which is exactly the shape of
+/// disagreement that makes a thing photograph correctly and play wrongly.
+///
+/// So: audio to the mixer, binds applied *and reported*, a capture started,
+/// and the capture flag refreshed — once, here, whatever the list held.
+///
+/// Returns what could not be read, for the caller to print. Returned rather
+/// than logged so a test can assert on it, and so a runtime with somewhere
+/// better to put a diagnostic than stderr may.
+pub fn settle_events(
+    session: &mut crate::Session,
+    bindings: &mut Bindings,
+    held: &mut Held,
+    capture: &mut Option<Capture>,
+    declared: &[String],
+) -> Vec<Diagnostic> {
+    let mut problems = Vec::new();
+    let events = session.drain_events();
+    if !events.is_empty() {
+        // The engine applies the kinds it owns — a bus volume reaches the
+        // mixer, which nothing else in the process can — and the rest is left
+        // for whoever owns it. A runtime with a platform SDK reads the same
+        // list. The list is read rather than consumed, so every consumer below
+        // sees every event.
+        session.apply_events(&events);
+        for event in &events {
+            // Rebinding, at the boundary and never inside a tick, and reported
+            // back in the same breath: see `apply_event`.
+            match apply_event(bindings, declared, event) {
+                Some(Ok(rows)) => session.note_bindings(rows),
+                Some(Err(d)) => problems.push(d),
+                None => {}
+            }
+            // A Controls page asking for the next key pressed. The answer goes
+            // back through the frame, because the page writes it into a label
+            // and a label is hashed.
+            match read_capture_event(declared, event) {
+                Some(Ok(asked)) => {
+                    // Everything held is let go first. A player who asked to
+                    // rebind while holding a key would otherwise have it stuck
+                    // down for as long as the capture lasts, because the
+                    // release is taken too.
+                    held.release_all();
+                    *capture = Some(asked);
+                }
+                Some(Err(d)) => problems.push(d),
+                None => {}
+            }
+        }
+    }
+    // Every tick, and outside the list entirely, so a page can take its prompt
+    // down on the tick one ends. `None` because a settled capture's name is
+    // reported by `press_with_capture`'s caller on the press itself; this only
+    // says whether one is still waiting.
+    session.note_capture(None, capture.is_some());
+    problems
 }

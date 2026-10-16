@@ -444,11 +444,10 @@ impl PhysicsWorld {
         let limit = radius.wide() * radius.wide();
         let min = cell_of(at - half);
         let max = cell_of(at + half);
+        // A named tag nothing has ever carried has no index, and no node can
+        // match it, so the query is empty rather than unfiltered.
         let tag = match tag {
-            Some(tag) => match self.tag_id(tag) {
-                Some(id) => Some(id),
-                None => return None,
-            },
+            Some(tag) => Some(self.tag_id(tag)?),
             None => None,
         };
         let grid = self.grid_for(tag)?;

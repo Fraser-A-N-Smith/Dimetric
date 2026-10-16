@@ -339,21 +339,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             //
             // The freeze key is ignored: a capture that froze itself would be a
             // photograph of a stopped game, and nobody drives it from `--keys`.
-            let mut press_scripted = |tick: u64,
-                                      down: bool,
-                                      held: &mut Held,
-                                      bindings: &mut Bindings,
-                                      capture: &mut Option<dimetric_player::bindings::Capture>,
-                                      session: &mut Session| {
+            let press_scripted = |tick: u64,
+                                  down: bool,
+                                  held: &mut Held,
+                                  bindings: &mut Bindings,
+                                  capture: &mut Option<dimetric_player::bindings::Capture>,
+                                  session: &mut Session| {
                 for (at, key) in &scripted {
                     if *at != tick {
                         continue;
                     }
                     match dimetric_player::bindings::press_with_capture(
-                        bindings, capture, key, down,
+                        bindings,
+                        &declared_actions,
+                        capture,
+                        key,
+                        down,
                     ) {
-                        dimetric_player::bindings::Pressed::Captured { result, action } => {
-                            settle(session, result, action)
+                        dimetric_player::bindings::Pressed::Captured(result) => {
+                            settle(session, result)
                         }
                         dimetric_player::bindings::Pressed::Effect(
                             dimetric_player::KeyEffect::Action(action),
@@ -380,32 +384,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut capture,
                 &mut session,
             );
-            // The same drain the window does, and for the same reason: a
+            // The same drain the window does, through the same function: a
             // scripted run that ignored a game's own events would photograph a
-            // game nobody can play. A volume, a rebind and a capture all
-            // arrive here.
-            let events = session.drain_events();
-            if !events.is_empty() {
-                session.apply_events(&events);
-                for event in &events {
-                    if let Some(d) = dimetric_player::bindings::apply_event(
-                        &mut bindings,
-                        &declared_actions,
-                        event,
-                    ) {
-                        eprintln!("{d}");
-                    }
-                    match dimetric_player::bindings::read_capture_event(&declared_actions, event) {
-                        Some(Ok(asked)) => {
-                            held.release_all();
-                            capture = Some(asked);
-                        }
-                        Some(Err(d)) => eprintln!("{d}"),
-                        None => {}
-                    }
-                }
+            // game nobody can play, and a copy of this block that drifted from
+            // the window's is how the two came to disagree twice. A volume, a
+            // rebind and a capture all arrive here.
+            for d in dimetric_player::bindings::settle_events(
+                &mut session,
+                &mut bindings,
+                &mut held,
+                &mut capture,
+                &declared_actions,
+            ) {
+                eprintln!("{d}");
             }
-            session.note_capture(None, capture.is_some());
             if session.take_atlas_change() {
                 renderer.set_atlas(session.atlas());
             }
@@ -697,13 +689,14 @@ impl App {
         // scripted `--keys` run makes — see `bindings::press_with_capture`.
         let effect = match dimetric_player::bindings::press_with_capture(
             &mut self.bindings,
+            &self.declared_actions,
             &mut self.capture,
             key,
             down,
         ) {
             dimetric_player::bindings::Pressed::Ignored => return,
-            dimetric_player::bindings::Pressed::Captured { result, action } => {
-                settle(&mut self.session, result, action);
+            dimetric_player::bindings::Pressed::Captured(result) => {
+                settle(&mut self.session, result);
                 return;
             }
             dimetric_player::bindings::Pressed::Effect(effect) => effect,
@@ -756,48 +749,20 @@ impl App {
                     break;
                 }
             }
-            // What the game told the host this frame. The engine applies the
-            // kinds it owns — a bus volume reaches the mixer, which nothing
-            // else in the process can — and the rest is left for whoever owns
-            // it. A runtime with a platform SDK reads the same list.
-            let events = self.session.drain_events();
-            if !events.is_empty() {
-                self.session.apply_events(&events);
-                // Rebinding, at the boundary and never inside a tick. The
-                // drained list is read rather than consumed, so the speaker
-                // above and this both see every event — and a game that
-                // emits its saved bindings on launch gets them applied
-                // before the next frame's input is built.
-                for event in &events {
-                    if let Some(d) = dimetric_player::bindings::apply_event(
-                        &mut self.bindings,
-                        &self.declared_actions,
-                        event,
-                    ) {
-                        eprintln!("{d}");
-                    }
-                    // A Controls page asking for the next key pressed. The
-                    // answer goes back through the frame, because the page
-                    // writes it into a label and a label is hashed.
-                    match dimetric_player::bindings::read_capture_event(
-                        &self.declared_actions,
-                        event,
-                    ) {
-                        Some(Ok(capture)) => {
-                            // Everything held is let go first. A player who
-                            // asked to rebind while holding a key would
-                            // otherwise have it stuck down for as long as the
-                            // capture lasts, because the release is taken too.
-                            self.held.release_all();
-                            self.capture = Some(capture);
-                        }
-                        Some(Err(d)) => eprintln!("{d}"),
-                        None => {}
-                    }
-                }
-                // Whether a capture is still waiting, every tick, so a page
-                // can take its prompt down on the tick one ends.
-                self.session.note_capture(None, self.capture.is_some());
+            // What the game told the host this frame: a volume to the mixer, a
+            // rebind to the bindings table and back into the frame, a capture
+            // started. Through the one function the scripted driver uses, so a
+            // game cannot mean one thing in a photograph and another in play —
+            // see `bindings::settle_events` for the two ways the copies of
+            // this block had already drifted.
+            for d in dimetric_player::bindings::settle_events(
+                &mut self.session,
+                &mut self.bindings,
+                &mut self.held,
+                &mut self.capture,
+                &self.declared_actions,
+            ) {
+                eprintln!("{d}");
             }
             for d in self.session.take_diagnostics().iter() {
                 eprintln!("{d}");
@@ -879,18 +844,25 @@ impl App {
 
 /// Tell the simulation what a capture settled on.
 ///
-/// Both drivers report the same way: the bound row so a page can redraw it,
-/// and the name so a page can write it into a label. A cancelled capture
-/// reports no name, which together with `capturing` stopping is how a page
-/// tells "bound" from "cancelled".
-fn settle(session: &mut Session, result: dimetric_player::bindings::Captured, action: String) {
+/// Both drivers report the same way: every row the binding changed so a page
+/// can redraw them, and the name so a page can write it into a label. A
+/// cancelled capture reports no name, which together with `capturing` stopping
+/// is how a page tells "bound" from "cancelled".
+///
+/// The rows come from [`dimetric_player::bindings::settle_capture`] rather than
+/// being assembled here. This used to report one row — the captured action,
+/// against the one key pressed — which is right about that action and silent
+/// about the one the key was *taken* from. A player moving F from Dash to
+/// Confirm saw Confirm update and Dash still claiming F, and the only way to
+/// find out otherwise was to press it.
+fn settle(session: &mut Session, result: dimetric_player::bindings::Captured) {
     let name = match result {
-        dimetric_player::bindings::Captured::Bound(name) => Some(name),
+        dimetric_player::bindings::Captured::Bound { key, rows } => {
+            session.note_bindings(rows);
+            Some(key)
+        }
         dimetric_player::bindings::Captured::Cancelled => None,
     };
-    if let Some(name) = &name {
-        session.note_bindings(vec![(action, vec![name.clone()])]);
-    }
     session.note_capture(name, false);
 }
 
@@ -901,21 +873,12 @@ fn settle(session: &mut Session, result: dimetric_player::bindings::Captured, ac
 /// it either way, and an action missing from the table is indistinguishable
 /// from one the host never mentioned.
 fn binding_rows(bindings: &Bindings, declared: &[String]) -> Vec<(String, Vec<String>)> {
-    dimetric_player::Action::ALL
+    let every: Vec<_> = dimetric_player::Action::ALL
         .iter()
         .copied()
         .chain((0..declared.len()).map(dimetric_player::Action::Custom))
-        .map(|action| {
-            (
-                action.label(declared),
-                bindings
-                    .keys_for(action)
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect(),
-            )
-        })
-        .collect()
+        .collect();
+    bindings.rows(&every, declared)
 }
 
 fn parse_size(text: &str) -> Result<(u32, u32), String> {

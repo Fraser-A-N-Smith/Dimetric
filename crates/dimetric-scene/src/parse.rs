@@ -313,19 +313,17 @@ fn parse_node(
     lines: &KeyLines,
     cx: &mut Cx,
 ) -> Option<(Node, ParentRef)> {
-    let uid = match required_str(table, "id", lines, cx) {
-        Some(s) => match NodeUid::parse(&s) {
-            Ok(u) => u,
-            Err(e) => {
-                cx.diags.push(
-                    Diagnostic::new(Code::BAD_ID_FORM, e.to_string())
-                        .with_span(span_at(lines, "id", cx.path))
-                        .with_field("id", s),
-                );
-                return None;
-            }
-        },
-        None => return None,
+    let id = required_str(table, "id", lines, cx)?;
+    let uid = match NodeUid::parse(&id) {
+        Ok(u) => u,
+        Err(e) => {
+            cx.diags.push(
+                Diagnostic::new(Code::BAD_ID_FORM, e.to_string())
+                    .with_span(span_at(lines, "id", cx.path))
+                    .with_field("id", id),
+            );
+            return None;
+        }
     };
 
     let kind = required_str(table, "kind", lines, cx)?;

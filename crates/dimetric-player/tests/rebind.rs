@@ -41,20 +41,41 @@ fn keys(names: &[&str]) -> Value {
     Value::List(names.iter().map(|n| Value::Str(n.to_string())).collect())
 }
 
+/// What `apply_event` complained about, if anything.
+///
+/// It answers with the rows it changed now (G60), so "nothing went wrong" is
+/// `Some(Ok(_))` rather than `None`. The tests below that only care whether a
+/// payload was refused read through here; the ones about the rows themselves
+/// look at them directly.
+type Applied = Option<Result<Vec<dimetric_player::bindings::Row>, dimetric_core::Diagnostic>>;
+
+fn problem(applied: Applied) -> Option<dimetric_core::Diagnostic> {
+    applied.and_then(Result::err)
+}
+
+/// The rows a bind reported, or a panic naming what it refused instead.
+fn rows(applied: Applied) -> Vec<dimetric_player::bindings::Row> {
+    match applied {
+        Some(Ok(rows)) => rows,
+        Some(Err(d)) => panic!("refused: {d}"),
+        None => panic!("the event was not claimed at all"),
+    }
+}
+
 #[test]
 fn a_game_can_rebind_an_action_while_it_runs() {
     let mut bindings = Bindings::wasd();
     assert_eq!(bindings.action("Space"), Some(Action::Fire));
     assert_eq!(bindings.action("KeyF"), None);
 
-    let problem = apply_event(
+    let problem = problem(apply_event(
         &mut bindings,
         &[],
         &bind_event(map(&[
             ("action", Value::Str("fire".into())),
             ("keys", keys(&["KeyF"])),
         ])),
-    );
+    ));
     assert!(problem.is_none(), "{problem:?}");
     assert_eq!(bindings.action("KeyF"), Some(Action::Fire));
     assert_eq!(
@@ -89,14 +110,14 @@ fn a_pad_button_rebinds_exactly_as_a_key_does() {
     assert_eq!(bindings.action("PadEast"), Some(Action::Dash));
 
     for (action, buttons) in [("fire", &["PadEast"][..]), ("dash", &["PadSouth"][..])] {
-        let problem = apply_event(
+        let problem = problem(apply_event(
             &mut bindings,
             &[],
             &bind_event(map(&[
                 ("action", Value::Str(action.into())),
                 ("keys", keys(buttons)),
             ])),
-        );
+        ));
         assert!(problem.is_none(), "{problem:?}");
     }
     assert_eq!(bindings.action("PadEast"), Some(Action::Fire));
@@ -107,14 +128,14 @@ fn a_pad_button_rebinds_exactly_as_a_key_does() {
 fn a_declared_action_is_rebindable_too() {
     let mut bindings = Bindings::wasd();
     let actions = vec!["undo".to_string()];
-    let problem = apply_event(
+    let problem = problem(apply_event(
         &mut bindings,
         &actions,
         &bind_event(map(&[
             ("action", Value::Str("undo".into())),
             ("keys", keys(&["KeyZ", "PadLB"])),
         ])),
-    );
+    ));
     assert!(problem.is_none(), "{problem:?}");
     assert_eq!(bindings.action("KeyZ"), Some(Action::Custom(0)));
     assert_eq!(bindings.action("PadLB"), Some(Action::Custom(0)));
@@ -174,7 +195,7 @@ fn a_payload_this_build_cannot_read_is_reported_and_changes_nothing() {
         ),
     ] {
         let mut bindings = Bindings::wasd();
-        let problem = apply_event(&mut bindings, &[], &bind_event(payload));
+        let problem = problem(apply_event(&mut bindings, &[], &bind_event(payload)));
         let d = problem.unwrap_or_else(|| panic!("{why} should be refused"));
         assert_eq!(d.code, dimetric_core::Code::BINDING_UNKNOWN, "{why}");
         assert_eq!(d.severity, dimetric_core::Severity::Warning, "{why}");
@@ -274,5 +295,121 @@ fn a_project_that_names_a_pad_button_owns_the_whole_pad() {
         bindings.action("PadSouth"),
         None,
         "it said what the pad does, so the engine does not second-guess it"
+    );
+}
+
+#[test]
+fn a_bind_reports_the_row_it_changed() {
+    // The half G60 was about. Changing the table is not enough: a game reads
+    // its bindings out of the input frame, so a change nobody reported is a
+    // change the game cannot see.
+    let mut bindings = Bindings::wasd();
+    let reported = rows(apply_event(
+        &mut bindings,
+        &[],
+        &bind_event(map(&[
+            ("action", Value::Str("fire".into())),
+            ("keys", keys(&["KeyF", "PadRB"])),
+        ])),
+    ));
+    assert_eq!(
+        reported,
+        vec![(
+            "fire".to_string(),
+            vec!["KeyF".to_string(), "PadRB".to_string()]
+        )]
+    );
+}
+
+#[test]
+fn a_bind_reports_every_action_the_key_was_taken_from() {
+    // ShiftLeft is Dash and PadSouth is Fire in the defaults. Giving both to
+    // `use` takes them, and both losses have to be reported: a page told only
+    // about `use` would go on showing ShiftLeft against Dash, and the player
+    // would have no way to find out but to press it.
+    let mut bindings = Bindings::wasd();
+    assert_eq!(bindings.action("ShiftLeft"), Some(Action::Dash));
+    assert_eq!(bindings.action("PadSouth"), Some(Action::Fire));
+
+    let reported = rows(apply_event(
+        &mut bindings,
+        &[],
+        &bind_event(map(&[
+            ("action", Value::Str("use".into())),
+            ("keys", keys(&["ShiftLeft", "PadSouth"])),
+        ])),
+    ));
+
+    let named: Vec<&str> = reported.iter().map(|(a, _)| a.as_str()).collect();
+    assert_eq!(
+        named,
+        ["use", "dash", "fire"],
+        "the action bound first, then each one robbed, in the table's order"
+    );
+    let row = |name: &str| {
+        reported
+            .iter()
+            .find(|(a, _)| a == name)
+            .map(|(_, keys)| keys.join(" "))
+            .unwrap_or_else(|| panic!("no row for {name}"))
+    };
+    assert_eq!(row("use"), "ShiftLeft PadSouth");
+    assert_eq!(row("dash"), "PadEast", "it kept the button it still has");
+    assert!(
+        !row("fire").contains("PadSouth"),
+        "fire lost South: {}",
+        row("fire")
+    );
+}
+
+#[test]
+fn clearing_a_row_reports_it_empty() {
+    // A player clearing a row needs the blank row reported, or the page draws
+    // the keys it had forever.
+    let mut bindings = Bindings::wasd();
+    let reported = rows(apply_event(
+        &mut bindings,
+        &[],
+        &bind_event(map(&[
+            ("action", Value::Str("dash".into())),
+            ("keys", Value::List(Vec::new())),
+        ])),
+    ));
+    assert_eq!(reported, vec![("dash".to_string(), Vec::<String>::new())]);
+}
+
+#[test]
+fn a_declared_actions_row_is_reported_under_its_own_name() {
+    let actions = vec!["undo".to_string()];
+    let mut bindings = Bindings::wasd();
+    let reported = rows(apply_event(
+        &mut bindings,
+        &actions,
+        &bind_event(map(&[
+            ("action", Value::Str("undo".into())),
+            ("keys", keys(&["KeyZ"])),
+        ])),
+    ));
+    assert_eq!(
+        reported,
+        vec![("undo".to_string(), vec!["KeyZ".to_string()])],
+        "the project's own name, not `declared`"
+    );
+}
+
+#[test]
+fn a_refused_bind_reports_no_rows_at_all() {
+    let mut bindings = Bindings::wasd();
+    let applied = apply_event(
+        &mut bindings,
+        &[],
+        &bind_event(map(&[
+            ("action", Value::Str("fier".into())),
+            ("keys", keys(&["KeyF"])),
+        ])),
+    );
+    assert!(
+        matches!(applied, Some(Err(_))),
+        "a typo changes nothing, so there is nothing to report"
     );
 }
