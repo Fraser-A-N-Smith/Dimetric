@@ -717,6 +717,24 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 Some(Value::Vec2(dimetric_core::Vec2Fx::ZERO)),
                 "Draw offset from the node origin.",
             ),
+            // No default on purpose, like `lit` beside it: a declared default
+            // is materialised into every node's props at parse and every prop
+            // is hashed, so giving this one would change the hash of every
+            // scene with a label in it.
+            prop(
+                "screen_size",
+                PropertyType::Bool,
+                None,
+                "Whether the glyphs are drawn at the font's own pixel size instead \
+                 of the board's zoom. Absent and false both scale with the zoom, \
+                 which is what every scene written before this did. The origin is \
+                 still projected like any world position, so the text stays with \
+                 the thing it labels and stops growing when the camera moves in — \
+                 for a damage number, a unit's name or a tooltip, which are read \
+                 rather than looked at. Sorting, `lit` and parenting are unchanged. \
+                 No effect on a label inside the UI tree, which is already drawn in \
+                 canvas pixels.",
+            ),
         ],
     ));
 

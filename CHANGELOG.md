@@ -43,6 +43,42 @@ run that *does* rebind now hashes differently from the same run before this
 change, which is the point of the fix. **Input log: no format change**;
 `LOG_VERSION` stays 1 and the rows use the `bind` lines G53 already wrote.
 
+### Added: text on the board can be drawn at a readable size
+
+G65. A world `Label` was drawn at the board's zoom, with no `scale` and no way
+to ask for the font's own size — so a damage number at zoom 3 was three times
+the size of the same number in the HUD, and at zoom 0.5 illegible.
+
+```toml
+screen_size = true
+```
+
+The glyphs are then drawn at the font's own pixel size whatever the zoom, while
+the origin still projects like any world position — so the text stays on the
+thing it labels and simply stops growing when the camera moves in. Sorting,
+`lit` and parenting are unchanged, and it batches with everything else. A label
+inside the UI tree is unaffected, since the canvas projection has no zoom in it.
+
+This is not `Label.in_world`, which stays declined: nothing here is sheared and
+no quad is projected. `docs/ENGINE-GAPS.md` records the relationship between the
+two.
+
+Implemented by dividing the glyph quad and the typographic advance by the zoom
+in extraction, because the shader multiplies both by a `pixel_scale` that
+carries the zoom — the two cancel. The alternative was a second pixel scale in
+the camera uniform plus a per-instance flag, which is a new vertex attribute on
+every sprite in the engine to serve one property, and it would move the decision
+into the shader where it could not be tested without a graphics adapter.
+
+The glyph extent is exactly the font's pixel size, but the projected origin may
+land on a fractional internal-resolution pixel, so a pixel-art project still
+wants the camera's `pixel_snap`. That is equally true of a world label without
+the flag.
+
+**Hash: moves no recorded hash.** `screen_size` carries no declared default,
+like `lit` beside it, so absent means exactly today's behaviour. It is
+presentation and never reaches the simulation. **Input log: no format change.**
+
 ### Added: a panel can have a frame instead of being a flat rectangle
 
 G63. `Panel` and `Button` drew one flat fill and `TextureRect` stretched its

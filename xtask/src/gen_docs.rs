@@ -1064,6 +1064,31 @@ fn render_markdown(
          controls in tree order, and *which key* walks a menu is the game\'s decision —\n\
          binding it here would mean the engine deciding that pressing Down in a menu\n\
          can never also move the player.\n\n\
+         #### Text on the board, at a readable size\n\n\
+         A world `Label` is drawn at the board\'s zoom, which is right for something\n\
+         that belongs to the scene and wrong for everything a player *reads*: a damage\n\
+         number at zoom 3 is three times the size of the same number in the HUD, and at\n\
+         zoom 0.5 it is illegible.\n\n\
+         ```toml\n\
+         [[node]]\n\
+         kind = \"Label\"\n\
+         name = \"Damage\"\n\
+         text = \"160\"\n\
+         screen_size = true\n\
+         ```\n\n\
+         The glyphs are then drawn at the font\'s own pixel size whatever the zoom, and\n\
+         the origin still projects like any world position — so the text stays on the\n\
+         thing it labels and simply stops growing when the camera moves in. Sorting,\n\
+         `lit` and parenting are unchanged, and it batches with everything else.\n\n\
+         A label inside the UI tree is unaffected: the canvas projection has no zoom in\n\
+         it, so those glyphs are already at the font\'s own size.\n\n\
+         This is not `Label.in_world`, which is still declined — nothing here is\n\
+         sheared and no quad is projected. See `docs/ENGINE-GAPS.md` for why\n\
+         ground-plane text is a different feature.\n\n\
+         The glyph extent is exactly the font\'s pixel size, but the projected origin\n\
+         may land on a fractional internal-resolution pixel, so a pixel-art project\n\
+         still wants the camera\'s `pixel_snap`. That is equally true of a world label\n\
+         without the flag.\n\n\
          #### Frames, and skinned buttons\n\n\
          A `TextureRect` stretches its whole texture over its rectangle, which is right\n\
          for an icon and wrong for a border: a one-pixel outline stretched to a dialog\n\

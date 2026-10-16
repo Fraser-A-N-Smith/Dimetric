@@ -638,6 +638,13 @@
           "name": "offset",
           "required": false,
           "type": "vec2"
+        },
+        {
+          "default": null,
+          "doc": "Whether the glyphs are drawn at the font's own pixel size instead of the board's zoom. Absent and false both scale with the zoom, which is what every scene written before this did. The origin is still projected like any world position, so the text stays with the thing it labels and stops growing when the camera moves in — for a damage number, a unit's name or a tooltip, which are read rather than looked at. Sorting, `lit` and parenting are unchanged. No effect on a label inside the UI tree, which is already drawn in canvas pixels.",
+          "name": "screen_size",
+          "required": false,
+          "type": "bool"
         }
       ]
     },

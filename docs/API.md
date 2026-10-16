@@ -215,6 +215,7 @@ A run of text drawn from a baked font.
 | `align` | `enum(Left | Center | Right)` | `"Left"` | Horizontal alignment of each line about the node origin. |
 | `lit` | `bool` | — | Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it. |
 | `offset` | `vec2` | `[0.0, 0.0]` | Draw offset from the node origin. |
+| `screen_size` | `bool` | — | Whether the glyphs are drawn at the font's own pixel size instead of the board's zoom. Absent and false both scale with the zoom, which is what every scene written before this did. The origin is still projected like any world position, so the text stays with the thing it labels and stops growing when the camera moves in — for a damage number, a unit's name or a tooltip, which are read rather than looked at. Sorting, `lit` and parenting are unchanged. No effect on a label inside the UI tree, which is already drawn in canvas pixels. |
 
 ### `Light2D`
 
@@ -1364,6 +1365,38 @@ Focus is tracked, not driven. `ui.focus_next(step)` walks the focusable
 controls in tree order, and *which key* walks a menu is the game's decision —
 binding it here would mean the engine deciding that pressing Down in a menu
 can never also move the player.
+
+#### Text on the board, at a readable size
+
+A world `Label` is drawn at the board's zoom, which is right for something
+that belongs to the scene and wrong for everything a player *reads*: a damage
+number at zoom 3 is three times the size of the same number in the HUD, and at
+zoom 0.5 it is illegible.
+
+```toml
+[[node]]
+kind = "Label"
+name = "Damage"
+text = "160"
+screen_size = true
+```
+
+The glyphs are then drawn at the font's own pixel size whatever the zoom, and
+the origin still projects like any world position — so the text stays on the
+thing it labels and simply stops growing when the camera moves in. Sorting,
+`lit` and parenting are unchanged, and it batches with everything else.
+
+A label inside the UI tree is unaffected: the canvas projection has no zoom in
+it, so those glyphs are already at the font's own size.
+
+This is not `Label.in_world`, which is still declined — nothing here is
+sheared and no quad is projected. See `docs/ENGINE-GAPS.md` for why
+ground-plane text is a different feature.
+
+The glyph extent is exactly the font's pixel size, but the projected origin
+may land on a fractional internal-resolution pixel, so a pixel-art project
+still wants the camera's `pixel_snap`. That is equally true of a world label
+without the flag.
 
 #### Frames, and skinned buttons
 

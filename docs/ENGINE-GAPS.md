@@ -445,6 +445,28 @@ If painted-floor text is ever wanted, the thing to build is the general case —
 an opt-in projected quad, available to any sprite — and to measure it against a
 decal drawn as artwork, which is how the genre has always done it.
 
+The *opposite* request came later and was built: `Label.screen_size`, which
+draws the glyphs at the font's own pixel size instead of the board's zoom. It is
+a much smaller thing than `in_world` and in no tension with the decline above —
+nothing is sheared and no quad is projected. A world label was drawn at the
+camera's zoom, so a damage number at zoom 3 was three times the size of the same
+number in the HUD and at zoom 0.5 was illegible; the flag says "this text is
+read, not looked at". The origin still projects like any world position, which
+is what keeps the text on the thing it names.
+
+It is implemented by dividing the glyph quad and the typographic advance by the
+zoom in extraction, because the shader multiplies both by a `pixel_scale` that
+carries the zoom — the two cancel. The alternative was a second pixel scale in
+the camera uniform and a per-instance flag to choose between them, which is a
+new vertex attribute on every sprite in the engine to serve one property, and it
+would move the decision into the shader where it could not be tested without a
+graphics adapter.
+
+One limit worth knowing: the glyph *extent* is exactly the font's pixel size,
+but the projected origin may land on a fractional internal-resolution pixel, so
+a pixel-art project still wants the camera's `pixel_snap`. That is true of every
+world label today and the flag neither helps nor hurts it.
+
 **A runtime guard on a table read back from script state.** Writing into one —
 `self.bag.b = 2` — lands in a temporary and is dropped, and used to do so with
 no error, no warning and no lint: the only failure in the engine that carried

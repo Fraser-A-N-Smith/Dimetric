@@ -172,7 +172,7 @@ pub fn extract_at(
             // screen twice, once in the wrong place.
             "Label" if !node.parent().is_some_and(|p| ui_layout.contains_key(&p)) => {
                 let depth = camera.projection.depth_of(pos);
-                label(node, pos, depth, atlas, &mut sprites);
+                label(node, pos, depth, atlas, Some(camera.zoom), &mut sprites);
             }
             "Light2D" => {
                 if let Some(light) = light(node, pos) {
@@ -225,7 +225,7 @@ pub fn extract_at(
             // A label parented into the UI tree draws in canvas pixels, from
             // its parent control's top-left corner.
             if let Some(parent) = node.parent().and_then(|p| ui_layout.get(&p)) {
-                label(node, parent.pos, depth, atlas, &mut ui);
+                label(node, parent.pos, depth, atlas, None, &mut ui);
             }
         }
         if let Some(clip) = clip {
@@ -889,6 +889,7 @@ fn label(
     pos: Vec2Fx,
     depth: Fx,
     atlas: &Atlas,
+    unzoom: Option<f32>,
     out: &mut Vec<DrawItem>,
 ) {
     // A label that names no font, or names one that is not in the atlas, falls
@@ -927,6 +928,47 @@ fn label(
 
     let origin = pos + offset;
     let laid = crate::text::layout(font, text, align);
+
+    // A label on the board is drawn at the board's zoom, which is right for
+    // something that belongs to the scene -- a sign painted on a wall -- and
+    // wrong for everything a player *reads*. A damage number at zoom 3 is three
+    // times the size of the same number in the HUD, and at zoom 0.5 it is
+    // illegible; the text that tells a player something should be the size the
+    // font was made to be read at, wherever the camera happens to be.
+    //
+    // The quad and the typographic advance are divided by the zoom here, and
+    // the shader multiplies both by `pixel_scale`, which carries the zoom -- so
+    // the two cancel and the glyphs come out at the font's own pixel size. The
+    // origin is untouched and projects like any world position, which is what
+    // keeps the text with the thing it labels.
+    //
+    // The alternative was a second pixel scale in the camera uniform and a
+    // per-instance flag to choose between them. That is a new vertex attribute
+    // on every sprite in the engine to serve one property, and it would move
+    // the decision into the shader, where it could not be tested without a
+    // graphics adapter.
+    //
+    // I3-exempt: the zoom is an f32 presentation value and this is the render
+    // boundary, the same exemption the interpolation alpha takes. Nothing here
+    // reaches the simulation.
+    //
+    // A label inside the UI tree passes `None`: the canvas projection has no
+    // zoom in it, so those glyphs are already at the font's own size.
+    let scale = match node
+        .get("screen_size")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        true => unzoom.filter(|z| *z > 0.0 && z.is_finite()),
+        false => None,
+    };
+    let unmagnified = |v: Vec2Fx| match scale {
+        Some(zoom) => Vec2Fx::new(
+            Fx::from_f64_lossy(v.x.to_f64() / zoom as f64),
+            Fx::from_f64_lossy(v.y.to_f64() / zoom as f64),
+        ),
+        None => v,
+    };
 
     for placed in laid.glyphs {
         let g = placed.glyph;
@@ -970,8 +1012,8 @@ fn label(
             blend: Blend::Alpha,
             shader: 0,
             pos: origin,
-            screen_offset: advance,
-            size: Vec2Fx::from_ints(g.width as i32, g.height as i32),
+            screen_offset: unmagnified(advance),
+            size: unmagnified(Vec2Fx::from_ints(g.width as i32, g.height as i32)),
             rotation: Angle::ZERO,
             uv: region.sub(g.x, g.y, g.width, g.height).uv,
             modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
