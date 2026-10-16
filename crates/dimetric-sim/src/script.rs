@@ -1449,6 +1449,20 @@ fn install_api(
     )
     .map_err(err)?;
 
+    // An autosave: the same write, without the quit. Deliberately a second
+    // call rather than `suspend(false)`, because the two have different
+    // consequences for a player and a flag at a call site does not say so.
+    let asked = shared_state.suspend.clone();
+    app.set(
+        "checkpoint",
+        lua.create_function(move |_, ()| {
+            asked.set(Some(crate::suspend::SuspendRequest::Checkpoint));
+            Ok(())
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+
     let asked = shared_state.suspend.clone();
     app.set(
         "resume",

@@ -850,11 +850,12 @@ fn render_markdown(
          frozen simulation cannot tick the menu that would unfreeze it.\n\n\
          ### Suspending a run, and continuing it\n\n\
          One run can be set aside and picked up later, which is the Continue row every\n\
-         roguelike has. Four calls, all read **between ticks** for the same reason\n\
+         roguelike has. Five calls, all read **between ticks** for the same reason\n\
          `app.quit()` is:\n\n\
          | Call | What it does |\n\
          |---|---|\n\
          | `app.suspend()` | Writes the run out and stops. Carries the quit with it |\n\
+         | `app.checkpoint()` | Writes the run out and carries on playing |\n\
          | `app.suspended()` | Whether a run this build can continue is waiting |\n\
          | `app.resume()` | Replaces the run with the suspended one, and consumes it |\n\
          | `app.discard_suspended()` | Throws it away, for a player starting a new run |\n\n\
@@ -870,9 +871,20 @@ fn render_markdown(
          end\n\
          ```\n\n\
          **One run, consumed once.** Suspending writes it, resuming takes it. There is no\n\
-         version left for a player to fall back to after playing on and losing, and\n\
-         `app.suspend()` quits rather than letting a run continue past its own save —\n\
-         which is why it is one call and not two.\n\n\
+         second version left for a player to fall back to, and `app.suspend()` quits\n\
+         rather than letting a run continue past its own save — which is why it is one\n\
+         call and not two.\n\n\
+         **An autosave is `app.checkpoint()`.** The same write to the same slot,\n\
+         replacing whatever was there, without the quit — so a long campaign does not\n\
+         lose the session to a power cut. It may be called as often as a game likes,\n\
+         `app.suspended()` answers true for it, and resuming still consumes it.\n\n\
+         A checkpoint does **not** have the property `app.suspend()` has of being\n\
+         unscummable: a player can checkpoint, play on, die and resume, and the last\n\
+         turn is undone. That is the whole difference between the two, and it is a\n\
+         decision about reloading rather than anything to do with determinism — the\n\
+         write is between ticks either way, the request is hashed neither way, and a\n\
+         replay ignores both. A game that wants the strict shape simply does not call\n\
+         this one.\n\n\
          **Where it lives.** A directory beside the game's `profile.toml`, holding the\n\
          canonical `scene.dim` and the `state.toml` `dim state save` writes. Text, and\n\
          readable, for the reason every other file in this engine is. Never inside a\n\
@@ -885,7 +897,14 @@ fn render_markdown(
          `app.suspended()` false, because a recorded run that depended on a file beside\n\
          it would reproduce only on the machine that made one — and a run that was\n\
          suspended must hash identically to one whose window was closed. A script that\n\
-         asks anyway is told so, as `DIM1003`.\n\n\
+         asks anyway is told so, as `DIM1003`, once per session: a game that checkpoints\n\
+         every turn would otherwise bury everything else a replay has to say.\n\n\
+         Because a checkpoint is dropped rather than refused as an error, it is a no-op\n\
+         line in a recording exactly as `app.quit()` is. What a game must **not** do is\n\
+         write `app.suspended()` into its own state — a label, a node variable — and\n\
+         then expect a replay to agree: that answer is about a file beside the game,\n\
+         and a replay is told false on purpose. It is the same trap as reading your own\n\
+         bindings back.\n\n\
          **What does not come back: anything a script left in Lua.** `on_ready` does not\n\
          fire again — the nodes are already readied, and re-firing it would re-run a\n\
          run's initialisation — so a handle cached in a file-scope local is nil after a\n\

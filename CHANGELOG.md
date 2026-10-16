@@ -14,6 +14,75 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: a binding the host changes is reported back to the game
+
+G60. `input.bind` changed the host's bindings table and told the simulation
+nothing. A game reads its bindings out of the input frame, so a change nobody
+reported was a change the game could not see — and four separate things were
+broken by that one omission. A page could not keep the other half of a set,
+because a capture binds the pressed key alone and there was no way to read what
+the other half had been. A key taken from another action was still shown against
+it. Bindings a launch restored from a saved profile never arrived at all. And
+Restore-defaults changed everything and reported nothing.
+
+`Bindings::rebind` now says which actions it changed — the one bound, and every
+one a key was taken from, which only it can know, because the theft happens in
+there — and both drivers report those rows. An action stripped of its last key
+is reported with an empty set, because the page has to draw that row blank.
+
+Both drivers now share one `bindings::settle_events` rather than a copy each.
+That closes a second drift in the same block: `note_capture` has to be called
+every tick, because the frame field it fills is taken on each step, and the
+windowed driver called it only on frames that happened to carry an event — so a
+page's "press a key for Act" prompt came down one tick after it went up while
+the capture was still live.
+
+**Hash: moves no recorded hash.** Every row travels in `InputFrame::rebinds`,
+hashed only when non-empty, and a run that rebinds nothing reports nothing. A
+run that *does* rebind now hashes differently from the same run before this
+change, which is the point of the fix. **Input log: no format change**;
+`LOG_VERSION` stays 1 and the rows use the `bind` lines G53 already wrote.
+
+### Added: a run can be written out without stopping
+
+G62. `app.suspend()` was the only way to put a run on disk and it quits, so a
+game that wanted an autosave had no shape for one: a turn-based campaign lost
+the whole session to a power cut, and the only honest advice was "save and quit
+at the end of every turn".
+
+```lua
+app.checkpoint()   -- write the run out and carry on playing
+app.suspended()    -- true, as it is after a suspend
+app.resume()       -- and this still consumes it
+```
+
+The same write to the same slot, replacing whatever was there, without the quit.
+
+Refusing this was deliberate once, and the reasoning is worth restating because
+it was half right: a run that writes its save and keeps playing lets a player
+checkpoint, play on, die and resume, which undoes the last turn. True — and a
+decision about reloading rather than anything to do with determinism. The write
+is between ticks either way, the request is hashed neither way, and a replay
+ignores both. What was being enforced was a game-design choice, in the one place
+a game could not argue with it. So the default is unchanged — `suspend()` still
+quits, and the strict shape is still one call — and the opt-in is named for what
+it is.
+
+One thing to know before building an autosave indicator: `app.suspended()` is an
+answer about a file beside the game, and a replay is told `false` on purpose. A
+script that writes it into its own state has made that state depend on the file,
+and the replay will not agree. It is the same trap as reading your own bindings
+back.
+
+**Hash: moves no recorded hash.** The request sits on the script host rather
+than in `SimState`, exactly as the quit flag does, so whether a run wrote itself
+to disk cannot change what it replays to; a test holds two runs of the same
+script side by side, one checkpointing every other tick and one never, and
+compares every hash. **Input log: no format change.** A checkpoint is a no-op
+line in a recording as `app.quit()` is, and a session with nowhere to save
+reports `DIM1003` once rather than once per turn.
+
+
 ### Added: a Controls page can learn which key was pressed
 
 G53 built the half that binds. `input.*` speaks actions, though, and that is the

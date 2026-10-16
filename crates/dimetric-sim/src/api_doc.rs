@@ -57,14 +57,16 @@ pub const GLOBALS: &[Global] = &[
     },
     Global {
         name: "app",
-        about: "`quit()`, `suspend()`, `resume()`, `discard_suspended()`, \
-                `suspended()` — asks whatever is running the game to stop, to \
-                write the run out and stop, to continue the written one, or to \
-                throw it away. Read by the host between ticks, **never** \
-                hashed; a headless run and a replay ignore the requests and \
-                answer `suspended()` false. Also `today()`, the day the session \
-                began, and `seed()`, the run seed it is playing — both come from \
-                outside and both travel in the recording",
+        about: "`quit()`, `suspend()`, `checkpoint()`, `resume()`, \
+                `discard_suspended()`, `suspended()` — asks whatever is running \
+                the game to stop, to write the run out and stop, to write it out \
+                and carry on, to continue the written one, or to throw it away. \
+                One slot: a checkpoint replaces whatever was there, and resuming \
+                consumes it. Read by the host between ticks, **never** hashed; a \
+                headless run and a replay ignore the requests and answer \
+                `suspended()` false. Also `today()`, the day the session began, \
+                and `seed()`, the run seed it is playing — both come from outside \
+                and both travel in the recording",
     },
     Global {
         name: "profile",

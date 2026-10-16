@@ -88,6 +88,11 @@ pub struct Session {
     pending_captured: Option<String>,
     pending_capturing: bool,
     pending_rebinds: Vec<(String, Vec<String>)>,
+    /// Whether a refused suspend request has already been reported.
+    ///
+    /// See `apply_suspend_request`: a game that checkpoints every turn asks
+    /// hundreds of times in a replay, and one line says it as well as hundreds.
+    suspend_refused: bool,
     /// Where the profile came from and the table scripts are reading, kept
     /// together so `finish` cannot write one project's profile into another's
     /// directory.
@@ -214,6 +219,7 @@ impl Session {
             pending_captured: None,
             pending_capturing: false,
             pending_rebinds: Vec::new(),
+            suspend_refused: false,
             profile,
             suspend_root: config.suspend,
             scene: config.scene,
@@ -346,18 +352,35 @@ impl Session {
             // A warning rather than silence: `quit` has nothing to report when
             // a headless run ignores it, and this does — the game asked for
             // something and did not get it.
-            self.diagnostics.push(Diagnostic::new(
-                Code::SUSPEND_REFUSED,
-                format!(
-                    "a script asked to {} a run and this session keeps no suspended                      run; a replay and a headless run deliberately do not",
-                    verb(request)
-                ),
-            ));
+            //
+            // Once per session, though, and that is what the flag is for. A
+            // game that checkpoints every turn asks hundreds of times in a
+            // replay, and a hundred identical lines is not a better diagnostic
+            // than one — it is a worse one, because it buries everything else
+            // `dim replay` has to say.
+            if !self.suspend_refused {
+                self.suspend_refused = true;
+                self.diagnostics.push(Diagnostic::new(
+                    Code::SUSPEND_REFUSED,
+                    format!(
+                        "a script asked to {} a run and this session keeps no \
+                         suspended run; a replay and a headless run deliberately \
+                         do not. Later requests in this session are not reported",
+                        verb(request)
+                    ),
+                ));
+            }
             return;
         };
 
         match request {
             SuspendRequest::Suspend => self.suspend_to(&root, project),
+            // The same write. The quit is what `app.suspend()` sets on the
+            // script host and `app.checkpoint()` does not, so there is nothing
+            // to do differently here — which is the point: an autosave that
+            // wrote a different file, or wrote it differently, would be a
+            // second save format to keep working.
+            SuspendRequest::Checkpoint => self.suspend_to(&root, project),
             SuspendRequest::Resume => self.resume_from(&root, project),
             SuspendRequest::Discard => {
                 if let Err(d) = dimetric_host::suspend::discard(&root) {
@@ -368,8 +391,12 @@ impl Session {
         }
     }
 
-    /// Write the run out. The quit `app.suspend()` carried with it is already
-    /// set, so the runtime leaves its event loop after the frame that asked.
+    /// Write the run out.
+    ///
+    /// For `app.suspend()` the quit it carried with it is already set, so the
+    /// runtime leaves its event loop after the frame that asked;
+    /// `app.checkpoint()` sets no quit and the session plays on. Everything
+    /// else is identical, including replacing whatever was in the slot.
     fn suspend_to(&mut self, root: &std::path::Path, project: &mut Project) {
         let scene = self.scene.clone();
         let written =
@@ -696,6 +723,7 @@ impl Session {
 fn verb(request: SuspendRequest) -> &'static str {
     match request {
         SuspendRequest::Suspend => "suspend",
+        SuspendRequest::Checkpoint => "checkpoint",
         SuspendRequest::Resume => "resume",
         SuspendRequest::Discard => "discard",
     }
