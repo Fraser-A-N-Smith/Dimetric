@@ -112,6 +112,25 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 "Sub-rectangle of the texture, in pixels. Whole texture when absent.",
             ),
             prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
+            // No default on purpose, like `lit` and `sort_offset`: a declared
+            // default is materialised into every node's props at parse and
+            // every prop is hashed, so giving this one would change the hash of
+            // every scene with a sprite in it.
+            prop(
+                "inherit_modulate",
+                PropertyType::Bool,
+                None,
+                "Whether this node's tint is multiplied by its parent's. Absent and \
+                 false both leave it standing alone, which is what every scene \
+                 written before this did. True makes the colour drawn here the \
+                 node's own `modulate` times the colour its parent is drawn with — \
+                 so a cape sprite over a body fades, flashes and dims with it, \
+                 instead of every tween the game writes onto the body having to be \
+                 mirrored onto the child with the colours multiplied in script. \
+                 Opt-in per node, so a parent that does not inherit contributes its \
+                 own colour and nothing above it: the value a child multiplies by \
+                 is always exactly what its parent looks like.",
+            ),
             prop(
                 "offset",
                 PropertyType::Vec2,
@@ -213,6 +232,21 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                  Setting it by hand pins a frame until playback moves it.",
             ),
             prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
+            prop(
+                "inherit_modulate",
+                PropertyType::Bool,
+                None,
+                "Whether this node's tint is multiplied by its parent's. Absent and \
+                 false both leave it standing alone, which is what every scene \
+                 written before this did. True makes the colour drawn here the \
+                 node's own `modulate` times the colour its parent is drawn with — \
+                 so a cape sprite over a body fades, flashes and dims with it, \
+                 instead of every tween the game writes onto the body having to be \
+                 mirrored onto the child with the colours multiplied in script. \
+                 Opt-in per node, so a parent that does not inherit contributes its \
+                 own colour and nothing above it: the value a child multiplies by \
+                 is always exactly what its parent looks like.",
+            ),
             // `extract::sprite` has always read `offset` for both sprite kinds
             // and only `Sprite2D` declared it, so authoring it here was a hard
             // `DIM0301` — on the one kind a game animates, which is the one it
@@ -519,7 +553,37 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                      in proportion rather than overlapping, and `flip_h`/`flip_v` do \
                      not apply to a sliced texture.",
                 ),
+                prop(
+                    "slice_mode",
+                    enum_of(&["Stretch", "Tile"]),
+                    None,
+                    "How a slice fills the space between the corners. `Stretch`, the \
+                     default, stretches each edge along its length and the middle both \
+                     ways, which is what every scene written before this did. `Tile` \
+                     repeats whole source cells along each edge instead, at a constant \
+                     pitch of one texel to one pixel, with the last cut to fit rather \
+                     than squashed — for a riveted plate, a rope or a dotted rim that \
+                     has to stay itself at any width. The middle is stretched in both \
+                     modes: a tiled middle is thousands of quads on a full-screen \
+                     panel, and a frame's middle is usually flat. Only read when \
+                     `slice` is set.",
+                ),
                 prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
+                prop(
+                    "inherit_modulate",
+                    PropertyType::Bool,
+                    None,
+                    "Whether this node's tint is multiplied by its parent's. Absent and \
+                     false both leave it standing alone, which is what every scene \
+                     written before this did. True makes the colour drawn here the \
+                     node's own `modulate` times the colour its parent is drawn with — \
+                     so a cape sprite over a body fades, flashes and dims with it, \
+                     instead of every tween the game writes onto the body having to be \
+                     mirrored onto the child with the colours multiplied in script. \
+                     Opt-in per node, so a parent that does not inherit contributes its \
+                     own colour and nothing above it: the value a child multiplies by \
+                     is always exactly what its parent looks like.",
+                ),
                 prop(
                     "animation",
                     PropertyType::Str,
@@ -608,6 +672,18 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                     "Texture to fill with instead of a flat colour. The state colour \
                      becomes its tint, so one image serves idle, hover and pressed.",
                 ),
+                // The same property `TextureRect` has always had, read the same
+                // way and cut before the slice. Declared here so a script write
+                // to it type-checks against the schema rather than landing in
+                // state as whatever the scripting boundary made of it.
+                prop(
+                    "region",
+                    PropertyType::Rect,
+                    None,
+                    "Sub-rectangle of the texture, in pixels. Whole texture when \
+                     absent. Cut before `slice`, so the margins measure the cut \
+                     rectangle and a whole theme of buttons can live on one strip.",
+                ),
                 prop(
                     "slice",
                     PropertyType::Rect,
@@ -622,6 +698,21 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                      exactly as `region` is. Margins larger than the control shrink \
                      in proportion rather than overlapping, and `flip_h`/`flip_v` do \
                      not apply to a sliced texture.",
+                ),
+                prop(
+                    "slice_mode",
+                    enum_of(&["Stretch", "Tile"]),
+                    None,
+                    "How a slice fills the space between the corners. `Stretch`, the \
+                     default, stretches each edge along its length and the middle both \
+                     ways, which is what every scene written before this did. `Tile` \
+                     repeats whole source cells along each edge instead, at a constant \
+                     pitch of one texel to one pixel, with the last cut to fit rather \
+                     than squashed — for a riveted plate, a rope or a dotted rim that \
+                     has to stay itself at any width. The middle is stretched in both \
+                     modes: a tiled middle is thousands of quads on a full-screen \
+                     panel, and a frame's middle is usually flat. Only read when \
+                     `slice` is set.",
                 ),
             ]),
         )

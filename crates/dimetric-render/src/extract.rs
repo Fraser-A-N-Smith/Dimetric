@@ -79,13 +79,81 @@ impl Frame {
     }
 }
 
+/// Where every node was one tick ago, so a frame can be drawn between ticks.
+///
+/// # Why this is not the previous state
+///
+/// It used to be. A host kept a whole `SimState` clone per tick purely so the
+/// next frame could interpolate, and a deep clone of the state is a deep clone
+/// of every node's properties and every script variable — so the cost of
+/// drawing rose with everything a game *keeps*. A combat log filling over a
+/// floor, or a run's history, made the fortieth round of a floor more expensive
+/// to draw than the first, for a frame that reads one value per node.
+///
+/// The one value is this. Interpolation asks exactly one question of the
+/// previous state — where was this node — so that is what is kept: a position
+/// per node and nothing else. A rollback or a save that needs a whole state can
+/// still take one; drawing between two ticks never did.
+///
+/// Sorted by uid and searched, rather than a map: the uids are eight bytes and
+/// `Copy`, the set is rebuilt wholesale every tick, and [`Motion::refresh`]
+/// reuses its allocation, so a steady game allocates nothing here at all.
+#[derive(Clone, Default, Debug)]
+pub struct Motion {
+    /// Sorted by uid, for binary search.
+    at: Vec<(NodeUid, Vec2Fx)>,
+}
+
+impl Motion {
+    /// Nothing recorded yet.
+    pub fn new() -> Motion {
+        Motion::default()
+    }
+
+    /// Record where every node in `scene` is now.
+    ///
+    /// Through [`Scene::world_positions`], which composes down the tree in one
+    /// pass. Not the cached [`Node::world`], deliberately: that is only valid
+    /// after [`Scene::update_world_transforms`], which has not run on a tree
+    /// that has never been stepped — so reading it would make a node fly in
+    /// from the origin on the frame between tick zero and tick one. And not
+    /// `world_of` per node either, which walks *up* from each one and costs a
+    /// compose per ancestor; the first version of this did, and measured slower
+    /// than the clone it was replacing.
+    ///
+    /// The answer is the same as `world_of`'s for every node, which is what
+    /// keeps the picture identical.
+    pub fn refresh(&mut self, scene: &Scene) {
+        scene.world_positions(&mut self.at);
+        self.at.sort_unstable_by_key(|(uid, _)| *uid);
+    }
+
+    /// Forget everything, for a tree that no longer exists.
+    pub fn clear(&mut self) {
+        self.at.clear();
+    }
+
+    /// Whether anything is recorded.
+    pub fn is_empty(&self) -> bool {
+        self.at.is_empty()
+    }
+
+    /// Where a node was, if it was there at all.
+    pub fn get(&self, uid: NodeUid) -> Option<Vec2Fx> {
+        self.at
+            .binary_search_by_key(&uid, |(uid, _)| *uid)
+            .ok()
+            .map(|index| self.at[index].1)
+    }
+}
+
 /// Interpolation between two simulation states.
 ///
 /// Essential for a 60 Hz simulation on a 144 Hz display: without it every
 /// display frame shows one of 60 positions and the motion visibly steps.
 pub struct Interpolation<'a> {
-    /// The state one tick ago.
-    pub previous: &'a Scene,
+    /// Where everything was one tick ago.
+    pub previous: &'a Motion,
     /// How far between the two states to draw, `0.0 ..= 1.0`.
     pub alpha: f32,
 }
@@ -172,7 +240,15 @@ pub fn extract_at(
 
         match node.base.as_str() {
             "Sprite2D" | "AnimatedSprite2D" => {
-                if let Some(item) = sprite(node, pos, world.rot, world.scale, camera, atlas) {
+                if let Some(item) = sprite(
+                    node,
+                    pos,
+                    world.rot,
+                    world.scale,
+                    camera,
+                    atlas,
+                    tint_of(scene, id),
+                ) {
                     sprites.push(item);
                 }
             }
@@ -228,7 +304,9 @@ pub fn extract_at(
                 // these had to be a world-space `Sprite2D` — read at a world
                 // position, under the camera's projection and zoom, which is not
                 // where a control is.
-                "TextureRect" => texture_rect(node, *rect, depth, atlas, &mut ui),
+                "TextureRect" => {
+                    texture_rect(node, *rect, depth, atlas, tint_of(scene, id), &mut ui)
+                }
                 _ => {}
             }
         } else if node.base == "Label" {
@@ -311,6 +389,25 @@ fn slice_of(node: &dimetric_scene::Node) -> Option<Slice> {
     }
 }
 
+/// How the space between a slice's corners is filled.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum SliceMode {
+    /// Each edge stretched along its length, the middle along both.
+    #[default]
+    Stretch,
+    /// Whole source cells repeated along each edge, the last cut to fit.
+    Tile,
+}
+
+/// Read a node's `slice_mode`. Absent is [`SliceMode::Stretch`], which is what
+/// every scene written before this meant.
+fn slice_mode_of(node: &dimetric_scene::Node) -> SliceMode {
+    match node.get("slice_mode").and_then(Value::as_str) {
+        Some("Tile") => SliceMode::Tile,
+        _ => SliceMode::Stretch,
+    }
+}
+
 /// One axis of a nine-patch: where each of the three bands starts and how wide
 /// it is, in the source and in the destination.
 ///
@@ -352,6 +449,33 @@ fn bands(start: Fx, extent: Fx, source: u32, near: u32, far: u32) -> [(Fx, Fx, u
     ]
 }
 
+/// Split one destination band into whole repeats of its source, last cut to fit.
+///
+/// Returns `(destination start, destination extent, source fraction kept)` per
+/// repeat, where the fraction is `1.0` for every whole one and less for the last.
+/// The pitch is one source texel to one destination pixel, which is what makes
+/// a rivet edge keep a constant pitch at any width — a stretched edge has no
+/// pitch at all, it has a smear.
+///
+/// The last repeat is **cut, not squashed**: it keeps the pitch and loses its
+/// tail, so a pattern meets the corner cleanly instead of compressing into it.
+/// That is the whole difference between tiling and stretching-in-pieces.
+fn repeats(start: Fx, extent: Fx, source: u32) -> Vec<(Fx, Fx, Fx)> {
+    let step = Fx::from_int(source as i32);
+    if source == 0 || step <= Fx::ZERO || extent <= Fx::ZERO {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut placed = Fx::ZERO;
+    while placed < extent {
+        let left = extent - placed;
+        let span = left.min(step);
+        out.push((start + placed, span, span / step));
+        placed += step;
+    }
+    out
+}
+
 /// Push up to nine quads covering `rect` with a sliced texture.
 ///
 /// Corners at their texture size, edges stretched along one axis, the middle
@@ -380,6 +504,7 @@ fn nine_patch(
     rect: Rect,
     region: crate::atlas::Region,
     slice: Slice,
+    mode: SliceMode,
     key: SortKey,
     blend: Blend,
     modulate: Color,
@@ -400,36 +525,71 @@ fn nine_patch(
         slice.top,
         slice.bottom,
     );
-    for (y, height, source_y, source_height) in rows {
+    for (row, (y, height, source_y, source_height)) in rows.into_iter().enumerate() {
         if height <= Fx::ZERO || source_height == 0 {
             continue;
         }
-        for (x, width, source_x, source_width) in columns {
+        for (column, (x, width, source_x, source_width)) in columns.into_iter().enumerate() {
             if width <= Fx::ZERO || source_width == 0 {
                 continue;
             }
             let cell = region.sub(source_x, source_y, source_width, source_height);
-            let size = Vec2Fx::new(width, height);
-            out.push(DrawItem {
-                key,
-                atlas: 0,
-                blend,
-                shader: 0,
-                pos: Rect {
-                    pos: Vec2Fx::new(x, y),
-                    size,
+            // Which way, if any, this cell repeats.
+            //
+            // Band 1 is the stretchy one on each axis, so the middle column of
+            // the top or bottom row *is* the top or bottom edge and repeats
+            // across; the middle row of the left or right column is that edge
+            // and repeats down. A corner (neither band is 1) never repeats, and
+            // the centre (both are) is stretched — see this function's note.
+            let (across, down) = match mode {
+                SliceMode::Stretch => (false, false),
+                SliceMode::Tile => (column == 1 && row != 1, row == 1 && column != 1),
+            };
+            // One entry per quad on each axis, so the two loops below cover the
+            // stretched case (one whole span) and the tiled case (many) with
+            // the same code.
+            let whole = |start: Fx, extent: Fx| vec![(start, extent, Fx::ONE)];
+            let xs = match across {
+                true => repeats(x, width, source_width),
+                false => whole(x, width),
+            };
+            let ys = match down {
+                true => repeats(y, height, source_height),
+                false => whole(y, height),
+            };
+            for &(cell_y, cell_height, kept_y) in &ys {
+                for &(cell_x, cell_width, kept_x) in &xs {
+                    // The last repeat on an axis keeps the pitch and loses its
+                    // tail, so its UVs are cut by the same fraction its quad
+                    // was. Interpolated between the two edges rather than
+                    // offset from one, so a flipped cell — whose u_min is
+                    // greater than its u_max — is cut on the side the player
+                    // sees cut.
+                    let [u0, v0, u1, v1] = cell.uv;
+                    let lerp = |a: f32, b: f32, t: Fx| a + (b - a) * t.to_f64() as f32;
+                    let size = Vec2Fx::new(cell_width, cell_height);
+                    out.push(DrawItem {
+                        key,
+                        atlas: 0,
+                        blend,
+                        shader: 0,
+                        pos: Rect {
+                            pos: Vec2Fx::new(cell_x, cell_y),
+                            size,
+                        }
+                        .center(),
+                        screen_offset: Vec2Fx::ZERO,
+                        size,
+                        rotation: Angle::ZERO,
+                        uv: [u0, v0, lerp(u0, u1, kept_x), lerp(v0, v1, kept_y)],
+                        modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
+                        node,
+                        // Never in the mask pass: the UI is composited after the
+                        // multiply and has never been lit.
+                        lit: false,
+                    });
                 }
-                .center(),
-                screen_offset: Vec2Fx::ZERO,
-                size,
-                rotation: Angle::ZERO,
-                uv: cell.uv,
-                modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
-                node,
-                // Never in the mask pass: the UI is composited after the
-                // multiply and has never been lit.
-                lit: false,
-            });
+            }
         }
     }
 }
@@ -501,6 +661,30 @@ fn clip_items(out: &mut Vec<DrawItem>, first: usize, clip: Rect) {
     out.truncate(write);
 }
 
+/// Cut a node's `region` out of an atlas region, if it names one.
+///
+/// Whole texels, truncated, clamped at zero: a region indexes pixels, and a
+/// fractional one is a scene that meant a whole number.
+///
+/// **Shared between [`painted`] and the panel path**, which is the whole reason
+/// it is a function. `TextureRect` could always cut its skin from a sheet and
+/// `Button` could not, so the two controls drew a sliced texture the same way
+/// and only one of them could choose which part — a game themed its panels from
+/// one strip and then had to author a separate texture for every button. The
+/// cut happens *before* the slice, so a nine-patch's margins measure the cut
+/// rectangle rather than the whole sheet.
+fn cut_region(node: &dimetric_scene::Node, region: crate::atlas::Region) -> crate::atlas::Region {
+    let Some(Value::Rect(r)) = node.get("region") else {
+        return region;
+    };
+    region.sub(
+        r.pos.x.to_int_trunc().max(0) as u32,
+        r.pos.y.to_int_trunc().max(0) as u32,
+        r.size.x.to_int_trunc().max(0) as u32,
+        r.size.y.to_int_trunc().max(0) as u32,
+    )
+}
+
 /// Scale a colour's channels by `num/den`, keeping its alpha.
 ///
 /// Integer arithmetic on the eight-bit channels, so the result is the same
@@ -536,7 +720,11 @@ fn panel(
             atlas
                 .region(&key)
                 .or_else(|| atlas.region(PLACEHOLDER_NAME))
-        });
+        })
+        // Cut from the sheet before anything slices it, exactly as a
+        // `TextureRect` is: the two controls draw a sliced texture the same
+        // way and there is no reason only one of them could choose which part.
+        .map(|region| cut_region(node, region));
     // The atlas carries a one-pixel white square for exactly this: a solid
     // fill is a sprite whose texture is a single opaque texel, which keeps
     // panels in the same batch as everything else instead of needing a
@@ -590,6 +778,7 @@ fn panel(
                 rect,
                 region,
                 slice,
+                slice_mode_of(node),
                 sort,
                 Blend::Alpha,
                 modulate,
@@ -632,6 +821,7 @@ fn texture_rect(
     rect: dimetric_core::Rect,
     depth: Fx,
     atlas: &Atlas,
+    tint: Color,
     out: &mut Vec<DrawItem>,
 ) {
     let Some(key) = node
@@ -641,9 +831,11 @@ fn texture_rect(
     else {
         return;
     };
-    let Some(painted) = painted(node, &key, atlas) else {
+    let Some(mut painted) = painted(node, &key, atlas) else {
         return;
     };
+    // Resolved by the caller, for the reason `sprite` gives.
+    painted.modulate = tint;
     // The walk index, not a position, exactly as a panel does: the UI is
     // ordered by the tree, and the hit test agrees with the tree.
     let sort = SortKey::new(
@@ -661,6 +853,7 @@ fn texture_rect(
             rect,
             painted.region,
             slice,
+            slice_mode_of(node),
             sort,
             painted.blend,
             painted.modulate,
@@ -693,6 +886,61 @@ fn texture_rect(
     });
 }
 
+/// Multiply two colours, channel by channel, including alpha.
+///
+/// Integer arithmetic on the eight bits, so the result is the same everywhere.
+/// White is exactly the identity — `255 * v / 255 == v` for every `v` — which is
+/// what lets an inherited tint be a no-op by default rather than nearly one.
+fn multiply(a: Color, b: Color) -> Color {
+    let ch = |x: u8, y: u8| ((x as u32 * y as u32) / 255) as u8;
+    Color::rgba(ch(a.r, b.r), ch(a.g, b.g), ch(a.b, b.b), ch(a.a, b.a))
+}
+
+/// The colour a node is drawn with, its own tint and its ancestors' together.
+///
+/// # Why tint inherits and why it is opt-in
+///
+/// Visibility is inherited and tint was not, so a view that tweened a fade, a
+/// hit flash or a death fade onto a figure left every child sprite at full
+/// strength: a dying adventurer faded out from under a cloak that did not. The
+/// alternative was mirroring every one of those writes onto each child with the
+/// colours multiplied in script, which is a copy of this rule written in Lua in
+/// every tween.
+///
+/// Opt-in, because making `modulate` inherit by default would change how every
+/// scene already written looks. The Godot split — an inheriting `modulate` and a
+/// standalone `self_modulate` — was offered and declined for that reason: it
+/// buys nothing this does not, and it moves every existing scene to buy it.
+///
+/// **A node that does not inherit contributes its own colour and nothing above
+/// it.** So the value a child multiplies by is always exactly what its parent
+/// looks like, which is the only version of this rule that can be explained in
+/// one sentence. An intermediate node therefore stops the chain unless it opts
+/// in too, which is the same explicitness the flag is for.
+///
+/// Walked on demand rather than cached in a map: inheritance is rare and the
+/// chains are short, so this costs one property lookup per drawn node and
+/// nothing at all for a scene that never asks. The shape is
+/// [`Scene::is_visible`]'s, deliberately — the other question about a node that
+/// is really a question about its chain.
+fn tint_of(scene: &Scene, id: dimetric_core::NodeId) -> Color {
+    let Some(node) = scene.get(id) else {
+        return Color::WHITE;
+    };
+    let own = node
+        .get("modulate")
+        .and_then(Value::as_color)
+        .unwrap_or(Color::WHITE);
+    let inherits = node
+        .get("inherit_modulate")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    match (inherits, node.parent()) {
+        (true, Some(parent)) => multiply(own, tint_of(scene, parent)),
+        _ => own,
+    }
+}
+
 /// A node is drawn only if it and every ancestor is visible.
 fn visible(scene: &Scene, id: dimetric_core::NodeId) -> bool {
     // Through the scene's own answer rather than a copy of the walk. This walk
@@ -703,18 +951,14 @@ fn visible(scene: &Scene, id: dimetric_core::NodeId) -> bool {
 }
 
 /// Blend this tick's position with last tick's.
-fn interpolated(uid: NodeUid, current: Vec2Fx, previous: Option<&Scene>, alpha: Fx) -> Vec2Fx {
+fn interpolated(uid: NodeUid, current: Vec2Fx, previous: Option<&Motion>, alpha: Fx) -> Vec2Fx {
     let Some(previous) = previous else {
         return current;
     };
     // A node that did not exist last tick has nothing to blend from, and
     // sliding it in from a position it never occupied would look worse than
     // popping it in where it actually is.
-    let Some(before) = previous
-        .by_uid(uid)
-        .and_then(|id| previous.world_of(id))
-        .map(|t| t.pos)
-    else {
+    let Some(before) = previous.get(uid) else {
         return current;
     };
     before.lerp(current, alpha)
@@ -757,14 +1001,7 @@ fn painted(node: &dimetric_scene::Node, key: &str, atlas: &Atlas) -> Option<Pain
         region = region.sub(index * width, 0, width, region.size.1);
     }
 
-    if let Some(Value::Rect(r)) = node.get("region") {
-        region = region.sub(
-            r.pos.x.to_int_trunc().max(0) as u32,
-            r.pos.y.to_int_trunc().max(0) as u32,
-            r.size.x.to_int_trunc().max(0) as u32,
-            r.size.y.to_int_trunc().max(0) as u32,
-        );
-    }
+    region = cut_region(node, region);
 
     let mut uv = region.uv;
     if node.get("flip_h").and_then(Value::as_bool).unwrap_or(false) {
@@ -796,6 +1033,7 @@ fn sprite(
     scale: Vec2Fx,
     camera: &Camera,
     atlas: &Atlas,
+    tint: Color,
 ) -> Option<DrawItem> {
     let key = node
         .get("texture")
@@ -807,12 +1045,14 @@ fn sprite(
     // A missing texture draws the placeholder rather than nothing. A sprite
     // that silently fails to appear is far harder to diagnose than a magenta
     // checkerboard.
+    // `modulate` is resolved by the caller through `tint_of`, because the
+    // answer depends on the node's ancestors and `painted` sees only the node.
+    // For a node that does not inherit the two are the same read of the same
+    // property, so nothing already written changes.
     let Painted {
-        region,
-        uv,
-        blend,
-        modulate,
+        region, uv, blend, ..
     } = painted(node, &key, atlas)?;
+    let modulate = tint;
 
     let offset = node
         .get("offset")

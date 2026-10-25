@@ -82,6 +82,7 @@ A sprite playing frame clips imported from Aseprite tags.
 | `looping` | `bool` | `true` | Restart at the end of the clip. |
 | `frame` | `int` | `0` | Frame showing now. Written by the engine as the clip plays, and read by the renderer to pick a slice of the sheet — the one-way path from simulation to presentation that invariant I7 asks for. Setting it by hand pins a frame until playback moves it. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
+| `inherit_modulate` | `bool` | — | Whether this node's tint is multiplied by its parent's. Absent and false both leave it standing alone, which is what every scene written before this did. True makes the colour drawn here the node's own `modulate` times the colour its parent is drawn with — so a cape sprite over a body fades, flashes and dims with it, instead of every tween the game writes onto the body having to be mirrored onto the child with the colours multiplied in script. Opt-in per node, so a parent that does not inherit contributes its own colour and nothing above it: the value a child multiplies by is always exactly what its parent looks like. |
 | `offset` | `vec2` | — | Draw offset from the node origin. Absent means none. |
 | `sort_offset` | `vec2` | — | Point this sprite sorts at, as an offset from where it is drawn. Added to the depth position and to nothing else, so a sprite can be drawn at one point and sorted at another. A standing figure is taller than its cell, so it is drawn lifted for its feet to land on the floor — and lifting it also moved the point it sorts at, putting it behind its own floor tile, which then drew over its feet. Sorting at the feet is what makes a wall in front of a figure cover it and a wall behind it not. Absent and zero are the plain behaviour: sort where you draw. |
 | `lit` | `bool` | — | Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it. |
@@ -127,7 +128,9 @@ A control that reacts to the pointer. Its caption is a Label child.
 | `modulate_hover` | `color` | `"#00000000"` | Fill when hovered. Transparent means lighten the fill. |
 | `modulate_pressed` | `color` | `"#00000000"` | Fill when held. Transparent means darken the fill. |
 | `texture` | `asset-ref` | — | Texture to fill with instead of a flat colour. The state colour becomes its tint, so one image serves idle, hover and pressed. |
+| `region` | `rect` | — | Sub-rectangle of the texture, in pixels. Whole texture when absent. Cut before `slice`, so the margins measure the cut rectangle and a whole theme of buttons can live on one strip. |
 | `slice` | `rect` | — | Nine-patch margins in texture pixels, as `[left, top, right, bottom]`. Corners are drawn unscaled, edges stretch along one axis and the middle along both, so a frame keeps its corners at any size. Absent stretches the whole texture, which is what every scene written before this did. A `Rect` because that is four related numbers and the engine has no other four-number type; they are margins, not a rectangle, and are truncated to whole texels exactly as `region` is. Margins larger than the control shrink in proportion rather than overlapping, and `flip_h`/`flip_v` do not apply to a sliced texture. |
+| `slice_mode` | `enum(Stretch | Tile)` | — | How a slice fills the space between the corners. `Stretch`, the default, stretches each edge along its length and the middle both ways, which is what every scene written before this did. `Tile` repeats whole source cells along each edge instead, at a constant pitch of one texel to one pixel, with the last cut to fit rather than squashed — for a riveted plate, a rope or a dotted rim that has to stay itself at any width. The middle is stretched in both modes: a tiled middle is thousands of quads on a full-screen panel, and a frame's middle is usually flat. Only read when `slice` is set. |
 
 ### `Camera2D`
 
@@ -285,6 +288,7 @@ A textured quad.
 | `texture` | `asset-ref` | **required** | Texture to draw. |
 | `region` | `rect` | — | Sub-rectangle of the texture, in pixels. Whole texture when absent. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
+| `inherit_modulate` | `bool` | — | Whether this node's tint is multiplied by its parent's. Absent and false both leave it standing alone, which is what every scene written before this did. True makes the colour drawn here the node's own `modulate` times the colour its parent is drawn with — so a cape sprite over a body fades, flashes and dims with it, instead of every tween the game writes onto the body having to be mirrored onto the child with the colours multiplied in script. Opt-in per node, so a parent that does not inherit contributes its own colour and nothing above it: the value a child multiplies by is always exactly what its parent looks like. |
 | `offset` | `vec2` | `[0.0, 0.0]` | Draw offset from the node origin. |
 | `sort_offset` | `vec2` | — | Point this sprite sorts at, as an offset from where it is drawn. Added to the depth position and to nothing else, so a sprite can be drawn at one point and sorted at another. A standing figure is taller than its cell, so it is drawn lifted for its feet to land on the floor — and lifting it also moved the point it sorts at, putting it behind its own floor tile, which then drew over its feet. Sorting at the feet is what makes a wall in front of a figure cover it and a wall behind it not. Absent and zero are the plain behaviour: sort where you draw. |
 | `lit` | `bool` | — | Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it. |
@@ -313,7 +317,9 @@ A control that draws a texture at its own rectangle.
 | `texture` | `asset-ref` | **required** | Texture to draw. |
 | `region` | `rect` | — | Sub-rectangle of the texture, in pixels. Whole texture when absent. |
 | `slice` | `rect` | — | Nine-patch margins in texture pixels, as `[left, top, right, bottom]`. Corners are drawn unscaled, edges stretch along one axis and the middle along both, so a frame keeps its corners at any size. Absent stretches the whole texture, which is what every scene written before this did. A `Rect` because that is four related numbers and the engine has no other four-number type; they are margins, not a rectangle, and are truncated to whole texels exactly as `region` is. Margins larger than the control shrink in proportion rather than overlapping, and `flip_h`/`flip_v` do not apply to a sliced texture. |
+| `slice_mode` | `enum(Stretch | Tile)` | — | How a slice fills the space between the corners. `Stretch`, the default, stretches each edge along its length and the middle both ways, which is what every scene written before this did. `Tile` repeats whole source cells along each edge instead, at a constant pitch of one texel to one pixel, with the last cut to fit rather than squashed — for a riveted plate, a rope or a dotted rim that has to stay itself at any width. The middle is stretched in both modes: a tiled middle is thousands of quads on a full-screen panel, and a frame's middle is usually flat. Only read when `slice` is set. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
+| `inherit_modulate` | `bool` | — | Whether this node's tint is multiplied by its parent's. Absent and false both leave it standing alone, which is what every scene written before this did. True makes the colour drawn here the node's own `modulate` times the colour its parent is drawn with — so a cape sprite over a body fades, flashes and dims with it, instead of every tween the game writes onto the body having to be mirrored onto the child with the colours multiplied in script. Opt-in per node, so a parent that does not inherit contributes its own colour and nothing above it: the value a child multiplies by is always exactly what its parent looks like. |
 | `animation` | `string` | `""` | Clip to play, when the texture is an imported animation. Empty means the first. |
 | `playing` | `bool` | `true` | Whether the clip advances. |
 | `frame` | `int` | `0` | Written by the engine: the frame playback has reached. |
@@ -730,6 +736,47 @@ figures — a layer of reachable cells between the floor and the actors — and 
 is why the exemption is a mask written in draw order rather than a second
 picture laid over the first: a lit figure drawn in front of an unlit marker
 clears the exemption behind it, so the figure still dims.
+
+### A child can wear its parent's tint
+
+Visibility is inherited and tint was not: `modulate` was read off each node
+alone. So every hit flash, fade-in and death fade a game tweened onto a figure
+left its child sprites at full strength — a dying adventurer faded out from
+under a cloak that did not.
+
+```toml
+[[node]]
+kind = "Sprite2D"
+name = "Trim"
+parent = "n_body0000"
+inherit_modulate = true
+modulate = "#808080ff"      # its own colour, times the body's
+```
+
+On `Sprite2D`, `AnimatedSprite2D` and `TextureRect`. The colour drawn is the
+node's own `modulate` times the colour its parent is drawn with, channel by
+channel including alpha — so a cape painted half-strength grey under an orange
+body comes out half-strength orange, and a fade on the body fades the cape
+with it. White is exactly the identity, so an untinted parent leaves a child
+bit-identical.
+
+**Opt-in per node**, and absent means standing alone, which is what every
+scene written before this did. Making `modulate` inherit by default would
+change how every existing scene looks; the Godot split — an inheriting
+`modulate` beside a standalone `self_modulate` — buys nothing this does not
+and moves every existing scene to buy it.
+
+A parent that does not inherit contributes **its own colour and nothing above
+it**, so the value a child multiplies by is always exactly what its parent
+looks like. An intermediate node therefore stops the chain unless it opts in
+too, which is the same explicitness the flag is for. A `Panel` or a `Button`
+contributes its declared `modulate` to a child that asks, without being able
+to inherit itself — a child should not flash when the pointer crosses its
+parent.
+
+Resolved in extraction and written nowhere, so this is presentation like the
+zoom and the ambient: the child's own `modulate` in state is still whatever
+the scene said, and nothing hashed moves (I7).
 
 ### Actions a project declares of its own
 
@@ -1480,6 +1527,47 @@ that wants a mirrored frame swaps the margins itself.
 What this is not is a theme. Three colours on a button rather than a theme
 lookup is a choice made deliberately: a project that wants one palette puts it
 in a prefab and instances it, which is a mechanism the engine already has.
+
+**Both controls cut from a sheet.** `region` names a sub-rectangle of the
+texture, in pixels, and the cut happens *before* the slice — so the margins
+measure the cut rectangle and a whole theme of frames can live on one strip:
+
+```toml
+texture = "asset:ui/frames"   # one strip, a frame per essence
+region = [24.0, 0.0, 12.0, 12.0]
+slice = [4.0, 4.0, 4.0, 4.0]
+```
+
+`TextureRect` always had it; `Button` gained it, because the two controls draw
+a sliced texture the same way and there was no reason only one of them could
+choose which part. It is in the kind schema rather than read loosely, so a
+script write to it is type-checked against the declaration like any other.
+
+**An edge can repeat instead of stretching.** A stretched edge has no pitch —
+it has a smear — so a riveted plate, a rope or a dotted rim loses itself on any
+panel wider than its texture. `slice_mode = "Tile"` repeats whole source cells
+along each edge instead:
+
+```toml
+slice = [4.0, 4.0, 4.0, 4.0]
+slice_mode = "Tile"          # "Stretch" is the default
+```
+
+One source texel to one destination pixel, so the pitch is constant at any
+width, and the last repeat is **cut rather than squashed**: it keeps the pitch
+and loses its tail, so a pattern meets the corner cleanly instead of
+compressing into it. Its UVs are cut by the same fraction its quad was. The
+corners are untouched in both modes.
+
+**The middle stretches in both modes**, which is a choice rather than an
+omission. A 300x150 panel with a 4-pixel middle cell would be 73 x 36 = 2628
+quads if the middle tiled too; a frame's middle is usually flat, and a game
+that wants a tiled interior has a `TileLayer` or a second control for it. A
+tiled *edge* costs `ceil(length / cell)` quads, all of them in the same batch
+as everything around them, so tiling costs vertices and not draw calls.
+
+`slice_mode` is only read when `slice` is set: there are no edges to repeat
+without margins.
 
 #### Clipping
 

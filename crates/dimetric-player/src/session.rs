@@ -11,10 +11,10 @@ use dimetric_core::{Angle, Code, Diagnostic, Diagnostics, Fx, Vec2Fx};
 use dimetric_host::render::{build_atlas, scene_camera};
 use dimetric_host::speaker::Speaker;
 use dimetric_host::Project;
-use dimetric_render::{Atlas, Camera, Frame, Interpolation, RenderSettings};
+use dimetric_render::{Atlas, Camera, Frame, Interpolation, Motion, RenderSettings};
 use dimetric_sim::profile::Profile;
 use dimetric_sim::suspend::SuspendRequest;
-use dimetric_sim::{InputFrame, InputLog, PlayerInput, Sim, SimState};
+use dimetric_sim::{InputFrame, InputLog, PlayerInput, Sim};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -70,8 +70,20 @@ pub struct SessionConfig {
 /// A running game.
 pub struct Session {
     sim: Sim,
-    /// The state one tick back, so a drawn frame can sit between two ticks.
-    previous: Option<SimState>,
+    /// Where everything was one tick back, so a drawn frame can sit between
+    /// two ticks.
+    ///
+    /// This used to be a whole `SimState` clone, taken every tick purely so the
+    /// next frame could interpolate — which made the cost of drawing rise with
+    /// everything a game *keeps*, because cloning the state clones every node's
+    /// properties and every script variable. A combat log filling over a floor
+    /// made the fortieth round more expensive to draw than the first, for a
+    /// frame that reads one value per node. See [`Motion`].
+    ///
+    /// Empty rather than `None` when there is nothing to blend from: the store
+    /// reuses its allocation across ticks, so a steady game allocates nothing
+    /// here at all.
+    previous: Motion,
     atlas: Atlas,
     /// Set when a scene swap rebuilt the atlas, cleared when a host takes it.
     ///
@@ -206,7 +218,7 @@ impl Session {
 
         Ok(Session {
             sim,
-            previous: None,
+            previous: Motion::new(),
             atlas,
             atlas_changed: false,
             speaker,
@@ -292,7 +304,10 @@ impl Session {
         if self.recording {
             self.log.push(frame.clone());
         }
-        self.previous = Some(self.sim.snapshot());
+        // Before the step, over the state the last one produced: this is
+        // where the frame drawn between the two ticks blends from. A position
+        // per node, not a copy of the state it came out of.
+        self.previous.refresh(&self.sim.state().scene);
         self.sim.step(frame);
         self.tick += 1;
         self.diagnostics.extend(self.sim.take_diagnostics());
@@ -330,8 +345,9 @@ impl Session {
         self.diagnostics.extend(diags);
         // The interpolation source is a tree that no longer exists, so a frame
         // drawn against it would try to tween the old floor's nodes into the
-        // new floor's.
-        self.previous = None;
+        // new floor's. A uid from the old tree could even be live in the new
+        // one, which would tween a node from somewhere it never was.
+        self.previous.clear();
     }
 
     /// Honour whatever a script asked of the suspended-run slot.
@@ -567,7 +583,7 @@ impl Session {
     ///
     /// The host owns the bindings and the simulation reads them, so this is the
     /// one channel between the two: whatever is said here lands in the next
-    /// tick's frame, in [`SimState::bindings`], and in the recording. A
+    /// tick's frame, in the simulation's own `bindings`, and in the recording. A
     /// Controls page then draws its rows from `input.bindings(action)` without
     /// keeping a second copy of `project.toml` in Lua.
     ///
@@ -637,10 +653,16 @@ impl Session {
             &state.scene,
             &self.atlas,
             &camera,
-            self.previous.as_ref().map(|p| Interpolation {
-                previous: &p.scene,
-                alpha: alpha.clamp(0.0, 1.0),
-            }),
+            // Nothing recorded means the first tick, or a tree that has just
+            // been swapped: there is nothing to blend from and the frame is
+            // drawn where the state actually is.
+            match self.previous.is_empty() {
+                true => None,
+                false => Some(Interpolation {
+                    previous: &self.previous,
+                    alpha: alpha.clamp(0.0, 1.0),
+                }),
+            },
             self.sim.config().canvas,
             // Whole ticks. `alpha` moves a sprite between two positions, and
             // an animated tile deliberately does not move with it: a cycle

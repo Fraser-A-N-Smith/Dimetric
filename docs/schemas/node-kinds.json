@@ -48,6 +48,13 @@
         },
         {
           "default": null,
+          "doc": "Whether this node's tint is multiplied by its parent's. Absent and false both leave it standing alone, which is what every scene written before this did. True makes the colour drawn here the node's own `modulate` times the colour its parent is drawn with — so a cape sprite over a body fades, flashes and dims with it, instead of every tween the game writes onto the body having to be mirrored onto the child with the colours multiplied in script. Opt-in per node, so a parent that does not inherit contributes its own colour and nothing above it: the value a child multiplies by is always exactly what its parent looks like.",
+          "name": "inherit_modulate",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": null,
           "doc": "Draw offset from the node origin. Absent means none.",
           "name": "offset",
           "required": false,
@@ -277,10 +284,24 @@
         },
         {
           "default": null,
+          "doc": "Sub-rectangle of the texture, in pixels. Whole texture when absent. Cut before `slice`, so the margins measure the cut rectangle and a whole theme of buttons can live on one strip.",
+          "name": "region",
+          "required": false,
+          "type": "rect"
+        },
+        {
+          "default": null,
           "doc": "Nine-patch margins in texture pixels, as `[left, top, right, bottom]`. Corners are drawn unscaled, edges stretch along one axis and the middle along both, so a frame keeps its corners at any size. Absent stretches the whole texture, which is what every scene written before this did. A `Rect` because that is four related numbers and the engine has no other four-number type; they are margins, not a rectangle, and are truncated to whole texels exactly as `region` is. Margins larger than the control shrink in proportion rather than overlapping, and `flip_h`/`flip_v` do not apply to a sliced texture.",
           "name": "slice",
           "required": false,
           "type": "rect"
+        },
+        {
+          "default": null,
+          "doc": "How a slice fills the space between the corners. `Stretch`, the default, stretches each edge along its length and the middle both ways, which is what every scene written before this did. `Tile` repeats whole source cells along each edge instead, at a constant pitch of one texel to one pixel, with the last cut to fit rather than squashed — for a riveted plate, a rope or a dotted rim that has to stay itself at any width. The middle is stretched in both modes: a tiled middle is thousands of quads on a full-screen panel, and a frame's middle is usually flat. Only read when `slice` is set.",
+          "name": "slice_mode",
+          "required": false,
+          "type": "enum(Stretch | Tile)"
         }
       ]
     },
@@ -884,6 +905,13 @@
           "type": "color"
         },
         {
+          "default": null,
+          "doc": "Whether this node's tint is multiplied by its parent's. Absent and false both leave it standing alone, which is what every scene written before this did. True makes the colour drawn here the node's own `modulate` times the colour its parent is drawn with — so a cape sprite over a body fades, flashes and dims with it, instead of every tween the game writes onto the body having to be mirrored onto the child with the colours multiplied in script. Opt-in per node, so a parent that does not inherit contributes its own colour and nothing above it: the value a child multiplies by is always exactly what its parent looks like.",
+          "name": "inherit_modulate",
+          "required": false,
+          "type": "bool"
+        },
+        {
           "default": "[0.0, 0.0]",
           "doc": "Draw offset from the node origin.",
           "name": "offset",
@@ -1037,11 +1065,25 @@
           "type": "rect"
         },
         {
+          "default": null,
+          "doc": "How a slice fills the space between the corners. `Stretch`, the default, stretches each edge along its length and the middle both ways, which is what every scene written before this did. `Tile` repeats whole source cells along each edge instead, at a constant pitch of one texel to one pixel, with the last cut to fit rather than squashed — for a riveted plate, a rope or a dotted rim that has to stay itself at any width. The middle is stretched in both modes: a tiled middle is thousands of quads on a full-screen panel, and a frame's middle is usually flat. Only read when `slice` is set.",
+          "name": "slice_mode",
+          "required": false,
+          "type": "enum(Stretch | Tile)"
+        },
+        {
           "default": "\"#ffffffff\"",
           "doc": "Tint.",
           "name": "modulate",
           "required": false,
           "type": "color"
+        },
+        {
+          "default": null,
+          "doc": "Whether this node's tint is multiplied by its parent's. Absent and false both leave it standing alone, which is what every scene written before this did. True makes the colour drawn here the node's own `modulate` times the colour its parent is drawn with — so a cape sprite over a body fades, flashes and dims with it, instead of every tween the game writes onto the body having to be mirrored onto the child with the colours multiplied in script. Opt-in per node, so a parent that does not inherit contributes its own colour and nothing above it: the value a child multiplies by is always exactly what its parent looks like.",
+          "name": "inherit_modulate",
+          "required": false,
+          "type": "bool"
         },
         {
           "default": "\"\"",

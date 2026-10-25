@@ -14,6 +14,114 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Added: a child can wear its parent's tint
+
+G68. Visibility is inherited and tint was not — `modulate` was read off each
+node alone. So every hit flash, fade-in and death fade a game tweened onto a
+figure left its child sprites at full strength: a dying adventurer faded out
+from under a cloak that did not. The workaround was mirroring every one of those
+writes onto each child with the colours multiplied in script, which is a copy of
+this rule written in Lua in every tween.
+
+```toml
+inherit_modulate = true
+modulate = "#808080ff"      # its own colour, times its parent's
+```
+
+On `Sprite2D`, `AnimatedSprite2D` and `TextureRect`. The colour drawn is the
+node's own `modulate` times the colour its parent is drawn with, channel by
+channel including alpha. White is exactly the identity, so an untinted parent
+leaves a child bit-identical — the multiply truncates for that reason, and a
+test pins it.
+
+Opt-in per node. **The Godot split was offered and declined**: an inheriting
+`modulate` beside a standalone `self_modulate` buys nothing this does not, and
+it moves every existing scene to buy it. A parent that does not inherit
+contributes its own colour and nothing above it, so the value a child multiplies
+by is always exactly what its parent looks like — the only version of the rule
+that can be stated in one sentence.
+
+**Hash: moves no recorded hash.** `inherit_modulate` carries no declared
+default, so absent is exactly today's behaviour, and the chain is resolved in
+extraction and written nowhere (I7). A test asserts the child's own `modulate`
+in state is unchanged after a frame is drawn. **Input log: no format change.**
+
+### Changed: a frame no longer copies the whole state to draw between two ticks
+
+G69. `Session::step` kept a whole `SimState` clone every tick, purely so the
+next frame could interpolate positions. Cloning the state clones every node's
+properties *and* every script variable, so the cost of **drawing** rose with
+everything a game keeps — a combat log filling over a floor, a run's history.
+The fortieth round of a floor cost more to draw than the first, for a frame that
+reads one value per node.
+
+That one value is the node's previous world position, so that is what is kept:
+`dimetric_render::Motion`, a position per node, sorted by uid and searched, with
+its allocation reused across ticks. A rollback or a save that needs a whole
+state still takes one; drawing between two ticks never did. The host's
+`dim frame capture` path does the same, for one shape rather than two.
+
+Measured on a 400-node tree with a 400-entry log, release: the clone 0.091 ms,
+the store 0.012 ms — 7.7 times cheaper, and flat as the log grows (1.05x) where
+the clone is not (1.48x). `docs/ENGINE-GAPS.md` records both wrong turns taken
+on the way, including that an unoptimised build measures the store *slower* than
+the clone and why that figure is worthless.
+
+`Scene::world_positions` is new and is how the store is filled: one pass,
+composing down a stack, one `compose` per node, no `&mut` — because a renderer
+holds only a `&Scene`, and `world_of` walks up from every node while
+`Node::world` needs a propagation pass that has not run on a tree never stepped.
+It is tested against `world_of` for every node under rotation and scale, because
+interpolating from almost-right positions would move every sprite by a
+sub-pixel amount and no golden would ever settle.
+
+**Hash: moves no recorded hash**, and no replay moves. This is the player
+keeping less, not the simulation doing anything different; the whole fixture
+suite passes untouched. The interpolated picture is identical — the alpha-0.5
+pixel assertion in `dimetric-render/tests/render.rs` is the one that was already
+there, and `tests/motion.rs` holds the new store to the expression the old code
+evaluated. **Input log: no format change.**
+
+### Added: a `Button` can be cut from a sheet, and a nine-slice edge can repeat
+
+G70 and G71.
+
+`Button` gained **`region`**, the property `TextureRect` always had, read the
+same way and cut *before* the slice — so the margins measure the cut rectangle
+and a whole theme of buttons can live on one strip. The two controls drew a
+sliced texture the same way and only one of them could choose which part, so a
+game themed its panels from one strip and then had to author a separate texture
+per button. Declared in the kind schema, so a script write to it type-checks
+like any other.
+
+**`slice_mode`** is new on both controls. A stretched edge has no pitch — it has
+a smear — so a riveted plate, a rope or a dotted rim lost itself on any panel
+wider than its texture.
+
+```toml
+slice = [4.0, 4.0, 4.0, 4.0]
+slice_mode = "Tile"          # "Stretch" is the default
+```
+
+`Tile` repeats whole source cells along each edge at one texel to one pixel, and
+the last repeat is **cut rather than squashed** — it keeps the pitch and loses
+its tail, with its UVs cut by the same fraction its quad was, so a pattern meets
+the corner cleanly instead of compressing into it. Corners are untouched in both
+modes.
+
+**The middle stretches in both modes**, which is the choice the request asked to
+have named. A 300x150 panel with a 4-pixel middle cell would be 73 x 36 = 2628
+quads if the middle tiled too; a frame's middle is usually flat, and a game that
+wants a tiled interior has a `TileLayer` or a second control. A tiled edge costs
+`ceil(length / cell)` quads, all in one batch, so tiling costs vertices and not
+draw calls. `slice_mode` is only read when `slice` is set.
+
+**Hash: moves no recorded hash.** Neither property carries a declared default,
+so absent is exactly today's behaviour on both controls. A `region` written from
+a script is a scene write hashed like any other, which is what declaring it in
+the schema is for. **Input log: no format change.**
+
+
 ### Fixed: a binding the host changes is reported back to the game
 
 G60. `input.bind` changed the host's bindings table and told the simulation

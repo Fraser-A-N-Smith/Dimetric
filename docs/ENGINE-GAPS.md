@@ -398,6 +398,47 @@ What is left is inherent. Correct back-to-front order with two blend modes
 interleaved by depth cannot be merged further without drawing something in front
 of what it should be behind.
 
+### The frame's copy of the state
+
+A host kept a whole `SimState` clone every tick, in `Session::step`, purely so
+the next frame could interpolate positions. Cloning the state clones every
+node's properties *and* every script variable, so the cost of **drawing** rose
+with everything a game keeps — a combat log filling over a floor, a run's
+history. The fortieth round of a floor cost more to draw than the first, for a
+frame that reads one value per node.
+
+The one value is the node's previous world position, so that is what is kept
+now: `dimetric_render::Motion`, a position per node, sorted by uid and searched.
+A rollback or a save that needs a whole state still takes one; drawing between
+two ticks never did.
+
+Measured on a 400-node tree with a 400-entry log, release build: the clone
+**0.091 ms**, the store **0.012 ms** — 7.7 times cheaper. More to the point, the
+store is flat as the log grows (1.05x from a 10-entry log to an 800-entry one)
+where the clone is not (1.48x).
+
+**Two wrong turns on the way, both worth recording.**
+
+The first implementation called `Scene::world_of` on every node, which walks
+*up* from each one and composes once per ancestor. It measured *slower* than the
+clone it was replacing. `world_of`'s own doc comment says to use
+`update_world_transforms` plus `Node::world` when touching many nodes — and a
+renderer can do neither, because the cache needs `&mut` and reads `IDENTITY` on a
+tree that has never been stepped, which is exactly the frame between tick zero
+and tick one. So `Scene::world_positions` is a third door: one pass, composing
+*down* a stack, one `compose` per node, no `&mut`, and provably the same answer
+as `world_of` for every node including under rotation and scale.
+
+The second was measuring in a debug build and believing it. Unoptimised, the
+fixed-point composition costs about twenty times what it does optimised — 412 ns
+a node against 20 — while a clone is mostly `memcpy` and `malloc` and barely
+notices the profile. So in debug the store measures slower than the clone, and
+the ratio asserted there would have been asserting something untrue of any build
+anybody plays. `crates/dimetric-player/tests/interpolation_cost.rs` runs the
+absolute comparison in release only and says why; the claim that holds in both
+profiles is the shape one, that what a frame keeps does not grow with what the
+game keeps.
+
 ### One that was tried and thrown away
 
 A tick builds the broadphase twice: once before the scripts run, so every query

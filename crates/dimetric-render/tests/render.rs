@@ -161,7 +161,10 @@ fn interpolation_draws_between_two_states_without_touching_either() {
     };
     let capture = Capture::new(&renderer, (64, 64));
 
-    let previous = one_sprite();
+    // Where everything was, rather than the scene it was in: interpolation
+    // reads one position per node and never needed the rest. See `Motion`.
+    let mut previous = dimetric_render::Motion::new();
+    previous.refresh(&one_sprite());
     let mut current = one_sprite();
     let block = current.resolve_path("/Root/Block").unwrap();
     current.set_position(block, Vec2Fx::from_ints(16, 0));
@@ -194,8 +197,10 @@ fn interpolation_draws_between_two_states_without_touching_either() {
         current.get(block).unwrap().transform.pos,
         Vec2Fx::from_ints(16, 0)
     );
-    let before = previous.resolve_path("/Root/Block").unwrap();
-    assert_eq!(previous.get(before).unwrap().transform.pos, Vec2Fx::ZERO);
+    // And so is where it says the node was: extraction reads the recorded
+    // positions and writes nothing back into them either.
+    let uid = current.get(block).unwrap().uid;
+    assert_eq!(previous.get(uid), Some(Vec2Fx::ZERO));
 }
 
 #[test]

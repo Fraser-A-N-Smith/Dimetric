@@ -20,7 +20,7 @@ use dimetric_render::{
     Renderer,
 };
 use dimetric_scene::{Color, Scene, Value};
-use dimetric_sim::{InputLog, Sim, SimState};
+use dimetric_sim::{InputLog, Sim};
 
 use crate::project::Project;
 
@@ -297,14 +297,19 @@ pub fn capture(
         .input
         .unwrap_or_else(|| InputLog::new(request.seed, env!("CARGO_PKG_VERSION"), 1));
 
-    // Keep the state one tick back, so the captured frame can be interpolated
-    // the same way a live frame would be. Capturing at a whole tick means alpha
-    // is zero and the previous state contributes nothing, but going through the
-    // same path keeps capture and display honest about each other.
-    let mut previous: Option<SimState> = None;
+    // Keep where everything was one tick back, so the captured frame can be
+    // interpolated the same way a live frame would be. Capturing at a whole
+    // tick means alpha is zero and the previous positions contribute nothing,
+    // but going through the same path keeps capture and display honest about
+    // each other.
+    //
+    // A position per node rather than a clone of the state, for the reason
+    // `Motion` gives. This is a tool rather than a frame loop, so the cost
+    // mattered less here — but one shape is better than two.
+    let mut previous = dimetric_render::Motion::new();
     let mut atlas = atlas;
     for tick in 0..request.tick {
-        previous = Some(sim.snapshot());
+        previous.refresh(&sim.state().scene);
         sim.step(log.frame(tick));
 
         // Between ticks, never inside one (I8) -- the same place and the same
@@ -325,7 +330,7 @@ pub fn capture(
             // The interpolation source is a tree that no longer exists, so a
             // frame drawn against it would tween the old scene's nodes into
             // the new scene's.
-            previous = None;
+            previous.clear();
         }
     }
     diagnostics.extend(sim.take_diagnostics());
@@ -340,10 +345,13 @@ pub fn capture(
         &state.scene,
         &atlas,
         &camera,
-        previous.as_ref().map(|p| Interpolation {
-            previous: &p.scene,
-            alpha: 0.0,
-        }),
+        match previous.is_empty() {
+            true => None,
+            false => Some(Interpolation {
+                previous: &previous,
+                alpha: 0.0,
+            }),
+        },
         sim.config().canvas,
         state.tick,
     );

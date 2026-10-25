@@ -358,11 +358,49 @@ impl Scene {
         self.by_uid(uid).is_some_and(|id| self.is_visible(id))
     }
 
+    /// Every node's world position, by uid, in one pass.
+    ///
+    /// The bulk read [`world_of`](Scene::world_of) tells you not to write by
+    /// hand. Composing down a stack rather than walking up from each node makes
+    /// this one `compose` per node instead of one per ancestor, and it needs no
+    /// `&mut` — so a caller holding only a `&Scene`, which is every renderer,
+    /// is not forced to choose between the recursive version and a stale cache.
+    ///
+    /// Semantically identical to calling `world_of` on every node: both compose
+    /// the chain from the root down, in the same order, with the same
+    /// arithmetic. It does **not** read [`Node::world`], which is only valid
+    /// after [`update_world_transforms`](Scene::update_world_transforms) and so
+    /// says `IDENTITY` for a tree that has never been stepped.
+    ///
+    /// `out` is cleared and refilled, so a caller may keep one buffer and pay
+    /// no allocation after the first call. The order is the canonical walk's,
+    /// which is not uid order — sort if you mean to search it.
+    pub fn world_positions(&self, out: &mut Vec<(dimetric_core::NodeUid, Vec2Fx)>) {
+        out.clear();
+        let Some(root) = self.root else { return };
+        // The parent's world travels with the id on the stack, which is what
+        // turns the walk up into a walk down.
+        let mut stack = vec![(root, Transform::IDENTITY)];
+        while let Some((id, parent_world)) = stack.pop() {
+            let Some(node) = self.nodes.get(id) else {
+                continue;
+            };
+            let world = parent_world.compose(node.transform);
+            out.push((node.uid, world.pos));
+            // Reversed, so popping yields siblings in declaration order and the
+            // result matches `descendants`.
+            let kids: Vec<NodeId> = self.children(id).collect();
+            stack.extend(kids.into_iter().rev().map(|kid| (kid, world)));
+        }
+    }
+
     /// The world position of a node, recomputing on the spot.
     ///
     /// Convenient for one-off queries; use
     /// [`update_world_transforms`](Scene::update_world_transforms) plus
-    /// [`Node::world`] when touching many nodes.
+    /// [`Node::world`] when touching many nodes, or
+    /// [`world_positions`](Scene::world_positions) when you have only a
+    /// `&Scene`.
     pub fn world_of(&self, id: NodeId) -> Option<Transform> {
         let node = self.nodes.get(id)?;
         match node.parent {

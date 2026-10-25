@@ -526,6 +526,40 @@ fn render_markdown(
          is why the exemption is a mask written in draw order rather than a second\n\
          picture laid over the first: a lit figure drawn in front of an unlit marker\n\
          clears the exemption behind it, so the figure still dims.\n\n\
+         ### A child can wear its parent\'s tint\n\n\
+         Visibility is inherited and tint was not: `modulate` was read off each node\n\
+         alone. So every hit flash, fade-in and death fade a game tweened onto a figure\n\
+         left its child sprites at full strength — a dying adventurer faded out from\n\
+         under a cloak that did not.\n\n\
+         ```toml\n\
+         [[node]]\n\
+         kind = \"Sprite2D\"\n\
+         name = \"Trim\"\n\
+         parent = \"n_body0000\"\n\
+         inherit_modulate = true\n\
+         modulate = \"#808080ff\"      # its own colour, times the body\'s\n\
+         ```\n\n\
+         On `Sprite2D`, `AnimatedSprite2D` and `TextureRect`. The colour drawn is the\n\
+         node\'s own `modulate` times the colour its parent is drawn with, channel by\n\
+         channel including alpha — so a cape painted half-strength grey under an orange\n\
+         body comes out half-strength orange, and a fade on the body fades the cape\n\
+         with it. White is exactly the identity, so an untinted parent leaves a child\n\
+         bit-identical.\n\n\
+         **Opt-in per node**, and absent means standing alone, which is what every\n\
+         scene written before this did. Making `modulate` inherit by default would\n\
+         change how every existing scene looks; the Godot split — an inheriting\n\
+         `modulate` beside a standalone `self_modulate` — buys nothing this does not\n\
+         and moves every existing scene to buy it.\n\n\
+         A parent that does not inherit contributes **its own colour and nothing above\n\
+         it**, so the value a child multiplies by is always exactly what its parent\n\
+         looks like. An intermediate node therefore stops the chain unless it opts in\n\
+         too, which is the same explicitness the flag is for. A `Panel` or a `Button`\n\
+         contributes its declared `modulate` to a child that asks, without being able\n\
+         to inherit itself — a child should not flash when the pointer crosses its\n\
+         parent.\n\n\
+         Resolved in extraction and written nowhere, so this is presentation like the\n\
+         zoom and the ambient: the child\'s own `modulate` in state is still whatever\n\
+         the scene said, and nothing hashed moves (I7).\n\n\
          ### Actions a project declares of its own\n\n\
          The engine has nine actions — `up`, `down`, `left`, `right`, `fire`,\n\
          `alt`, `dash`, `use`, `pause` — and a game may want more. An undo for a\n\
@@ -1157,6 +1191,39 @@ fn render_markdown(
          What this is not is a theme. Three colours on a button rather than a theme\n\
          lookup is a choice made deliberately: a project that wants one palette puts it\n\
          in a prefab and instances it, which is a mechanism the engine already has.\n\n\
+         **Both controls cut from a sheet.** `region` names a sub-rectangle of the\n\
+         texture, in pixels, and the cut happens *before* the slice — so the margins\n\
+         measure the cut rectangle and a whole theme of frames can live on one strip:\n\n\
+         ```toml\n\
+         texture = \"asset:ui/frames\"   # one strip, a frame per essence\n\
+         region = [24.0, 0.0, 12.0, 12.0]\n\
+         slice = [4.0, 4.0, 4.0, 4.0]\n\
+         ```\n\n\
+         `TextureRect` always had it; `Button` gained it, because the two controls draw\n\
+         a sliced texture the same way and there was no reason only one of them could\n\
+         choose which part. It is in the kind schema rather than read loosely, so a\n\
+         script write to it is type-checked against the declaration like any other.\n\n\
+         **An edge can repeat instead of stretching.** A stretched edge has no pitch —\n\
+         it has a smear — so a riveted plate, a rope or a dotted rim loses itself on any\n\
+         panel wider than its texture. `slice_mode = \"Tile\"` repeats whole source cells\n\
+         along each edge instead:\n\n\
+         ```toml\n\
+         slice = [4.0, 4.0, 4.0, 4.0]\n\
+         slice_mode = \"Tile\"          # \"Stretch\" is the default\n\
+         ```\n\n\
+         One source texel to one destination pixel, so the pitch is constant at any\n\
+         width, and the last repeat is **cut rather than squashed**: it keeps the pitch\n\
+         and loses its tail, so a pattern meets the corner cleanly instead of\n\
+         compressing into it. Its UVs are cut by the same fraction its quad was. The\n\
+         corners are untouched in both modes.\n\n\
+         **The middle stretches in both modes**, which is a choice rather than an\n\
+         omission. A 300x150 panel with a 4-pixel middle cell would be 73 x 36 = 2628\n\
+         quads if the middle tiled too; a frame\'s middle is usually flat, and a game\n\
+         that wants a tiled interior has a `TileLayer` or a second control for it. A\n\
+         tiled *edge* costs `ceil(length / cell)` quads, all of them in the same batch\n\
+         as everything around them, so tiling costs vertices and not draw calls.\n\n\
+         `slice_mode` is only read when `slice` is set: there are no edges to repeat\n\
+         without margins.\n\n\
          #### Clipping\n\n\
          `clip_children = true` on any control confines its descendants to its own\n\
          rectangle. Nested clips intersect, so a row inside a scrolled list inside a\n\
