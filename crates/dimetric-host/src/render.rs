@@ -115,10 +115,41 @@ pub fn build_atlas(project: &Project, scene: &Scene) -> (Atlas, Diagnostics) {
             frames: 1,
         });
     }
+    // **Every imported font, page and metrics together, whether a scene names
+    // it or not.**
+    //
+    // The metrics were already unconditional and the page was not: it came in
+    // through the `required` loop above, which is built from what the scene and
+    // its prefabs *author*. So a font nothing authored arrived half present —
+    // `Atlas::font` answered and `Atlas::region` did not, and `extract::label`
+    // needs both, so it silently fell back to the built-in face.
+    //
+    // That is what stopped a game offering a text-size setting. Pointing a
+    // label at a larger face already works — a script may write an `asset:`
+    // string over an `asset-ref` property, and the typed-write guard re-reads
+    // it as a reference — but the face it pointed at was not in the atlas, so
+    // the label drew in the built-in font instead of the one it asked for.
+    //
+    // Unconditional rather than a new project setting, because the
+    // inconsistency *was* the bug: the atlas already promised every imported
+    // font's metrics. A font page is also a bounded thing — one texture per
+    // face, and a project has a handful — where sprite sheets are the bulk of
+    // an atlas and are rightly still driven by what the scene authors.
     if let Some(imported) = imported {
         for (name, artifact) in &imported.artifacts {
-            if let dimetric_assets::Artifact::Font { font, .. } = artifact {
+            if let dimetric_assets::Artifact::Font { font, page } = artifact {
                 fonts.insert(name.clone(), font.clone());
+                // Skip one a scene authored: it is already in `sources` from
+                // the loop above, and packing it twice would give the atlas two
+                // placements under one name.
+                if !sources.iter().any(|f| f.image.name == *name) {
+                    let mut page = page.clone();
+                    page.name = name.clone();
+                    sources.push(Framed {
+                        image: page,
+                        frames: 1,
+                    });
+                }
             }
         }
     }

@@ -106,6 +106,7 @@ fn open(root: &Path) -> (dimetric_host::Project, Session) {
             profile: None,
             suspend: None,
             date: None,
+            window: None,
         },
     )
     .expect("the session opens");
@@ -220,6 +221,7 @@ fn a_rebind_is_in_the_recording() {
             profile: None,
             suspend: None,
             date: None,
+            window: None,
         },
     )
     .expect("the session opens");
@@ -305,6 +307,7 @@ fn a_live_capture_stays_reported_on_a_frame_with_no_events() {
             profile: None,
             suspend: None,
             date: None,
+            window: None,
         },
     )
     .expect("the session opens");

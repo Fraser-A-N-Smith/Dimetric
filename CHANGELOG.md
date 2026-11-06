@@ -14,6 +14,171 @@ re-record them, and finding that out from a failing replay is a bad afternoon.
 
 ## Unreleased
 
+### Fixed: a clip drew the first frames of its sheet, whatever was playing
+
+G76, and the one to read first. `anim::advance` kept `AnimState.frame` as the
+position *within* the clip — 0, 1, 2 — and wrote that number to the node's
+`frame` property. `extract::painted` read `frame` as an index into the **whole
+strip**. Nothing between them mapped one to the other, and
+`Clip::frames[i].index`, the strip index the importer computed from the
+sidecar's `from`/`to`, was never read after import.
+
+So every clip drew the first frames of its sheet. Whatever a figure played, it
+showed strip frames 0 onward — on this game's sheets, `idle_ne` and then
+`walk_ne`. **Attacks, hurt reactions and deaths had never been drawn.** A
+`die_se` held for forty ticks left the adventurer standing; a one-frame `blank`
+clip at the end of a 71-frame strip drew the idle figure.
+
+`advance` now writes the strip index, and `AnimState` keeps the clip position
+where `anim.frame(node)` and the event table need it. The two numbers are
+documented as the two numbers they are: `frame` on the node is the sheet index,
+which is what a script pinning a frame by hand sets, and `anim.frame` is the
+position within the clip.
+
+It got through because the sim-side test asserted the clip-relative number
+landed on the node and nothing checked what the renderer made of it — and
+because its clip started at frame 0, where the two coincide. Both halves are
+now covered: an end-to-end test in `dimetric-host` spans the two crates, and a
+new `clip-offset` replay fixture pins it at the level that would have caught
+it. Reverting the fix makes that fixture diverge at tick 2.
+
+> **Hash: this moves the hash of every run that plays a clip starting past
+> frame 0.** That is the right outcome — the old hashes recorded a wrong
+> number. **No fixture in this repository moved**, and the reason is worth
+> knowing: the only existing fixture with clips declares both of them
+> `from = 0`, so clip position and strip index were the same number. A game
+> whose clips are laid out along a strip will see every animated run re-hash,
+> and must re-record. Nothing else changed: the simulation still writes one
+> number the renderer reads, so I7 holds.
+
+### Fixed: `scale` reaches the transform through the script's node handle
+
+G72. `scale` is a transform key in the scene format, in the reserved-key table
+and in a tween, and it was not in the node handle's metamethods — which routed
+`pos`, `rot` and `visible` and treated everything else as a script variable. So
+`node.scale = vec2(1.1875, 0.8125)` landed in the node's *variables*: nothing on
+screen moved, nothing was reported, and a tween back to `(1, 1)` started from a
+transform that had never left it. `node:set("scale", ...)` was refused as a
+reserved key, advising `self.scale = ...` — the write that did not work.
+
+`scale` now reads and writes the transform, through `get_mut` so the subtree's
+world transforms are marked stale: a scaled parent scales its children.
+
+**A reserved key the handle does not route is now refused** rather than stored
+as a variable beside the real one. `node.kind = "x"` used to do exactly that,
+silently. `node:set`'s advice now names the four keys that are writable through
+the handle.
+
+**Hash: moves any scene that wrote `node.scale`** and relied on nothing
+happening — the write now lands where it was meant to, so the scale is in the
+transform and hashed there instead of sitting in the variables. No fixture in
+this repository writes it, so none moved. A write to a reserved key the handle
+refuses is now a diagnostic rather than a stored variable, which also moves a
+scene that was shadowing one.
+
+### Added: a `Label` can draw an outline
+
+G74. A label drew its glyphs once, in its `modulate`, so the only way to put
+dark around a letter was to draw the whole label again. The game drew each board
+label five times — four copies a step off, then the drop shade and the ink — four
+extra nodes per float and per actor slot, written every frame one was up.
+
+```toml
+outline_size = 1              # pixels; absent or 0 draws none
+outline_color = "#000000ff"   # absent is opaque black
+```
+
+Drawn under the glyphs in the same pass. Every copy of the outline comes before
+any of the ink rather than per glyph, because a label's quads all carry the same
+sort key and interleaving them would let the second letter's outline draw over
+the first letter's ink. The sampled offsets are the filled square within the
+size rather than the eight compass points, so the ring is solid at any size;
+that costs `(2n+1)^2 - 1` quads a glyph and sizes above 4 are clamped. The
+outline's alpha follows the label's so a fade carries, and its step is in the
+font's own pixels for a `screen_size` label and scales with the board otherwise.
+
+`batch::build` now sorts **stably**. Two quads of the same node tie in every
+field of the sort key — the tie-break field *is* the node — so their order was
+previously whatever the sort happened to do. That was harmless while the only
+such quads were a label's glyphs, which do not overlap, and it is the rule an
+outline needs. `docs/sort.rs` says so.
+
+**Hash: moves no recorded hash.** Both properties carry no declared default, so
+absent is exactly today's behaviour, and drawing is presentation that nothing
+reads back.
+
+### Fixed: a label can be repointed at a larger face, and draws in it
+
+G73, and not the shape it was filed as. The report said a script cannot point a
+label at another font because the write is refused as a type change. **It is not
+refused** — an `asset:` string over an `asset-ref` property is re-read as a
+reference by the same parser the scene format uses, and has been since the
+typed-write work. A test now pins that, so the premise is on the record.
+
+What was missing was the **atlas**. It packs the pages the scene and its prefabs
+*author* while inserting every imported font's *metrics* unconditionally, so a
+face nothing authored arrived half present: `Atlas::font` answered and
+`Atlas::region` did not. `extract::label` needs both, so a label repointed at
+the large face silently drew in the engine's built-in one — the wrong size and
+the wrong typeface, with no diagnostic.
+
+Every imported font is now in the atlas, page and metrics together. That is the
+inconsistency rather than a new mechanism: the atlas already promised the
+metrics, and a font page is bounded at one texture per face where sprite sheets
+are the bulk of an atlas and are still scene-driven. `docs/ENGINE-GAPS.md`
+records what repointing a *sheet* would take and why it is not this.
+
+`ui.measure` also now takes either spelling of a face, `fonts/body` or
+`asset:fonts/body`. `node:get("font")` hands back the reference as written and
+the faces are keyed bare, so measuring the face a label actually uses — the
+documented way to lay out — measured nothing, silently, because an unknown font
+is zero by design.
+
+**Hash: moves no recorded hash.** A font reference written from a script is a
+scene write hashed like any other, and that already worked; what changed is the
+atlas, which is presentation. No existing scene moves.
+
+### Added: a project can declare one canvas height per screen shape
+
+G75. `project.toml` fixed the canvas and the engine scaled it to the window with
+letterboxing, so a 16:9 interface on a 1280x800 handheld was drawn at 1280x720
+with bars. A game could not learn the window's shape or choose a canvas height
+at start-up, so its layout could not grow into the eighty rows it was not
+allowed to use.
+
+```toml
+[ui]
+canvas = [1920, 1080]
+canvas_heights = [1080, 1200]   # 16:9 and 16:10, same width
+```
+
+The engine picks the nearest shape at start-up and `ui.canvas()` answers
+`{ w, h }` for the one this session got. The width never varies — a game's
+horizontal layout is the one it was designed at — and the comparison is the
+aspect difference cross-multiplied in whole numbers, because this value decides
+what a click hits and a replay has to reproduce it exactly. A tie keeps the
+earlier declaration.
+
+**One limitation, stated plainly and recorded in `docs/ENGINE-GAPS.md`:** the
+choice follows `--window` when given and the project's declared window size
+otherwise. It cannot ask the monitor, because the canvas is baked into the
+simulation's config before the first tick and winit exposes monitors only
+inside `resumed`, after the window exists. So a game run **fullscreen** on a
+screen whose shape differs from its declared window still gets the declared
+canvas. `dim-play --window 1280x800` picks 1200 correctly, so the mechanism and
+the recording are right; the automatic fullscreen choice needs the session
+opened after the window, which is a restructure of `dim-play` rather than a line
+of it.
+
+**Hash: moves no recorded hash**, and a project that declares one height — or
+none — behaves exactly as before. **Input log: gains an optional `canvas` header
+line**, written only when the project declared a choice to make, so every log
+already recorded is byte-for-byte what it was and replays against the project's
+own canvas, which is what it was laid out against. `LOG_VERSION` stays 1. A
+replay prefers the log's canvas over the project's, because layout decides which
+control a click landed on.
+
+
 ### Added: a child can wear its parent's tint
 
 G68. Visibility is inherited and tint was not — `modulate` was read off each

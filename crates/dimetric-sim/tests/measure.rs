@@ -138,3 +138,60 @@ end
         assert_eq!(var(&again, "w"), w);
     }
 }
+
+/// The same, against a canvas the project did not declare as its default --
+/// which is what a session gets when the engine picks a height for the window.
+fn run_with_canvas(script: &str, canvas: dimetric_scene::ui::Canvas) -> Sim {
+    let mut host = LuaHost::new(60).expect("lua host");
+    let (font, _) = builtin();
+    let mut fonts = dimetric_sim::text::Fonts::new();
+    fonts.insert(BUILTIN_FONT.to_string(), font);
+    host.set_fonts(fonts);
+    host.load("scripts/actor.lua", script).expect("loads");
+    let mut sim = Sim::new(
+        load(),
+        3,
+        Box::new(host),
+        SimConfig {
+            canvas,
+            ..SimConfig::default()
+        },
+    );
+    sim.step(InputFrame::idle(1));
+    let d = sim.take_diagnostics();
+    assert!(!d.has_errors(), "{d}");
+    sim
+}
+
+#[test]
+fn a_script_reads_the_canvas_it_is_laying_out_against() {
+    // A project may declare several canvas heights and let the engine pick the
+    // one nearest the window, so a game cannot assume the size it was authored
+    // at: it has to lay its rails to what it was actually given.
+    //
+    // Out of the simulation's own config, which is what every layout and hit
+    // test in the tick uses — so a script and the engine cannot disagree.
+    let sim = run_with_canvas(
+        "function on_tick(self)\n\
+         \x20 local c = ui.canvas()\n\
+         \x20 self.w = c.w\n\
+         \x20 self.h = c.h\n\
+         end\n",
+        dimetric_scene::ui::Canvas {
+            width: 1920,
+            height: 1200,
+        },
+    );
+    assert_eq!(var(&sim, "w"), Some(1920));
+    assert_eq!(
+        var(&sim, "h"),
+        Some(1200),
+        "the chosen height, not the engine's default"
+    );
+
+    // And the default, so the reader is not simply echoing its argument.
+    let plain = run("function on_tick(self)\n\
+                     \x20 self.h = ui.canvas().h\n\
+                     end\n");
+    assert_eq!(var(&plain, "h"), Some(180), "the default canvas is 320x180");
+}

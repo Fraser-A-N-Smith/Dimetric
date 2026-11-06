@@ -1,0 +1,14 @@
+# The defect, pinned at the replay level, which is the level that would have
+# caught it: a one-frame clip at strip index 2 has to draw strip frame 2.
+# Before G76 this read 0 -- the first frame of the sheet.
+tick 20 /Stage/Fx frame == 2
+tick 20 /Stage var:sheet == 2
+
+# And the other number stays itself: the position within a one-frame clip is
+# zero, which is what a script comparing against a clip's length wants.
+tick 20 /Stage var:within == 0
+tick 20 /Stage var:clip == tail
+
+# Before the script switches, the two numbers agree, because `idle` does start
+# at the beginning of the strip. That coincidence is why the defect survived.
+tick 1 /Stage/Fx frame == 0

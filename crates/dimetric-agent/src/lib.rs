@@ -1832,7 +1832,14 @@ fn replay_command(project: &mut Project, args: ReplayArgs) -> Result<Output, Dia
     // Same settings the run used: replaying a log under a different tick rate
     // or canvas is not replaying it.
     // Read before the project is borrowed for the run itself.
-    let replay_config = project.sim_config();
+    //
+    // The canvas comes from the **log** where it carries one. A project may
+    // declare several canvas heights and have the engine pick the one nearest
+    // the window, so the canvas is a fact about the session rather than about
+    // the project -- and layout decides which control a click landed on. A log
+    // that carries none was recorded by a project declaring one size, and the
+    // project's own is what it was laid out against.
+    let replay_config = project.sim_config_with(replay.log.canvas_or(project.settings.canvas));
     let report = replay.run_in(Some(project), scene, Box::new(host), replay_config);
 
     let mut text = format!("replayed {} ticks from seed {}", report.ticks, report.seed);

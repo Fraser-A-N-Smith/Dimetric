@@ -81,6 +81,7 @@ fn config(suspend: Option<&Path>) -> SessionConfig {
         profile: None,
         suspend: suspend.map(Path::to_path_buf),
         date: None,
+        window: None,
     }
 }
 

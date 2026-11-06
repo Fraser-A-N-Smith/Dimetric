@@ -376,6 +376,21 @@ pub struct InputLog {
     /// The header line is omitted when it is absent, so those logs are
     /// byte-for-byte what they always were.
     pub date: Option<String>,
+    /// The canvas this session laid its interface out against.
+    ///
+    /// A project may declare several canvas heights for one width and let the
+    /// engine pick the one nearest the window's shape, so that a 16:10
+    /// handheld gets taller rails instead of bars. That makes the canvas a
+    /// fact about the *session* rather than about the project — and layout
+    /// decides which control a click lands on, so a replay that laid out
+    /// against a different canvas would disagree about which button was
+    /// pressed. The same reason the date is here.
+    ///
+    /// `None` for a log from a project that declares one size, which is every
+    /// log recorded before this existed. Such a log replays against the
+    /// project's own canvas, which is what it was laid out against at the
+    /// time, and its header is byte-for-byte what it always was.
+    pub canvas: Option<(i32, i32)>,
     /// The actions the project declared of its own, in the order it declared
     /// them.
     ///
@@ -416,6 +431,7 @@ impl InputLog {
             from_tick: 0,
             player_count,
             date: None,
+            canvas: None,
             actions: Vec::new(),
             frames: Vec::new(),
         }
@@ -431,6 +447,26 @@ impl InputLog {
     pub fn with_date(mut self, date: impl Into<String>) -> InputLog {
         self.date = Some(date.into());
         self
+    }
+
+    /// The same, recording the canvas the session laid out against.
+    pub fn with_canvas(mut self, width: i32, height: i32) -> InputLog {
+        self.canvas = Some((width, height));
+        self
+    }
+
+    /// The canvas this log should be replayed against, given the project's own.
+    ///
+    /// The log's where it carries one, because that is what the session it
+    /// recorded actually used; the project's otherwise, because a log from a
+    /// project that declares one size was laid out against that one.
+    pub fn canvas_or(&self, project: dimetric_scene::ui::Canvas) -> dimetric_scene::ui::Canvas {
+        match self.canvas {
+            Some((width, height)) if width > 0 && height > 0 => {
+                dimetric_scene::ui::Canvas { width, height }
+            }
+            _ => project,
+        }
     }
 
     /// The day this log should be replayed as, whatever today is.
@@ -512,6 +548,12 @@ impl InputLog {
         // session that was never told the date is what it always was.
         if let Some(date) = &self.date {
             let _ = writeln!(out, "date {date}");
+        }
+        // Written only when the session chose between declared canvas heights,
+        // so a log from a project that declares one size is byte-for-byte what
+        // it always was.
+        if let Some((width, height)) = self.canvas {
+            let _ = writeln!(out, "canvas {width} {height}");
         }
         // Omitted when empty, so every log written before a project declared
         // an action of its own is byte-for-byte what it was.
@@ -599,6 +641,7 @@ impl InputLog {
         let mut scene_hash = None;
         let mut resumed = None;
         let mut from_tick = 0u64;
+        let mut canvas: Option<(i32, i32)> = None;
         let mut player_count = 1usize;
         let mut date: Option<String> = None;
         let mut pending_captured: Option<String> = None;
@@ -639,6 +682,18 @@ impl InputLog {
                 "from_tick" => from_tick = parse_field(parts.next(), number)?,
                 "players" => player_count = parse_field(parts.next(), number)?,
                 "date" => date = parts.next().map(str::to_string),
+                // Two whole numbers, as the writer emits them. A malformed one
+                // is refused rather than guessed at: the canvas decides what a
+                // click hit, so replaying against a wrong one would reproduce a
+                // different game and say nothing.
+                "canvas" => {
+                    let width: i32 = parse_field(parts.next(), number)?;
+                    let height: i32 = parse_field(parts.next(), number)?;
+                    if width <= 0 || height <= 0 {
+                        return Err(LogError::Malformed(number + 1, raw.to_string()));
+                    }
+                    canvas = Some((width, height));
+                }
                 // A capture and a rebind are their own lines rather than more
                 // columns on a tick line. The tick line is positional and
                 // interleaved per player, and a table of key names does not
@@ -754,6 +809,7 @@ impl InputLog {
             from_tick,
             player_count,
             date,
+            canvas,
             actions,
             frames,
         })

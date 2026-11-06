@@ -246,6 +246,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(d) = &override_warning {
         eprintln!("{d}");
     }
+
+    // The window's shape, for choosing among a project's declared canvas
+    // heights.
+    //
+    // The canvas is baked into the simulation's config before the first tick --
+    // layout decides what a click hits, so it cannot move mid-session -- which
+    // means the shape has to be known here, before the session exists.
+    //
+    // **And here, the monitor cannot be asked.** winit exposes monitors only on
+    // the `ActiveEventLoop` handed to `resumed`, which is after the window is
+    // created and long after this. So this is `--window` when given, and
+    // otherwise the size the project itself declares. A game run fullscreen on
+    // a monitor whose shape differs from its declared window therefore still
+    // gets the declared canvas and letterboxing; choosing from the monitor
+    // needs the session opened inside `resumed`, which is a restructure of this
+    // file rather than a line of it. `docs/ENGINE-GAPS.md` records that.
+    //
+    // `None` on the `--capture` path, which has no window at all and wants the
+    // project's own canvas anyway: a photograph of a declared size rather than
+    // of whatever screen took it.
+    let window_for_canvas = match args.capture.is_none() {
+        true => Some(window_override.unwrap_or_else(|| project.window_size(None))),
+        false => None,
+    };
+
     let mut session = Session::open(
         &mut project,
         SessionConfig {
@@ -268,6 +293,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // not, and `Project::writable()` says so.
             suspend: Some(root.clone()),
             date: args.date.clone(),
+            window: window_for_canvas,
         },
     )
     .map_err(|d| d.to_string())?;

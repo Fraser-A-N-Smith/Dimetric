@@ -355,8 +355,10 @@ impl UserData for NodeHandle {
                     Code::RESERVED_KEY,
                     format!(
                         "{key:?} is a reserved key, not a kind property, so setting it \
-                         here would shadow the real one rather than change it. Write \
-                         `self.{key} = ...` instead, which reaches the node."
+                         here would shadow the real one rather than change it. `pos`, \
+                         `rot`, `scale` and `visible` are written as `self.{key} = \
+                         ...`, which reaches the node; the others are set in the scene, \
+                         or through the call that owns them."
                     ),
                 )));
             }
@@ -591,6 +593,20 @@ impl UserData for NodeHandle {
                         lua.create_string(rot.to_degrees_string())?,
                     ))
                 }
+                // A transform key everywhere else in the engine -- in the scene
+                // format, in the reserved-key table, in a tween -- and not
+                // here, so `node.scale = vec2(1.2, 0.8)` landed in the node's
+                // *variables* and nothing on screen moved. A squash written
+                // that way did nothing and said nothing, and the tween back to
+                // (1, 1) started from a transform that had never left it.
+                "scale" => {
+                    let scale = state
+                        .scene
+                        .get(id)
+                        .map(|n| n.transform.scale)
+                        .unwrap_or(Vec2Fx::ONE);
+                    Ok(mlua::Value::UserData(lua.create_userdata(LuaVec2(scale))?))
+                }
                 "visible" => Ok(mlua::Value::Boolean(
                     state.scene.get(id).is_some_and(|n| n.visible),
                 )),
@@ -630,6 +646,15 @@ impl UserData for NodeHandle {
                             node.transform.rot = angle;
                         }
                     }
+                    "scale" => {
+                        let v = LuaVec2::from_lua(value, lua)?;
+                        // Through `get_mut`, which marks the subtree's world
+                        // transforms stale -- a scaled parent scales its
+                        // children, so the whole subtree has moved.
+                        if let Some(node) = state.scene.get_mut(id) {
+                            node.transform.scale = v.0;
+                        }
+                    }
                     "visible" => {
                         if let (Some(node), mlua::Value::Boolean(b)) =
                             (state.scene.node_mut_no_transform(id), &value)
@@ -644,6 +669,26 @@ impl UserData for NodeHandle {
                     // next line indexed a boolean. The engine reported that
                     // correctly and the per-tick log swallowed it, which left
                     // a caption that would not hide and no idea why.
+                    // A reserved key this handle does not route is refused
+                    // rather than shadowed, for the same reason `node:set`
+                    // refuses one: it belongs to the node and not to the
+                    // variables, so storing it would leave a value nothing
+                    // reads beside the real one that did not change. `scale`
+                    // was exactly that defect and is routed above; the rest of
+                    // the list has accessors or no runtime meaning, and
+                    // silence was the worst available answer.
+                    _ if dimetric_scene::schema::is_reserved(&key) => {
+                        return Err(mlua::Error::external(Diagnostic::new(
+                            Code::RESERVED_KEY,
+                            format!(
+                                "{key:?} is a reserved key that this handle does not \
+                                 write, so assigning it would shadow the node's own \
+                                 rather than change it. `pos`, `rot`, `scale` and \
+                                 `visible` are writable here; the others are set in the \
+                                 scene, or through the call that owns them."
+                            ),
+                        )));
+                    }
                     _ if value.is_nil() => state.clear_var(this.0, &key),
                     _ => {
                         let v = from_lua(value)?;
@@ -2092,10 +2137,38 @@ fn install_api(
     ui.set(
         "measure",
         lua.create_function(move |lua, (font, text): (String, String)| {
-            let (w, h) = crate::text::measure(&faces.borrow(), &font, &text);
+            // Either spelling of the face. A font is keyed by its bare asset
+            // name here and `node:get("font")` hands back the reference as it
+            // is written, `asset:fonts/body` — so measuring the face a label
+            // actually uses, which is the whole point of having the measure,
+            // meant knowing to strip a prefix. It measured nothing instead,
+            // silently, because an unknown font is zero by design.
+            let name = font.strip_prefix("asset:").unwrap_or(&font);
+            let (w, h) = crate::text::measure(&faces.borrow(), name, &text);
             let t = lua.create_table()?;
             t.set("w", w)?;
             t.set("h", h)?;
+            Ok(t)
+        })
+        .map_err(err)?,
+    )
+    .map_err(err)?;
+    // The canvas this session is laying out against.
+    //
+    // A project may declare several heights for one width and let the engine
+    // pick the one nearest the window's shape, so a game cannot assume the one
+    // it was authored at: it has to lay its rails to what it was actually
+    // given. Read out of the simulation's own config, which is what every
+    // layout and hit test in the tick uses, so a script and the engine cannot
+    // disagree about it.
+    ui.set(
+        "canvas",
+        lua.create_function(|lua, ()| {
+            let state = shared(lua)?;
+            let canvas = state.borrow().canvas;
+            let t = lua.create_table()?;
+            t.set("w", canvas.width)?;
+            t.set("h", canvas.height)?;
             Ok(t)
         })
         .map_err(err)?,

@@ -109,15 +109,26 @@ pub fn advance(
         }
         state.playing = playing;
 
-        if let Some(event) = step(
-            state,
-            clips.get(&sheet).map(Vec::as_slice).unwrap_or(&[]),
-            speed,
-        ) {
+        let sheet_clips = clips.get(&sheet).map(Vec::as_slice).unwrap_or(&[]);
+        if let Some(event) = step(state, sheet_clips, speed) {
             events.push((uid, event));
         }
 
-        let frame = state.frame as i64;
+        // The index into the **sheet**, not the position within the clip.
+        //
+        // `AnimState::frame` counts 0, 1, 2 through the clip, and that is what
+        // `anim.frame` answers and what the event table is indexed by. The
+        // renderer reads this property as an index into the whole strip. Those
+        // are the same number only for a clip that starts at frame zero, so
+        // every other clip drew the *first* frames of the sheet: whatever a
+        // figure played, it showed strip frames 0 onward. Attacks, hurt
+        // reactions and deaths were never drawn at all.
+        //
+        // `Clip::frames[i].index` is the strip index the importer computed from
+        // the sidecar's `from`/`to`, and nothing read it after import. It does
+        // now, here, which is the one place that already knows both the clip
+        // and the position in it.
+        let frame = strip_index(sheet_clips, state);
         if let Some(node) = scene.get_mut(id) {
             node.props.insert("frame".to_string(), Value::Int(frame));
         }
@@ -178,6 +189,29 @@ impl Speed {
 
 /// Move one animation on by a tick. Returns an event if the new frame carries
 /// one.
+/// Which frame of the sheet a state is showing.
+///
+/// The clip's own answer where the clip is loaded, and the clip-relative
+/// position where it is not — which follows the "hold, don't reset" rule a
+/// missing asset already gets from [`step`]: a sheet that failed to import
+/// should look wrong rather than stop the tick, and the position is the only
+/// number available to look wrong with.
+fn strip_index(clips: &[Clip], state: &AnimState) -> i64 {
+    let Some(clip) = clips.iter().find(|c| c.name == state.clip) else {
+        return state.frame as i64;
+    };
+    // Clamped rather than indexed blindly: a clip can be re-imported shorter
+    // while a node is part way through it, and a panic in the animation walker
+    // is a worse answer than the last frame.
+    match clip
+        .frames
+        .get((state.frame as usize).min(clip.frames.len().saturating_sub(1)))
+    {
+        Some(frame) => frame.index as i64,
+        None => state.frame as i64,
+    }
+}
+
 fn step(state: &mut AnimState, clips: &[Clip], speed: Speed) -> Option<String> {
     if !state.playing || state.finished {
         return None;

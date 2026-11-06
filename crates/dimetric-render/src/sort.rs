@@ -2,8 +2,16 @@
 //!
 //! One `u64` per sprite, packed so that a plain numeric sort produces the
 //! correct draw order. Sorting integers is both faster than a comparator and,
-//! more importantly, *total* — there is no pair of sprites whose relative order
-//! depends on which one the sort happened to look at first.
+//! more importantly, *total between nodes* — there is no pair of sprites from
+//! different nodes whose relative order depends on which one the sort happened
+//! to look at first.
+//!
+//! Between quads of the **same** node it ties in every field, the uid tie-break
+//! included, because that field is the node. A label's glyphs are such a set,
+//! and so are a sliced frame's nine cells and an outline's copies. Their order
+//! is settled by [`crate::batch::build`] sorting stably, so it is the order
+//! extraction produced — which is why an outline drawn before its ink stays
+//! under it.
 
 use dimetric_core::{Fx, NodeUid};
 

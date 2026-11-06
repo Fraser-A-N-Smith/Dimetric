@@ -34,7 +34,7 @@
         },
         {
           "default": "0",
-          "doc": "Frame showing now. Written by the engine as the clip plays, and read by the renderer to pick a slice of the sheet — the one-way path from simulation to presentation that invariant I7 asks for. Setting it by hand pins a frame until playback moves it.",
+          "doc": "Frame showing now, as an index into the **whole sheet** rather than a position within the clip. Written by the engine as the clip plays, and read by the renderer to pick a slice of the sheet — the one-way path from simulation to presentation that invariant I7 asks for. Setting it by hand pins a sheet frame until playback moves it. `anim.frame(node)` is the other number, the position within the clip, which is what a script comparing against a clip's length wants.",
           "name": "frame",
           "required": false,
           "type": "int"
@@ -662,6 +662,20 @@
         },
         {
           "default": null,
+          "doc": "Pixels of outline drawn under the glyphs. Absent and 0 both draw none, which is what every scene written before this did. One is what a number over a painted board needs; the engine samples every whole offset within the size, so the cost is `(2n+1)^2 - 1` extra quads a glyph and sizes above 4 are clamped. Drawn at the label's own pixel size whatever the zoom when `screen_size` is set, and scaled with the board otherwise, so the outline always matches the glyphs it surrounds.",
+          "name": "outline_size",
+          "required": false,
+          "type": "int"
+        },
+        {
+          "default": null,
+          "doc": "Colour of the outline. Absent is opaque black, which is what a dark outline is for. Its alpha is scaled by the label's own, so a label that fades takes its outline with it.",
+          "name": "outline_color",
+          "required": false,
+          "type": "color"
+        },
+        {
+          "default": null,
           "doc": "Whether the glyphs are drawn at the font's own pixel size instead of the board's zoom. Absent and false both scale with the zoom, which is what every scene written before this did. The origin is still projected like any world position, so the text stays with the thing it labels and stops growing when the camera moves in — for a damage number, a unit's name or a tooltip, which are read rather than looked at. Sorting, `lit` and parenting are unchanged. No effect on a label inside the UI tree, which is already drawn in canvas pixels.",
           "name": "screen_size",
           "required": false,
@@ -1101,7 +1115,7 @@
         },
         {
           "default": "0",
-          "doc": "Written by the engine: the frame playback has reached.",
+          "doc": "Written by the engine: the frame of the whole sheet playback has reached, not the position within the clip. Setting it by hand pins a sheet frame until playback moves it.",
           "name": "frame",
           "required": false,
           "type": "int"

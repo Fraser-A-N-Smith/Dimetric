@@ -64,6 +64,7 @@ fn open(root: &Path) -> (Project, Session) {
             profile: None,
             suspend: None,
             date: None,
+            window: None,
         },
     )
     .expect("the session opens");

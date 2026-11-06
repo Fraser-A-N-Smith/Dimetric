@@ -65,6 +65,18 @@ pub struct SessionConfig {
     /// calendar could not. Whatever this resolves to is written into the
     /// recording, so a replay is told what the recording was told.
     pub date: Option<String>,
+    /// The window this session is drawn into, if it has one.
+    ///
+    /// Only used to choose among a project's declared `[ui] canvas_heights`, so
+    /// a 16:10 handheld gets taller rails instead of bars. `None` for a
+    /// headless run, a capture and a replay — none of which has a window to be
+    /// shaped by, and all of which get the project's own canvas.
+    ///
+    /// The window size reaches nothing else: the UI is laid out against the
+    /// canvas and never against the window, which is what keeps a recorded
+    /// click landing on the same button on every monitor. See
+    /// `dimetric_scene::ui`.
+    pub window: Option<(u32, u32)>,
 }
 
 /// A running game.
@@ -138,7 +150,16 @@ impl Session {
         // while the project asked for something else would produce recordings
         // the project itself could not replay.
         diagnostics.extend(project.settings_diagnostics.clone());
-        let sim_config = project.sim_config();
+        // The canvas this session lays out against. The project's own unless it
+        // declared several heights and a caller said how big the window is, in
+        // which case the engine picks the nearest shape -- so a 16:10 handheld
+        // gets taller rails rather than bars above and below.
+        //
+        // Resolved once, here, before the first tick: layout decides which
+        // control a click lands on, so a canvas that moved mid-session would
+        // make a recording disagree with itself.
+        let canvas = project.canvas_for(config.window);
+        let sim_config = project.sim_config_with(canvas);
         let mut host = project.script_host().map_err(|d| Diagnostics(vec![d]))?;
         // The verbs this project declared of its own, and anything wrong with
         // the declaration. Into the recording, because each takes a button bit
@@ -216,6 +237,20 @@ impl Session {
             sim.set_suspended(slot.ready());
         }
 
+        // The recording's header. The canvas goes in only when the project
+        // declared a choice to make: a log from a project that declares one
+        // size carries no line and is byte-for-byte what it always was, and one
+        // that chose has to say which, because layout decides what a click hit
+        // and a replay laying out differently would disagree about which button
+        // was pressed.
+        let log = InputLog::new(config.seed, env!("CARGO_PKG_VERSION"), 1)
+            .with_actions(actions)
+            .with_date(date);
+        let log = match project.settings.canvas_heights.len() > 1 {
+            true => log.with_canvas(canvas.width, canvas.height),
+            false => log,
+        };
+
         Ok(Session {
             sim,
             previous: Motion::new(),
@@ -223,9 +258,7 @@ impl Session {
             atlas_changed: false,
             speaker,
             settings: config.settings,
-            log: InputLog::new(config.seed, env!("CARGO_PKG_VERSION"), 1)
-                .with_actions(actions)
-                .with_date(date),
+            log,
             recording: config.record.is_some(),
             record_to: config.record,
             pending_captured: None,

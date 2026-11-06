@@ -114,7 +114,17 @@ pub struct Batch {
 /// something it should be behind. Batching only ever merges *adjacent* items,
 /// so it can never change the order the sort decided on.
 pub fn build(items: &mut [DrawItem]) -> Vec<Batch> {
-    items.sort_unstable_by_key(|i| i.key);
+    // Stable, which matters for the one case the key cannot separate: two
+    // quads from the *same* node at the same depth have the same key in every
+    // field, the uid tie-break included. That was harmless while the only such
+    // quads were a label's glyphs, which do not overlap — and it stopped being
+    // harmless when a label gained an outline, whose copies have to draw
+    // *under* that label's ink.
+    //
+    // So the order within one node is now the order extraction produced, which
+    // is a rule rather than whatever the sort happened to do. The key is still
+    // what orders everything else; this only says what happens when it ties.
+    items.sort_by_key(|i| i.key);
 
     let mut batches: Vec<Batch> = Vec::new();
     for (index, item) in items.iter().enumerate() {

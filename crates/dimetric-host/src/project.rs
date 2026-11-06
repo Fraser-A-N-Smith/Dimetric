@@ -466,6 +466,38 @@ impl Project {
         }
     }
 
+    /// The canvas a session should lay out against.
+    ///
+    /// The project's own where it declares one size, which is every project
+    /// until now. Where it declares `[ui] canvas_heights`, the one nearest the
+    /// window's shape — so a 16:10 handheld gets taller rails rather than bars.
+    ///
+    /// `window` is `None` for a headless run and for a replay, neither of
+    /// which has a window to be shaped by; both get the project's own, and a
+    /// replay then overrides it with whatever its log recorded.
+    pub fn canvas_for(&self, window: Option<(u32, u32)>) -> dimetric_scene::ui::Canvas {
+        match window {
+            Some(window) => self
+                .settings
+                .canvas
+                .for_window(&self.settings.canvas_heights, window),
+            None => self.settings.canvas,
+        }
+    }
+
+    /// [`sim_config`](Project::sim_config) with an explicit canvas.
+    ///
+    /// One door for the two callers that do not simply take the project's: a
+    /// windowed session, which resolves it from the window, and a replay, which
+    /// takes it from the log. Both are the canvas deciding what a click hits,
+    /// so neither may be left to a default.
+    pub fn sim_config_with(&self, canvas: dimetric_scene::ui::Canvas) -> dimetric_sim::SimConfig {
+        dimetric_sim::SimConfig {
+            canvas,
+            ..self.sim_config()
+        }
+    }
+
     /// A script host wired to this project: tick rate, fonts and node kinds.
     ///
     /// One door, because the three inputs here are all things a run diverges

@@ -80,7 +80,7 @@ A sprite playing frame clips imported from Aseprite tags.
 | `animation` | `string` | `""` | Clip to play. Empty means the first. |
 | `playing` | `bool` | `true` | Advance frames on tick. |
 | `looping` | `bool` | `true` | Restart at the end of the clip. |
-| `frame` | `int` | `0` | Frame showing now. Written by the engine as the clip plays, and read by the renderer to pick a slice of the sheet — the one-way path from simulation to presentation that invariant I7 asks for. Setting it by hand pins a frame until playback moves it. |
+| `frame` | `int` | `0` | Frame showing now, as an index into the **whole sheet** rather than a position within the clip. Written by the engine as the clip plays, and read by the renderer to pick a slice of the sheet — the one-way path from simulation to presentation that invariant I7 asks for. Setting it by hand pins a sheet frame until playback moves it. `anim.frame(node)` is the other number, the position within the clip, which is what a script comparing against a clip's length wants. |
 | `modulate` | `color` | `"#ffffffff"` | Tint. |
 | `inherit_modulate` | `bool` | — | Whether this node's tint is multiplied by its parent's. Absent and false both leave it standing alone, which is what every scene written before this did. True makes the colour drawn here the node's own `modulate` times the colour its parent is drawn with — so a cape sprite over a body fades, flashes and dims with it, instead of every tween the game writes onto the body having to be mirrored onto the child with the colours multiplied in script. Opt-in per node, so a parent that does not inherit contributes its own colour and nothing above it: the value a child multiplies by is always exactly what its parent looks like. |
 | `offset` | `vec2` | — | Draw offset from the node origin. Absent means none. |
@@ -218,6 +218,8 @@ A run of text drawn from a baked font.
 | `align` | `enum(Left | Center | Right)` | `"Left"` | Horizontal alignment of each line about the node origin. |
 | `lit` | `bool` | — | Whether the scene's light applies to this. Absent and true both dim with the region; false keeps full colour however dark it gets. For the drawing a player *reads* rather than looks at — a health bar over a head, a damage number, the cells an ability can reach, a spell effect that should glow rather than dim. These sit on the board and move with the camera, so they are world drawing and cannot be UI controls without re-projecting every one of them into screen space each frame. An unlit node still sorts and batches with everything else; only the light's multiply skips it. |
 | `offset` | `vec2` | `[0.0, 0.0]` | Draw offset from the node origin. |
+| `outline_size` | `int` | — | Pixels of outline drawn under the glyphs. Absent and 0 both draw none, which is what every scene written before this did. One is what a number over a painted board needs; the engine samples every whole offset within the size, so the cost is `(2n+1)^2 - 1` extra quads a glyph and sizes above 4 are clamped. Drawn at the label's own pixel size whatever the zoom when `screen_size` is set, and scaled with the board otherwise, so the outline always matches the glyphs it surrounds. |
+| `outline_color` | `color` | — | Colour of the outline. Absent is opaque black, which is what a dark outline is for. Its alpha is scaled by the label's own, so a label that fades takes its outline with it. |
 | `screen_size` | `bool` | — | Whether the glyphs are drawn at the font's own pixel size instead of the board's zoom. Absent and false both scale with the zoom, which is what every scene written before this did. The origin is still projected like any world position, so the text stays with the thing it labels and stops growing when the camera moves in — for a damage number, a unit's name or a tooltip, which are read rather than looked at. Sorting, `lit` and parenting are unchanged. No effect on a label inside the UI tree, which is already drawn in canvas pixels. |
 
 ### `Light2D`
@@ -322,7 +324,7 @@ A control that draws a texture at its own rectangle.
 | `inherit_modulate` | `bool` | — | Whether this node's tint is multiplied by its parent's. Absent and false both leave it standing alone, which is what every scene written before this did. True makes the colour drawn here the node's own `modulate` times the colour its parent is drawn with — so a cape sprite over a body fades, flashes and dims with it, instead of every tween the game writes onto the body having to be mirrored onto the child with the colours multiplied in script. Opt-in per node, so a parent that does not inherit contributes its own colour and nothing above it: the value a child multiplies by is always exactly what its parent looks like. |
 | `animation` | `string` | `""` | Clip to play, when the texture is an imported animation. Empty means the first. |
 | `playing` | `bool` | `true` | Whether the clip advances. |
-| `frame` | `int` | `0` | Written by the engine: the frame playback has reached. |
+| `frame` | `int` | `0` | Written by the engine: the frame of the whole sheet playback has reached, not the position within the clip. Setting it by hand pins a sheet frame until playback moves it. |
 | `flip_h` | `bool` | `false` | Mirror horizontally. |
 | `flip_v` | `bool` | `false` | Mirror vertically. |
 | `blend` | `enum(Alpha | Additive | Multiply)` | `"Alpha"` | Blend mode. Also part of the batching key. |
@@ -636,6 +638,89 @@ to decide, and a game should not have to depend on a tie.
 for both sprite kinds and only `Sprite2D` declared it, so authoring it on the
 one kind a game animates was a hard `DIM0301` — on exactly the node that needs
 lifting.
+
+### Text size at runtime, and one canvas per screen
+
+A font is baked at its `font_size` when it is imported, so a *Text size*
+setting means importing a second set of faces and choosing one at runtime.
+Choosing one is an ordinary property write:
+
+```lua
+label:set("font", "asset:fonts/body-large")
+ui.measure(label:get("font"), "Wield it").w   -- lay out to what it is now
+```
+
+An `asset:` string over an `asset-ref` property is re-read as a reference by
+the same parser the scene format uses, so this is not a type change and is not
+refused. **Every imported font is in the atlas**, page and metrics together,
+whether a scene names it or not — the metrics always were and the page was
+not, so a face nothing authored arrived half present and a label repointed at
+it silently drew in the engine's built-in one. A font page is bounded, one
+texture per face; sprite sheets are the bulk of an atlas and are still driven
+by what the scene and its prefabs author.
+
+`ui.measure` takes either spelling of a face, `fonts/body` or
+`asset:fonts/body`, so measuring the face a label actually uses does not need
+a prefix stripped by hand. Layout stays the game's job.
+
+**One canvas per screen.** A project fixes the canvas and the engine scales it
+to the window with letterboxing, which wastes a 16:10 handheld: a 16:9 canvas
+on a 1280x800 screen is drawn at 1280x720 with bars. Declaring alternative
+heights lets the engine pick the nearest shape at start-up:
+
+```toml
+[ui]
+canvas = [1920, 1080]
+canvas_heights = [1080, 1200]   # 16:9 and 16:10, same width
+```
+
+`ui.canvas()` answers `{ w, h }` for the one this session got, so a game lays
+its rails to what it was actually given. The width never varies: a game's
+horizontal layout is the one it was designed at, and varying both would be two
+unknowns. The comparison is the aspect difference cross-multiplied in whole
+numbers, and a tie keeps the earlier declaration.
+
+Declaring one height, or none, is exactly the old behaviour. Declaring more
+makes the canvas a fact about the **session**, so the recording carries it as
+a `canvas` header line — layout decides which control a click lands on, and a
+replay that laid out differently would disagree about which button was
+pressed. A log without the line replays against the project's own canvas,
+which is what it was laid out against, so every recording already made is
+byte-for-byte what it was.
+
+A headless run, a capture and a replay have no window to be shaped by and get
+the project's own canvas; a replay then overrides it with its log's.
+
+### Text on a painted ground
+
+A `Label` draws its glyphs once, in its `modulate`, so the only way to put
+dark around a letter was to draw the whole label again a step off. A red
+"-4" over a pale figure needs that dark, and four extra nodes per floating
+number is what it used to cost.
+
+```toml
+outline_size = 1              # pixels; absent or 0 draws none
+outline_color = "#000000ff"   # absent is opaque black
+```
+
+The outline is drawn under the glyphs in the same pass. Every copy of it
+comes before any of the ink, rather than per glyph: a label's quads all
+carry the same sort key — the tie-break field *is* the node — so their order
+is the order extraction produced, and interleaving them would let the second
+letter's outline draw over the first letter's ink.
+
+The sampled offsets are the filled square within the size, not the eight
+compass points: a glyph stroke one pixel wide offset by two leaves a gap at
+distance one, so a ring alone would draw a dotted outline at any size above
+one. That costs `(2n+1)^2 - 1` quads a glyph — eight at size one — and sizes
+above 4 are clamped, because the count is quadratic and an authored mistake
+should cost a thick outline rather than a frame.
+
+The outline's alpha is scaled by the label's, so a label that fades takes
+its outline with it; the hue stays authored, so a white flash on the text
+does not flash the ring that makes it readable. For a `screen_size` label the
+step is in the font's own pixels whatever the zoom, and scales with the board
+otherwise — the only way an outline keeps matching its glyphs.
 
 ### Light
 
@@ -1606,6 +1691,33 @@ camera's projection and is not clipped by it.
 A control's own flag never clips the control itself, only what is inside it —
 a panel clipped to its own rectangle would be a no-op at best.
 
+### What the node handle writes
+
+`self.pos`, `self.rot`, `self.scale` and `self.visible` reach the **node**;
+every other name is a script variable. `scale` was missing from that list for
+a long time, although it is a transform key in the scene format, in the
+reserved-key table and in a tween — so `node.scale = vec2(1.1875, 0.8125)`
+landed in the variables, nothing on screen moved, and nothing was reported.
+A squash written that way did nothing, and the tween back to `(1, 1)` started
+from a transform that had never left it.
+
+```lua
+local hero = scene.find("/World/Hero")
+hero.scale = vec2(1.1875, 0.8125)   -- a blow squashes the figure
+hero.scale:x()                      -- reads 1.1875 back
+```
+
+The write marks the subtree's world transforms stale, because a scaled parent
+scales its children — which is why scale belongs on the transform rather than
+on the sprite.
+
+**A reserved key the handle does not route is refused**, rather than stored as
+a variable beside the real one. `node.kind = "x"` used to do exactly that:
+nothing read it, nothing said so, and the node was unchanged. That was the
+same silence `scale` had, and it is the silence the refusal exists to end.
+`node:set` refuses the reserved keys for the same reason and now names the
+four that are writable through the handle.
+
 ### A table read back from script state is a copy
 
 A script variable holding a table is converted to a *fresh* Lua table on every
@@ -1672,6 +1784,20 @@ calling it every tick is harmless. `anim.restart(node)` is the restart: frame
 zero, not finished, playing. Without it a non-looping clip that had finished
 stayed on its last frame for the life of the node, which is a pooled effect
 sprite that plays once and then shows the final frame forever.
+
+**Two frame numbers, and they are not the same number.** `anim.frame(node)`
+is the position *within* the clip — 0, 1, 2 — which is what a script
+comparing against a clip's length wants. The node's `frame` property is the
+index into the **whole sheet**, which is what the renderer reads to pick a
+slice, and is therefore what a script pinning a frame by hand sets.
+
+For a clip that starts at the beginning of its strip the two coincide, which
+is exactly why it took so long to notice they are different: nothing mapped
+one to the other, so every clip drew the *first* frames of its sheet. Whatever
+a figure played, it showed strip frames 0 onward — on a sheet whose first
+clips are an idle and a walk, attacks, hurt reactions and deaths had never
+been drawn at all. The sidecar's `from`/`to` gave the importer the strip
+range and nothing read it again after import.
 
 ### Sound
 

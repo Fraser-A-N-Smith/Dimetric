@@ -444,6 +444,73 @@ fn render_markdown(
          for both sprite kinds and only `Sprite2D` declared it, so authoring it on the\n\
          one kind a game animates was a hard `DIM0301` — on exactly the node that needs\n\
          lifting.\n\n\
+         ### Text size at runtime, and one canvas per screen\n\n\
+         A font is baked at its `font_size` when it is imported, so a *Text size*\n\
+         setting means importing a second set of faces and choosing one at runtime.\n\
+         Choosing one is an ordinary property write:\n\n\
+         ```lua\n\
+         label:set(\"font\", \"asset:fonts/body-large\")\n\
+         ui.measure(label:get(\"font\"), \"Wield it\").w   -- lay out to what it is now\n\
+         ```\n\n\
+         An `asset:` string over an `asset-ref` property is re-read as a reference by\n\
+         the same parser the scene format uses, so this is not a type change and is not\n\
+         refused. **Every imported font is in the atlas**, page and metrics together,\n\
+         whether a scene names it or not — the metrics always were and the page was\n\
+         not, so a face nothing authored arrived half present and a label repointed at\n\
+         it silently drew in the engine\'s built-in one. A font page is bounded, one\n\
+         texture per face; sprite sheets are the bulk of an atlas and are still driven\n\
+         by what the scene and its prefabs author.\n\n\
+         `ui.measure` takes either spelling of a face, `fonts/body` or\n\
+         `asset:fonts/body`, so measuring the face a label actually uses does not need\n\
+         a prefix stripped by hand. Layout stays the game\'s job.\n\n\
+         **One canvas per screen.** A project fixes the canvas and the engine scales it\n\
+         to the window with letterboxing, which wastes a 16:10 handheld: a 16:9 canvas\n\
+         on a 1280x800 screen is drawn at 1280x720 with bars. Declaring alternative\n\
+         heights lets the engine pick the nearest shape at start-up:\n\n\
+         ```toml\n\
+         [ui]\n\
+         canvas = [1920, 1080]\n\
+         canvas_heights = [1080, 1200]   # 16:9 and 16:10, same width\n\
+         ```\n\n\
+         `ui.canvas()` answers `{ w, h }` for the one this session got, so a game lays\n\
+         its rails to what it was actually given. The width never varies: a game\'s\n\
+         horizontal layout is the one it was designed at, and varying both would be two\n\
+         unknowns. The comparison is the aspect difference cross-multiplied in whole\n\
+         numbers, and a tie keeps the earlier declaration.\n\n\
+         Declaring one height, or none, is exactly the old behaviour. Declaring more\n\
+         makes the canvas a fact about the **session**, so the recording carries it as\n\
+         a `canvas` header line — layout decides which control a click lands on, and a\n\
+         replay that laid out differently would disagree about which button was\n\
+         pressed. A log without the line replays against the project\'s own canvas,\n\
+         which is what it was laid out against, so every recording already made is\n\
+         byte-for-byte what it was.\n\n\
+         A headless run, a capture and a replay have no window to be shaped by and get\n\
+         the project\'s own canvas; a replay then overrides it with its log\'s.\n\n\
+         ### Text on a painted ground\n\n\
+         A `Label` draws its glyphs once, in its `modulate`, so the only way to put\n\
+         dark around a letter was to draw the whole label again a step off. A red\n\
+         \"-4\" over a pale figure needs that dark, and four extra nodes per floating\n\
+         number is what it used to cost.\n\n\
+         ```toml\n\
+         outline_size = 1              # pixels; absent or 0 draws none\n\
+         outline_color = \"#000000ff\"   # absent is opaque black\n\
+         ```\n\n\
+         The outline is drawn under the glyphs in the same pass. Every copy of it\n\
+         comes before any of the ink, rather than per glyph: a label\'s quads all\n\
+         carry the same sort key — the tie-break field *is* the node — so their order\n\
+         is the order extraction produced, and interleaving them would let the second\n\
+         letter\'s outline draw over the first letter\'s ink.\n\n\
+         The sampled offsets are the filled square within the size, not the eight\n\
+         compass points: a glyph stroke one pixel wide offset by two leaves a gap at\n\
+         distance one, so a ring alone would draw a dotted outline at any size above\n\
+         one. That costs `(2n+1)^2 - 1` quads a glyph — eight at size one — and sizes\n\
+         above 4 are clamped, because the count is quadratic and an authored mistake\n\
+         should cost a thick outline rather than a frame.\n\n\
+         The outline\'s alpha is scaled by the label\'s, so a label that fades takes\n\
+         its outline with it; the hue stays authored, so a white flash on the text\n\
+         does not flash the ring that makes it readable. For a `screen_size` label the\n\
+         step is in the font\'s own pixels whatever the zoom, and scales with the board\n\
+         otherwise — the only way an outline keeps matching its glyphs.\n\n\
          ### Light\n\n\
          A `Light2D` is drawn into an accumulation buffer and the composite multiplies\n\
          the world by it. That multiply only happens when the **ambient** is darker\n\
@@ -1254,6 +1321,28 @@ fn render_markdown(
          camera\'s projection and is not clipped by it.\n\n\
          A control\'s own flag never clips the control itself, only what is inside it —\n\
          a panel clipped to its own rectangle would be a no-op at best.\n\n\
+         ### What the node handle writes\n\n\
+         `self.pos`, `self.rot`, `self.scale` and `self.visible` reach the **node**;\n\
+         every other name is a script variable. `scale` was missing from that list for\n\
+         a long time, although it is a transform key in the scene format, in the\n\
+         reserved-key table and in a tween — so `node.scale = vec2(1.1875, 0.8125)`\n\
+         landed in the variables, nothing on screen moved, and nothing was reported.\n\
+         A squash written that way did nothing, and the tween back to `(1, 1)` started\n\
+         from a transform that had never left it.\n\n\
+         ```lua\n\
+         local hero = scene.find(\"/World/Hero\")\n\
+         hero.scale = vec2(1.1875, 0.8125)   -- a blow squashes the figure\n\
+         hero.scale:x()                      -- reads 1.1875 back\n\
+         ```\n\n\
+         The write marks the subtree\'s world transforms stale, because a scaled parent\n\
+         scales its children — which is why scale belongs on the transform rather than\n\
+         on the sprite.\n\n\
+         **A reserved key the handle does not route is refused**, rather than stored as\n\
+         a variable beside the real one. `node.kind = \"x\"` used to do exactly that:\n\
+         nothing read it, nothing said so, and the node was unchanged. That was the\n\
+         same silence `scale` had, and it is the silence the refusal exists to end.\n\
+         `node:set` refuses the reserved keys for the same reason and now names the\n\
+         four that are writable through the handle.\n\n\
          ### A table read back from script state is a copy\n\n\
          A script variable holding a table is converted to a *fresh* Lua table on every\n\
          read. So this does nothing:\n\n\
@@ -1306,6 +1395,18 @@ fn render_markdown(
          zero, not finished, playing. Without it a non-looping clip that had finished\n\
          stayed on its last frame for the life of the node, which is a pooled effect\n\
          sprite that plays once and then shows the final frame forever.\n\n\
+         **Two frame numbers, and they are not the same number.** `anim.frame(node)`\n\
+         is the position *within* the clip — 0, 1, 2 — which is what a script\n\
+         comparing against a clip\'s length wants. The node\'s `frame` property is the\n\
+         index into the **whole sheet**, which is what the renderer reads to pick a\n\
+         slice, and is therefore what a script pinning a frame by hand sets.\n\n\
+         For a clip that starts at the beginning of its strip the two coincide, which\n\
+         is exactly why it took so long to notice they are different: nothing mapped\n\
+         one to the other, so every clip drew the *first* frames of its sheet. Whatever\n\
+         a figure played, it showed strip frames 0 onward — on a sheet whose first\n\
+         clips are an idle and a walk, attacks, hurt reactions and deaths had never\n\
+         been drawn at all. The sidecar\'s `from`/`to` gave the importer the strip\n\
+         range and nothing read it again after import.\n\n\
          ### Sound\n\n\
          `node:play()` on a `Sound` node asks for its clip; `node:stop()` stops what\n\
          that node started. The script says *when* and the node's properties say what,\n\

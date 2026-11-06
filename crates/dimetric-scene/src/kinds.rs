@@ -226,10 +226,14 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 "frame",
                 PropertyType::Int,
                 int(0),
-                "Frame showing now. Written by the engine as the clip plays, and \
-                 read by the renderer to pick a slice of the sheet — the one-way \
-                 path from simulation to presentation that invariant I7 asks for. \
-                 Setting it by hand pins a frame until playback moves it.",
+                "Frame showing now, as an index into the **whole sheet** rather \
+                 than a position within the clip. Written by the engine as the \
+                 clip plays, and read by the renderer to pick a slice of the \
+                 sheet — the one-way path from simulation to presentation that \
+                 invariant I7 asks for. Setting it by hand pins a sheet frame \
+                 until playback moves it. `anim.frame(node)` is the other \
+                 number, the position within the clip, which is what a script \
+                 comparing against a clip's length wants.",
             ),
             prop("modulate", PropertyType::Color, color("#ffffffff"), "Tint."),
             prop(
@@ -601,7 +605,9 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                     "frame",
                     PropertyType::Int,
                     int(0),
-                    "Written by the engine: the frame playback has reached.",
+                    "Written by the engine: the frame of the whole sheet playback \
+                     has reached, not the position within the clip. Setting it by \
+                     hand pins a sheet frame until playback moves it.",
                 ),
                 prop(
                     "flip_h",
@@ -807,6 +813,29 @@ pub fn builtin_kinds() -> Vec<NodeKindSchema> {
                 PropertyType::Vec2,
                 Some(Value::Vec2(dimetric_core::Vec2Fx::ZERO)),
                 "Draw offset from the node origin.",
+            ),
+            // No declared default, for the usual reason: one is materialised
+            // into every node's props at parse and every prop is hashed.
+            prop(
+                "outline_size",
+                PropertyType::Int,
+                None,
+                "Pixels of outline drawn under the glyphs. Absent and 0 both draw \
+                 none, which is what every scene written before this did. One is \
+                 what a number over a painted board needs; the engine samples \
+                 every whole offset within the size, so the cost is \
+                 `(2n+1)^2 - 1` extra quads a glyph and sizes above 4 are \
+                 clamped. Drawn at the label's own pixel size whatever the zoom \
+                 when `screen_size` is set, and scaled with the board otherwise, \
+                 so the outline always matches the glyphs it surrounds.",
+            ),
+            prop(
+                "outline_color",
+                PropertyType::Color,
+                None,
+                "Colour of the outline. Absent is opaque black, which is what a \
+                 dark outline is for. Its alpha is scaled by the label's own, so \
+                 a label that fades takes its outline with it.",
             ),
             // No default on purpose, like `lit` beside it: a declared default
             // is materialised into every node's props at parse and every prop

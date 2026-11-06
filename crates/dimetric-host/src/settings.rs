@@ -212,6 +212,23 @@ pub struct Settings {
     /// click hits, so two players whose canvases differ disagree about which
     /// button was pressed. See `dimetric_scene::ui`.
     pub canvas: Canvas,
+    /// `[ui] canvas_heights`: alternative heights for that width, in order.
+    ///
+    /// A project fixes one canvas and the engine scales it to the window with
+    /// letterboxing, which wastes a 16:10 handheld: a 16:9 canvas on a
+    /// 1280x800 screen is drawn at 1280x720 with bars, and a game cannot lay
+    /// its rails into the rows it is not allowed to use. Declaring several
+    /// heights lets the engine pick the one nearest the window's shape at
+    /// start-up — see [`Canvas::for_window`].
+    ///
+    /// The width never varies: a game's horizontal layout is the one it was
+    /// designed at, and varying both would be two unknowns.
+    ///
+    /// Empty, or one entry, is exactly today's behaviour. More than one makes
+    /// the canvas a fact about the *session*, so it is written into the
+    /// recording — layout decides what a click hits, and a replay that laid
+    /// out differently would disagree about which button was pressed.
+    pub canvas_heights: Vec<i32>,
     /// The resolution the world is drawn at, before upscaling.
     ///
     /// Part of the replay contract, and not obviously so. A wider viewport
@@ -258,6 +275,7 @@ impl Default for Settings {
         Settings {
             tick_rate: DEFAULT_TICK_RATE,
             canvas: Canvas::default(),
+            canvas_heights: Vec::new(),
             resolution: (480, 270),
             bindings: Vec::new(),
             bindings_declared: false,
@@ -359,6 +377,21 @@ impl Settings {
                     _ => diagnostics.push(Diagnostic::new(
                         Code::SETTINGS_INVALID,
                         format!("{origin}: ui.canvas must be two positive whole numbers, as [width, height]"),
+                    )),
+                }
+            }
+            if let Some(value) = ui.get("canvas_heights") {
+                match whole_numbers(value) {
+                    Some(heights) if !heights.is_empty() && heights.iter().all(|h| *h > 0) => {
+                        out.canvas_heights = heights
+                    }
+                    _ => diagnostics.push(Diagnostic::new(
+                        Code::SETTINGS_INVALID,
+                        format!(
+                            "{origin}: ui.canvas_heights must be a list of positive whole \
+                             numbers, as [1080, 1200] — alternative heights for the width \
+                             `ui.canvas` declares"
+                        ),
                     )),
                 }
             }
@@ -568,6 +601,19 @@ fn keys(item: &toml_edit::Item) -> Option<Vec<String>> {
 }
 
 /// A `[w, h]` array of whole numbers.
+/// A list of whole numbers, or nothing if any entry is not one.
+///
+/// All-or-nothing on purpose: a list with one bad entry is a mistake somebody
+/// made, and silently taking the rest would pick a canvas they did not declare.
+fn whole_numbers(v: &toml_edit::Item) -> Option<Vec<i32>> {
+    let array = v.as_array()?;
+    let mut out = Vec::with_capacity(array.len());
+    for entry in array.iter() {
+        out.push(i32::try_from(entry.as_integer()?).ok()?);
+    }
+    Some(out)
+}
+
 fn pair(v: &toml_edit::Item) -> Option<(i32, i32)> {
     let array = v.as_array()?;
     let mut it = array.iter();

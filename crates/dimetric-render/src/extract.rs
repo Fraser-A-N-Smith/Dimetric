@@ -1130,6 +1130,40 @@ fn lit_of(node: &dimetric_scene::Node) -> bool {
     node.get("lit").and_then(Value::as_bool).unwrap_or(true)
 }
 
+/// The largest outline the renderer will draw.
+///
+/// The sample count is `(2n+1)^2 - 1` quads a glyph, so four is already eighty.
+/// An authored mistake — a size meant as a colour, a slider with no bound —
+/// should cost a thick outline rather than a frame.
+const OUTLINE_MAX: i64 = 4;
+
+/// Every whole offset an outline of `size` is sampled at, nearest first.
+///
+/// The filled square rather than the eight compass points: a glyph stroke one
+/// pixel wide, offset by two, leaves a gap at distance one, so sampling only
+/// the ring would draw a dotted outline at any size above one. Filled, the
+/// result is a solid ring of the right thickness at every size.
+///
+/// Ordered by distance so that the furthest copies are pushed first and the
+/// nearest last, which keeps the ring's own overlap consistent.
+fn outline_steps(size: i32) -> Vec<(i32, i32)> {
+    if size <= 0 {
+        return Vec::new();
+    }
+    let mut steps = Vec::with_capacity(((2 * size + 1) * (2 * size + 1) - 1) as usize);
+    for dy in -size..=size {
+        for dx in -size..=size {
+            if (dx, dy) != (0, 0) {
+                steps.push((dx, dy));
+            }
+        }
+    }
+    // Furthest first. A total order, so the quads a frame produces are the same
+    // sequence on every machine.
+    steps.sort_by_key(|(dx, dy)| (-(dx * dx + dy * dy), *dx, *dy));
+    steps
+}
+
 /// Expand a label into one sprite per inked glyph.
 ///
 /// The layout is integer arithmetic on baked metrics, so every machine puts
@@ -1182,6 +1216,26 @@ fn label(
 
     let origin = pos + offset;
     let laid = crate::text::layout(font, text, align);
+
+    // A dark ring around a letter is how a game makes text read over a painted
+    // ground: a red number over a pale figure, a word over a lit floor. Without
+    // it the only way was to draw the whole label again, four times, a step
+    // off — four extra nodes per float, written every frame one was up.
+    //
+    // Clamped, because the sample count is quadratic in the size and an
+    // authored mistake should not cost a frame: see `outline_steps`.
+    let outline = node
+        .get("outline_size")
+        .and_then(Value::as_int)
+        .unwrap_or(0)
+        .clamp(0, OUTLINE_MAX) as i32;
+    let outline_color = node
+        .get("outline_color")
+        .and_then(Value::as_color)
+        .unwrap_or(Color::rgba(0, 0, 0, 0xFF));
+    // Collected rather than drawn as they are laid out, because every copy of
+    // the outline has to come before any of the ink.
+    let mut glyphs: Vec<(Vec2Fx, [f32; 4], Vec2Fx)> = Vec::new();
 
     // A label on the board is drawn at the board's zoom, which is right for
     // something that belongs to the scene -- a sign painted on a wall -- and
@@ -1254,26 +1308,68 @@ fn label(
             Fx::from_int(placed.x) + Fx::from_int(g.width as i32) / 2,
             Fx::from_int(placed.y) + Fx::from_int(g.height as i32) / 2,
         );
+        glyphs.push((
+            advance,
+            region.sub(g.x, g.y, g.width, g.height).uv,
+            Vec2Fx::from_ints(g.width as i32, g.height as i32),
+        ));
+    }
+
+    let key = SortKey::new(
+        node.layer,
+        node.z,
+        depth,
+        crate::batch::batch_group(0, 0, Blend::Alpha),
+        node.uid,
+    );
+    let mut quad = |offset: Vec2Fx, advance: Vec2Fx, uv: [f32; 4], size: Vec2Fx, ink: Color| {
         out.push(DrawItem {
-            key: SortKey::new(
-                node.layer,
-                node.z,
-                depth,
-                crate::batch::batch_group(0, 0, Blend::Alpha),
-                node.uid,
-            ),
+            key,
             atlas: 0,
             blend: Blend::Alpha,
             shader: 0,
             pos: origin,
-            screen_offset: unmagnified(advance),
-            size: unmagnified(Vec2Fx::from_ints(g.width as i32, g.height as i32)),
+            // The outline's step is a screen offset like the advance, and goes
+            // through the same `unmagnified`: so it is in the font's own pixels
+            // for a `screen_size` label and scales with the board otherwise,
+            // which is the only way an outline keeps matching its glyphs.
+            screen_offset: unmagnified(advance + offset),
+            size: unmagnified(size),
             rotation: Angle::ZERO,
-            uv: region.sub(g.x, g.y, g.width, g.height).uv,
-            modulate: [modulate.r, modulate.g, modulate.b, modulate.a],
+            uv,
+            modulate: [ink.r, ink.g, ink.b, ink.a],
             node: node.uid,
             lit: lit_of(node),
         });
+    };
+
+    // Every copy of the outline before any of the ink, rather than per glyph.
+    //
+    // A label's quads all carry the same sort key — the tie-break field *is*
+    // the node — so their order is the order they are pushed in, which
+    // `batch::build` settles by sorting stably. Interleaving them per glyph
+    // would let the second letter's outline draw over the first letter's ink
+    // wherever two letters are close enough for their outlines to overlap,
+    // which at one pixel is most pairs.
+    // The outline's own colour, with its alpha scaled by the label's. A label
+    // that fades has to take its outline with it — otherwise a vanishing
+    // damage number leaves a black ring behind, which is the G68 complaint one
+    // level further down. The hue stays authored, so a white hit flash on the
+    // text does not flash the dark ring that makes it readable.
+    let outline_ink = Color::rgba(
+        outline_color.r,
+        outline_color.g,
+        outline_color.b,
+        ((outline_color.a as u32 * modulate.a as u32) / 255) as u8,
+    );
+    for (dx, dy) in outline_steps(outline) {
+        let step = Vec2Fx::from_ints(dx, dy);
+        for (advance, uv, size) in &glyphs {
+            quad(step, *advance, *uv, *size, outline_ink);
+        }
+    }
+    for (advance, uv, size) in &glyphs {
+        quad(Vec2Fx::ZERO, *advance, *uv, *size, modulate);
     }
 }
 

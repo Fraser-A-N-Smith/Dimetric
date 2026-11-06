@@ -698,6 +698,43 @@ is declared with no default.
 
 ## Still open, and known
 
+**A fullscreen window's shape does not choose the canvas.** `[ui]
+canvas_heights` lets a project declare several canvas heights and have the
+engine pick the one nearest the window's shape — built for G75 — and `dim-play`
+chooses from `--window` when given and from the size the project itself declares
+otherwise. It cannot ask the monitor.
+
+The canvas is baked into the simulation's config before the first tick, because
+layout decides what a click hits and a canvas that moved mid-session would make
+a recording disagree with itself. So the shape has to be known before the
+session exists — and winit exposes monitors only on the `ActiveEventLoop` handed
+to `resumed`, which is after the window is created and long after that.
+
+The consequence is exact: a game run fullscreen on a screen whose shape differs
+from its declared window still gets the declared canvas and letterboxing, which
+is the Steam Deck case the entry was raised for. `--window 1280x800` picks
+1200 correctly, so the mechanism and the recording are right; what is missing is
+the automatic choice.
+
+Fixing it means opening the session inside `resumed`, once the window exists —
+`App` would hold an `Option<Session>` and everything downstream would unwrap it,
+and the `--capture` path, which has no display at all, would have to keep its
+own route. That is a restructure of `dim-play` rather than a line of it, and it
+is a round's work on its own rather than the tail of someone else's entry.
+
+**A script cannot repoint a sprite at another sheet and have it drawn.** The
+font half of this is fixed: every imported font is now in the atlas whether a
+scene names it or not, which is what let a text-size setting work. Sheets are
+not, and deliberately — they are the bulk of an atlas, where a font page is one
+texture per face. A game that wants to switch a sprite's sheet at runtime still
+authors a node that mentions it, or keeps the alternatives in a prefab.
+
+What would settle it is a declared list — a project naming the assets a script
+may switch to — rather than packing everything imported. Nothing has asked for
+it in those terms yet, and the 96 hidden nodes it would have saved are a real
+number worth repeating when it is.
+
+
 **Reading your own bindings puts them in the hash.** G53 promised that a
 session played under any bindings replays identically under any other, and
 G58's `input.bindings(action)` and `input.captured()` narrow that. The half

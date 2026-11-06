@@ -299,3 +299,154 @@ animation = "a"
         );
     }
 }
+
+/// A clip that does not start at the beginning of the sheet.
+///
+/// `from`/`to` in a sidecar give the importer the strip range, and
+/// `Clip::frames[i].index` is what it computed. Every clip in this game but the
+/// first one is like this, which is why the defect reached a shipped build.
+fn clip_at(name: &str, start: u32, count: u32) -> Clip {
+    Clip {
+        name: name.to_string(),
+        frames: (0..count)
+            .map(|offset| Frame {
+                index: start + offset,
+                ticks: 2,
+                event: None,
+            })
+            .collect(),
+        looping: true,
+    }
+}
+
+/// The `frame` property, which is what the renderer reads.
+fn drawn_frame(sim: &Sim) -> i64 {
+    let state = sim.state();
+    let id = state.scene.by_uid(mover()).expect("node");
+    state
+        .scene
+        .get(id)
+        .and_then(|n| n.get("frame"))
+        .and_then(Value::as_int)
+        .expect("a frame")
+}
+
+#[test]
+fn a_clip_writes_the_sheet_frame_and_not_its_own_position() {
+    // The defect. `AnimState::frame` counts 0, 1, 2 through the clip and the
+    // renderer reads `frame` as an index into the whole strip, and nothing
+    // mapped one to the other — so a figure playing `idle_se` at strip frames
+    // 35 to 38 drew strip frame 0, the first pose on the sheet. Whatever was
+    // played, the first frames of the sheet came out.
+    let mut s = sim_with(
+        "function on_tick(self)\n\
+         \x20 if tick.count() == 1 then anim.play(scene.find(\"/Room/Mover\"), \"idle_se\") end\n\
+         end\n",
+        vec![clip_at("a", 0, 3), clip_at("idle_se", 35, 4)],
+    );
+    run(&mut s, 2);
+    assert_eq!(playing(&s).0, "idle_se", "the clip is running");
+    assert_eq!(playing(&s).1, 0, "its first frame, counted within the clip");
+    assert_eq!(
+        drawn_frame(&s),
+        35,
+        "and strip frame 35, which is where that clip actually is"
+    );
+
+    // And it walks the strip from there, rather than from zero.
+    run(&mut s, 2);
+    assert_eq!((playing(&s).1, drawn_frame(&s)), (1, 36));
+    run(&mut s, 2);
+    assert_eq!((playing(&s).1, drawn_frame(&s)), (2, 37));
+    run(&mut s, 2);
+    assert_eq!((playing(&s).1, drawn_frame(&s)), (3, 38));
+    // Looping takes it back to the clip's start, not the sheet's.
+    run(&mut s, 2);
+    assert_eq!((playing(&s).1, drawn_frame(&s)), (0, 35));
+}
+
+#[test]
+fn a_one_frame_clip_at_the_end_of_a_strip_draws_that_frame() {
+    // The case from the report: a `blank` clip of one frame at the end of a
+    // 71-frame strip drew frame 0, the idle figure, which is the opposite of
+    // blank.
+    let mut s = sim_with(
+        "function on_tick(self)\n\
+         \x20 if tick.count() == 1 then anim.play(scene.find(\"/Room/Mover\"), \"blank\") end\n\
+         end\n",
+        vec![clip_at("a", 0, 3), clip_at("blank", 70, 1)],
+    );
+    run(&mut s, 4);
+    assert_eq!(drawn_frame(&s), 70);
+}
+
+#[test]
+fn a_finished_clip_holds_its_own_last_frame() {
+    // A death is a non-looping clip held on its last frame for as long as the
+    // game likes. Before the fix it held the strip's frame 2 instead — the
+    // adventurer stood there through forty ticks of `die_se`.
+    let mut s = sim_with(
+        "function on_tick(self)\n\
+         \x20 if tick.count() == 1 then anim.play(scene.find(\"/Room/Mover\"), \"die_se\") end\n\
+         end\n",
+        vec![
+            clip_at("a", 0, 3),
+            Clip {
+                name: "die_se".to_string(),
+                frames: (50..53)
+                    .map(|index| Frame {
+                        index,
+                        ticks: 2,
+                        event: None,
+                    })
+                    .collect(),
+                looping: false,
+            },
+        ],
+    );
+    run(&mut s, 40);
+    let (clip, position) = playing(&s);
+    assert_eq!(clip, "die_se");
+    assert_eq!(position, 2, "the last frame of the clip");
+    assert_eq!(drawn_frame(&s), 52, "which is strip frame 52, on the floor");
+}
+
+#[test]
+fn a_sheet_that_did_not_import_holds_the_clip_position() {
+    // The "hold, don't reset" rule a missing asset already gets: there is no
+    // clip to ask, so the position is the only number there is to look wrong
+    // with. A panic or a reset would be worse answers.
+    let mut s = sim_with("function on_tick(self) end\n", Vec::new());
+    run(&mut s, 4);
+    assert_eq!(drawn_frame(&s), 0);
+}
+
+#[test]
+fn a_script_reads_the_clip_position_not_the_sheet_frame() {
+    // The two numbers stay distinct, and `anim.frame` is the one a script
+    // comparing against a clip's length wants. Mixing them up is the defect in
+    // the other direction.
+    let mut s = sim_with(
+        "function on_tick(self)\n\
+         \x20 local n = scene.find(\"/Room/Mover\")\n\
+         \x20 if tick.count() == 1 then anim.play(n, \"idle_se\") end\n\
+         \x20 self.within = anim.frame(n)\n\
+         \x20 self.sheet = n:get(\"frame\")\n\
+         end\n",
+        vec![clip_at("a", 0, 3), clip_at("idle_se", 35, 4)],
+    );
+    run(&mut s, 4);
+    let state = s.state();
+    let id = state.scene.by_uid(mover()).expect("node");
+    let uid = state.scene.get(id).expect("node").uid;
+    let var = |name: &str| {
+        state
+            .vars
+            .get(&uid)
+            .and_then(|v| v.get(name))
+            .and_then(Value::as_int)
+            .unwrap_or(-1)
+    };
+    assert_eq!(var("within"), 1, "the position within the clip");
+    assert_eq!(var("sheet"), 36, "and the frame of the sheet");
+}

@@ -174,6 +174,7 @@ fn a_session_that_was_played_replays() {
             profile: None,
             suspend: None,
             date: None,
+            window: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -204,6 +205,7 @@ fn a_session_that_was_played_replays() {
             profile: None,
             suspend: None,
             date: None,
+            window: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -238,6 +240,7 @@ fn a_frame_comes_out_of_a_session_without_a_gpu() {
             profile: None,
             suspend: None,
             date: None,
+            window: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));
@@ -332,6 +335,7 @@ texture = "asset:sprites/block"
             profile: None,
             suspend: None,
             date: None,
+            window: None,
         },
     )
     .unwrap_or_else(|d| panic!("{d}"));

@@ -58,6 +58,56 @@ impl Default for Canvas {
 }
 
 impl Canvas {
+    /// Pick the declared height whose shape is nearest a window's.
+    ///
+    /// A project fixes one canvas and the engine scales it to the window with
+    /// letterboxing, which is right for a pixel-art game on a monitor and
+    /// wasteful on a 16:10 handheld: a 16:9 canvas on a 1280x800 screen is
+    /// drawn at 1280x720 with bars above and below, and a game cannot lay its
+    /// rails into the eighty rows it is not allowed to use.
+    ///
+    /// So a project may declare several heights for one width, and this is the
+    /// choice between them. The width never varies: a game's horizontal layout
+    /// is the one it was designed at, and varying both would be two unknowns.
+    ///
+    /// # Integer arithmetic, on purpose
+    ///
+    /// The comparison is `|window_w * h - width * window_h|`, which is the
+    /// aspect difference cross-multiplied. Floats would be a judgement about
+    /// rounding in a value that decides what a click hits, and this is a
+    /// decision a replay has to reproduce exactly — see the `canvas` line in a
+    /// recorded log.
+    ///
+    /// Ties go to the earlier declaration, so the order a project writes its
+    /// heights in is the order it means. An empty list, or a window with no
+    /// area, is `self` — which is what every project that declares one size
+    /// gets, and is exactly today's behaviour.
+    pub fn for_window(self, heights: &[i32], window: (u32, u32)) -> Canvas {
+        let (ww, wh) = (window.0 as i64, window.1 as i64);
+        if heights.is_empty() || ww == 0 || wh == 0 {
+            return self;
+        }
+        let width = self.width as i64;
+        let mut best: Option<(i64, i32)> = None;
+        for &h in heights {
+            if h <= 0 {
+                continue;
+            }
+            let difference = (ww * h as i64 - width * wh).abs();
+            // Strictly better, so an equal fit keeps the earlier height.
+            if best.is_none_or(|(d, _)| difference < d) {
+                best = Some((difference, h));
+            }
+        }
+        match best {
+            Some((_, height)) => Canvas {
+                width: self.width,
+                height,
+            },
+            None => self,
+        }
+    }
+
     /// The whole canvas as a rectangle.
     pub fn rect(&self) -> Rect {
         Rect {
